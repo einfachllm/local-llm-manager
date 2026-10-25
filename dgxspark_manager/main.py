@@ -12,6 +12,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,6 +25,7 @@ from .importer import ScriptImportError, import_script
 from .script_check import check_script
 from .manager import ActionError, Manager
 from .processes import ProcessRunner
+from .agent import create_agent_app
 from .recipes import (CARD_COLORS, FRAMEWORKS, RUNTIMES, build_run_argv, format_command, format_process_command,
                       split_args, uses_host_network)
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
@@ -36,6 +38,7 @@ NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
 class RecipeIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     description: str = ""
+    host_id: Optional[int] = None  # None = this machine
     runtime: str = "docker"
     framework: str = "vllm"
     image: str = ""
@@ -125,6 +128,7 @@ class ScheduleIn(BaseModel):
     cron: Optional[str] = None
     run_at: Optional[str] = None
     enabled: bool = True
+    host_id: Optional[int] = None  # stop_all / free_memory: one host, or None for all hosts
 
     @model_validator(mode="after")
     def check(self):
@@ -135,6 +139,8 @@ class ScheduleIn(BaseModel):
                 raise ValueError("this action needs a recipe")
         else:
             self.recipe_id = None
+        if ACTIONS[self.action]["needs_recipe"]:
+            self.host_id = None  # the recipe's host is used
         self.cron = (self.cron or "").strip() or None
         self.run_at = (self.run_at or "").strip() or None
         if bool(self.cron) == bool(self.run_at):
@@ -146,6 +152,19 @@ class ScheduleIn(BaseModel):
                 parse_time(self.run_at)
             except ValueError:
                 raise ValueError("run_at must be an ISO date-time, e.g. 2026-10-25T22:00")
+        return self
+
+
+class HostIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    url: str = ""     # empty for this machine; e.g. http://mac-studio.local:8090 for an agent
+    token: str = ""   # agent token; empty on update = keep the stored one
+
+    @model_validator(mode="after")
+    def check(self):
+        self.name, self.url, self.token = self.name.strip(), self.url.strip().rstrip("/"), self.token.strip()
+        if self.url and not re.match(r"^https?://[^\s/]+(:\d+)?(/.*)?$", self.url):
+            raise ValueError("url must look like http://hostname:8090")
         return self
 
 
@@ -200,11 +219,12 @@ def seed_mac_examples(db: Database) -> None:
 
 
 def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
-               run_scheduler: bool = True, procs: Optional[ProcessRunner] = None) -> FastAPI:
+               run_scheduler: bool = True, procs: Optional[ProcessRunner] = None,
+               remote_transport: Optional[httpx.AsyncBaseTransport] = None) -> FastAPI:
     db = db or Database(config.DB_PATH)
     if os.environ.get("DGXM_SEED", "1") != "0":
         seed_examples(db)
-    manager = Manager(db, docker, procs)
+    manager = Manager(db, docker, procs, remote_transport)
     scheduler = Scheduler(db, manager)
 
     @asynccontextmanager
@@ -243,6 +263,8 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             msg = "A recipe with this name already exists"
         elif "recipes.container_name" in msg:
             msg = "Another recipe already uses this container name"
+        elif "hosts.name" in msg:
+            msg = "A host with this name already exists"
         return JSONResponse(status_code=409, content={"detail": msg})
 
     def get_recipe_or_404(recipe_id: int) -> dict:
@@ -269,12 +291,59 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         return await system.snapshot()
 
     @app.post("/api/system/free-memory")
-    async def free_memory():
-        return {"message": await manager.free_memory()}
+    async def free_memory(host_id: Optional[int] = None):
+        if host_id is not None:
+            get_host_or_404(host_id)
+        return {"message": await manager.free_memory(host_id=host_id)}
 
     @app.post("/api/system/stop-all")
-    async def stop_all():
-        return {"message": await manager.stop_all()}
+    async def stop_all(host_id: Optional[int] = None):
+        if host_id is not None:
+            get_host_or_404(host_id)
+        return {"message": await manager.stop_all(host_id=host_id)}
+
+    # ---- hosts ---------------------------------------------------------
+
+    def get_host_or_404(host_id: int) -> dict:
+        h = db.get_host(host_id)
+        if not h:
+            raise HTTPException(404, "Host not found")
+        return h
+
+    @app.get("/api/hosts")
+    async def list_hosts():
+        """All hosts with online state and memory/GPU readings. Tokens are never returned."""
+        return await manager.host_overview()
+
+    @app.post("/api/hosts", status_code=201)
+    async def create_host(body: HostIn):
+        if not body.url:
+            raise HTTPException(422, "url is required (this machine is already listed)")
+        if not body.token:
+            raise HTTPException(422, "token is required: the agent's DGXM_AGENT_TOKEN")
+        hid = db.create_host(body.name, body.url, body.token)
+        return next(h for h in await manager.host_overview() if h["id"] == hid)
+
+    @app.put("/api/hosts/{host_id}")
+    async def update_host(host_id: int, body: HostIn):
+        host = get_host_or_404(host_id)
+        if not host["url"] and body.url:
+            raise HTTPException(422, "This machine has no URL; add other machines as new hosts")
+        if host["url"] and not body.url:
+            raise HTTPException(422, "url is required for a remote host")
+        db.update_host(host_id, body.name, body.url, body.token or host["token"])
+        return next(h for h in await manager.host_overview() if h["id"] == host_id)
+
+    @app.delete("/api/hosts/{host_id}", status_code=204)
+    async def delete_host(host_id: int):
+        host = get_host_or_404(host_id)
+        if not host["url"]:
+            raise HTTPException(409, "This machine cannot be removed")
+        n = db.count_host_recipes(host_id)
+        if n:
+            raise HTTPException(409, f"Move or delete the {n} recipe(s) on this host first")
+        db.delete_host(host_id)
+        return Response(status_code=204)
 
     # ---- recipes -------------------------------------------------------
 
@@ -286,18 +355,27 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     async def get_recipe(recipe_id: int):
         return await manager.recipe_status(recipe_id)
 
+    def recipe_data(body: RecipeIn) -> dict:
+        data = body.model_dump()
+        data["host_id"] = get_host_or_404(body.host_id)["id"] if body.host_id else db.local_host_id()
+        return data
+
     @app.post("/api/recipes", status_code=201)
     async def create_recipe(body: RecipeIn):
-        rid = db.create_recipe(body.model_dump())
+        rid = db.create_recipe(recipe_data(body))
         return db.get_recipe(rid)
 
     @app.put("/api/recipes/{recipe_id}")
     async def update_recipe(recipe_id: int, body: RecipeIn):
         old = get_recipe_or_404(recipe_id)
+        data = recipe_data(body)
         status = await manager.recipe_status(recipe_id)
-        if old["container_name"] != body.container_name and status["status"] in ("ready", "loading", "starting"):
+        running = status["status"] in ("ready", "loading", "starting")
+        if running and old["container_name"] != body.container_name:
             raise HTTPException(409, "Stop the model before renaming its container")
-        db.update_recipe(recipe_id, body.model_dump())
+        if running and old["host_id"] != data["host_id"]:
+            raise HTTPException(409, "Stop the model before moving it to another host")
+        db.update_recipe(recipe_id, data)
         return db.get_recipe(recipe_id)
 
     @app.delete("/api/recipes/{recipe_id}", status_code=204)
@@ -399,6 +477,8 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     def check_recipe_ref(body: ScheduleIn) -> None:
         if body.recipe_id is not None:
             get_recipe_or_404(body.recipe_id)
+        if body.host_id is not None:
+            get_host_or_404(body.host_id)
 
     def next_run_for(body: ScheduleIn) -> Optional[str]:
         return compute_next_run(body.model_dump()) if body.enabled else None
@@ -414,7 +494,8 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         end = start + timedelta(hours=max(1, min(hours, 24 * 31)))
         recipes = await manager.recipes_with_status()
         running = {r["id"] for r in recipes if r["status"] in ("ready", "loading", "starting")}
-        return build_timeline(db.list_schedules(), recipes, running, start, end)
+        hosts = {h["id"]: h["name"] for h in db.list_hosts()}
+        return build_timeline(db.list_schedules(), recipes, running, start, end, hosts)
 
     @app.post("/api/schedules", status_code=201)
     async def create_schedule(body: ScheduleIn):
@@ -470,6 +551,11 @@ def run() -> None:
     import uvicorn
 
     logging.basicConfig(level=logging.INFO)
+    if config.MODE == "agent":
+        if not config.AGENT_TOKEN:
+            raise SystemExit("DGXM_MODE=agent needs DGXM_AGENT_TOKEN (a long random secret shared with the hub)")
+        uvicorn.run(create_agent_app(), host=config.HOST, port=config.PORT, log_level="info")
+        return
     if not config.AUTH_PASSWORD:
         logging.warning("DGXM_PASSWORD is not set - the dashboard is open to anyone who can reach port %s", config.PORT)
     uvicorn.run(create_app(), host=config.HOST, port=config.PORT, log_level="info")

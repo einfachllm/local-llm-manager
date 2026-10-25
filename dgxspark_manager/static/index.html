@@ -13,15 +13,9 @@
       <button class="tab active" data-tab="recipes">Recipes</button>
       <button class="tab" data-tab="schedules">Schedules</button>
       <button class="tab" data-tab="activity">Activity</button>
+      <button class="tab" data-tab="hosts">Hosts</button>
     </nav>
-    <div class="sys" id="sys">
-      <div class="mem">
-        <div class="mem-label"><span>Memory</span><span id="mem-text">–</span></div>
-        <div class="bar"><div class="bar-fill" id="mem-bar"></div></div>
-      </div>
-      <div class="gpu" id="gpu-text">GPU –</div>
-      <button class="btn small ghost" id="btn-free" title="Stop all models and drop the page cache">Free memory</button>
-    </div>
+    <div class="hosts-strip" id="hosts-strip"></div>
   </header>
 
   <main>
@@ -41,7 +35,16 @@
             <option value="updated">Last edited</option>
           </select>
         </label>
-        <label class="check"><input type="checkbox" id="recipe-group"> Group by first tag</label>
+        <label class="inline">Host
+          <select id="recipe-host"><option value="">All hosts</option></select>
+        </label>
+        <label class="inline">Group
+          <select id="recipe-group">
+            <option value="">None</option>
+            <option value="host">Host</option>
+            <option value="tag">First tag</option>
+          </select>
+        </label>
       </div>
       <div class="tag-filter" id="tag-filter"></div>
       <div id="recipes"></div>
@@ -52,7 +55,7 @@
         <h2>Schedules</h2>
         <button class="btn primary" id="btn-new-schedule">+ New schedule</button>
       </div>
-      <p class="hint">Times are in the Spark's local time zone. A "switch" stops every other model, drops the page cache, then starts the chosen one.</p>
+      <p class="hint">Times are in the hub's local time zone. A "switch" stops every other model on the same host, drops its page cache, then starts the chosen one.</p>
       <div class="timeline-card">
         <div class="timeline-head">
           <h3>Planned runs</h3>
@@ -71,6 +74,20 @@
       <div class="table-wrap"><table class="table">
         <thead><tr><th>On</th><th>Name</th><th>Action</th><th>When</th><th>Next run</th><th>Last run</th><th></th></tr></thead>
         <tbody id="schedules"></tbody>
+      </table></div>
+    </section>
+
+    <section id="tab-hosts" class="panel hidden">
+      <div class="panel-head">
+        <h2>Hosts</h2>
+        <button class="btn primary" id="btn-new-host">+ Add host</button>
+      </div>
+      <p class="hint">This dashboard controls models on every machine listed here. To add another machine
+        (e.g. a Mac Studio), install the manager there in <b>agent mode</b> (<code>DGXM_MODE=agent</code> and a
+        long random <code>DGXM_AGENT_TOKEN</code>), then add it with its URL and that token.</p>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Host</th><th>Status</th><th>Platform</th><th>Memory</th><th>GPU</th><th>Models</th><th></th></tr></thead>
+        <tbody id="hosts"></tbody>
       </table></div>
     </section>
 
@@ -94,8 +111,9 @@
       <div class="note hidden" id="recipe-note"></div>
       <div class="form-grid">
         <label>Name<input name="name" required></label>
+        <label>Host<select name="host_id" id="sel-host"></select></label>
         <label>Runtime<select name="runtime" id="sel-runtime"></select></label>
-        <label class="span2">Framework<select name="framework" id="sel-framework"></select></label>
+        <label>Framework<select name="framework" id="sel-framework"></select></label>
         <label class="span2">Description<input name="description"></label>
         <label class="span2">Tags <small>comma-separated; the first one is used for grouping, e.g. the model name</small>
           <input name="tags" list="tag-list" placeholder="qwen3.8-flash, fp4"></label>
@@ -127,6 +145,24 @@
         <pre id="recipe-preview" class="mono"></pre>
       </div>
       <div class="error" id="recipe-error"></div>
+      <div class="dialog-foot">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Host editor -->
+  <dialog id="dlg-host" class="dialog">
+    <form id="form-host" method="dialog">
+      <div class="dialog-head"><h3 id="host-title">Host</h3><button type="button" class="x" data-close>&times;</button></div>
+      <div class="form-grid">
+        <label class="span2">Name<input name="name" required placeholder="mac-studio"></label>
+        <label class="span2" id="lbl-host-url">Agent URL<input name="url" placeholder="http://mac-studio.local:8090"></label>
+        <label class="span2" id="lbl-host-token">Agent token <small id="host-token-hint">the agent's DGXM_AGENT_TOKEN</small>
+          <input name="token" type="password" autocomplete="off"></label>
+      </div>
+      <div class="error" id="host-error"></div>
       <div class="dialog-foot">
         <button type="button" class="btn ghost" data-close>Cancel</button>
         <button type="submit" class="btn primary">Save</button>
@@ -182,6 +218,7 @@
         <label class="span2">Name<input name="name" required></label>
         <label>Action<select name="action" id="sel-action"></select></label>
         <label id="lbl-recipe">Recipe<select name="recipe_id" id="sel-recipe"></select></label>
+        <label id="lbl-host">Host<select name="host_id" id="sel-sched-host"></select></label>
         <label class="span2">When
           <select id="sel-when">
             <option value="weekly">Repeat at a time of day</option>

@@ -48,5 +48,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now dgxspark-manager
 
 PORT="$(grep -E '^DGXM_PORT=' "$ENV_FILE" | cut -d= -f2)"
-echo "Installed. Open http://$(hostname -I | awk '{print $1}'):${PORT:-8090}"
+if grep -qE '^DGXM_MODE=agent' "$ENV_FILE"; then
+  echo "Installed as agent. Add it in the hub under Hosts with URL http://$(hostname -I | awk '{print $1}'):${PORT:-8090}"
+  echo "and the DGXM_AGENT_TOKEN from ${ENV_FILE}."
+else
+  echo "Installed. Open http://$(hostname -I | awk '{print $1}'):${PORT:-8090}"
+fi
 echo "Service logs: journalctl -u dgxspark-manager -f"

@@ -9,6 +9,11 @@ PROC_DIR = Path(os.environ.get("DGXM_PROC_DIR", DB_PATH.parent / "processes"))
 HOST = os.environ.get("DGXM_HOST", "0.0.0.0")
 PORT = int(os.environ.get("DGXM_PORT", "8090"))
 
+# "hub" (default): dashboard, database and scheduler. "agent": only the token-protected agent API,
+# so a hub on another machine can run models here.
+MODE = os.environ.get("DGXM_MODE", "hub").strip().lower()
+AGENT_TOKEN = os.environ.get("DGXM_AGENT_TOKEN", "")
+
 # Optional HTTP Basic auth. Strongly recommended when the port is reachable from the network,
 # since this service can run arbitrary docker containers.
 AUTH_USER = os.environ.get("DGXM_USER", "admin")
