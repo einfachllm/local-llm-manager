@@ -20,6 +20,7 @@ from . import __version__, config, system
 from .db import Database, normalize_tags
 from .docker import Docker
 from .importer import ScriptImportError, import_script
+from .script_check import check_script
 from .manager import ActionError, Manager
 from .recipes import CARD_COLORS, FRAMEWORKS, build_run_argv, format_command, split_args, uses_host_network
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
@@ -94,6 +95,8 @@ class RecipeIn(BaseModel):
 
 class ImportIn(BaseModel):
     text: str = Field(min_length=1, max_length=200_000)
+    # Required when the static check finds high-risk patterns the import cannot block.
+    trust: bool = False
 
 
 class ScheduleIn(BaseModel):
@@ -279,9 +282,18 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     async def preview(body: RecipeIn):
         return {"command": format_command(build_run_argv(body.model_dump()))}
 
+    @app.post("/api/recipes/import/check")
+    async def check_import(body: ImportIn):
+        """Static review of a script before importing it. Nothing is executed."""
+        return check_script(body.text)
+
     @app.post("/api/recipes/import")
     async def import_recipe(body: ImportIn):
         """Parse a starter script / docker run command into an unsaved recipe draft."""
+        check = check_script(body.text)
+        if check["counts"]["high"] and not body.trust:
+            raise HTTPException(422, "The script has high-risk findings that the import cannot block. "
+                                     "Review them and confirm that you trust the script.")
         try:
             result = await import_script(body.text)
         except ScriptImportError as e:
@@ -298,6 +310,10 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             while recipe["container_name"] in containers:
                 recipe["container_name"], i = f"{base}-{i}", i + 1
             result["warnings"].append(f"Container name changed to {recipe['container_name']} (already used)")
+        result["check"] = check
+        if check["counts"]["high"]:
+            db.add_event("user", "import", True, "Imported a script with high-risk findings after confirmation:\n"
+                         + "\n".join(f"line {f['line']}: {f['message']}" for f in check["findings"] if f["severity"] == "high"))
         return result
 
     @app.post("/api/recipes/{recipe_id}/start")

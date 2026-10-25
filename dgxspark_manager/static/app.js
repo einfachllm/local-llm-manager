@@ -414,19 +414,65 @@ function showRecipeNote(lines) {
   note.classList.toggle("hidden", !lines.length);
 }
 
-$("#btn-import").addEventListener("click", () => {
+const SEVERITY_LABEL = { high: "High risk", medium: "Unusual", info: "Note" };
+
+function resetImportReport() {
+  $("#import-report").classList.add("hidden");
+  $("#import-trust-row").classList.add("hidden");
+  $("#import-trust").checked = false;
   $("#import-error").textContent = "";
+}
+
+function renderImportReport(check) {
+  const { findings, counts } = check;
+  const box = $("#import-report");
+  box.classList.remove("hidden");
+  const summary = findings.length
+    ? `${counts.high} high risk · ${counts.medium} unusual · ${counts.info} notes`
+    : "No unusual calls found.";
+  box.innerHTML = `<div class="report-head ${counts.high ? "bad" : counts.medium ? "warn" : "ok"}">${esc(summary)}
+      ${counts.high ? " – these can't be blocked during import." : counts.medium ? " – these commands will be skipped during import." : ""}</div>` +
+    findings.map((f) => `<div class="finding ${f.severity}">
+        <span class="sev">${SEVERITY_LABEL[f.severity]}</span>
+        <span class="ln">line ${f.line}</span>
+        <span class="msg">${esc(f.message)}</span>
+        <code>${esc(f.code)}</code>
+      </div>`).join("");
+  $("#import-trust-row").classList.toggle("hidden", !counts.high);
+}
+
+async function runImportCheck() {
+  const check = await api("/api/recipes/import/check", { method: "POST", body: { text: $("#import-text").value } });
+  renderImportReport(check);
+  return check;
+}
+
+$("#btn-import").addEventListener("click", () => {
+  resetImportReport();
   $("#dlg-import").showModal();
   $("#import-text").focus();
+});
+
+$("#import-text").addEventListener("input", resetImportReport);
+
+$("#btn-import-check").addEventListener("click", async () => {
+  try { await runImportCheck(); } catch (e) { $("#import-error").textContent = e.message; }
 });
 
 $("#form-import").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const btn = $("#btn-import-go");
   btn.disabled = true;
-  btn.textContent = "Parsing…";
+  btn.textContent = "Checking…";
   try {
-    const res = await api("/api/recipes/import", { method: "POST", body: { text: $("#import-text").value } });
+    const check = await runImportCheck();
+    const trust = $("#import-trust").checked;
+    if (check.counts.high && !trust) {
+      $("#import-error").textContent = "Review the high-risk findings above and tick the box to import anyway.";
+      return;
+    }
+    btn.textContent = "Importing…";
+    const res = await api("/api/recipes/import", { method: "POST", body: { text: $("#import-text").value, trust } });
     const r = res.recipe;
     if (editingRecipe) {
       // Re-importing into an existing recipe keeps its identity.
@@ -440,14 +486,22 @@ $("#form-import").addEventListener("submit", async (ev) => {
     if (!r.tags?.length) r.tags = recipeFromForm().tags;
     fillRecipeForm(r);
     syncHostNetworkPorts();
-    showRecipeNote(["Imported – review the fields and the command preview, then save.", ...res.warnings.map((w) => `• ${w}`)]);
+    const skipped = res.skipped_calls || [];
+    const c = res.check?.counts ?? { high: 0, medium: 0 };
+    showRecipeNote([
+      "Imported – review the fields and the command preview, then save.",
+      ...res.warnings.map((w) => `• ${w}`),
+      ...(c.high || c.medium ? [`• Script check: ${c.high} high risk, ${c.medium} unusual`] : []),
+      ...(skipped.length ? [`• Not executed during import (${skipped.length}):`,
+        ...skipped.slice(0, 12).map((s) => `    ${s}`), ...(skipped.length > 12 ? [`    … ${skipped.length - 12} more`] : [])] : []),
+    ]);
     $("#dlg-import").close();
     updatePreview();
   } catch (e) {
     $("#import-error").textContent = e.message;
   } finally {
     btn.disabled = false;
-    btn.textContent = "Parse into form";
+    btn.textContent = "Import";
   }
 });
 

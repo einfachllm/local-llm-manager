@@ -138,16 +138,21 @@
     <form id="form-import" method="dialog">
       <div class="dialog-head"><h3>Import from script or docker run</h3><button type="button" class="x" data-close>&times;</button></div>
       <div class="import-body">
-        <p class="hint">Paste a starter script or a <code>docker run …</code> command. It is executed by bash on the Spark with
-          a fake <code>docker</code> that only records the final <code>docker run</code> command (with all defaults and
-          conditions resolved), which is then split into the recipe fields. Other commands in the script run for real,
-          except <code>sudo</code>, <code>curl</code>, <code>wget</code> and <code>sleep</code>.</p>
-        <textarea id="import-text" rows="18" class="mono" placeholder="#!/usr/bin/env bash&#10;...&#10;docker run --gpus all ... vllm/vllm-openai ... --model org/name"></textarea>
+        <p class="hint">Paste a starter script or a <code>docker run …</code> command. It is first checked for unusual
+          calls (nothing is executed), then run by bash on the Spark in a restricted mode: only read-only text tools
+          (<code>awk</code>, <code>sed</code>, <code>grep</code>, <code>cut</code>, <code>date</code>, …) really run, a fake
+          <code>docker</code> records the final <code>docker run</code> command, and every other command is
+          <b>recorded and skipped</b>.</p>
+        <textarea id="import-text" rows="16" class="mono" placeholder="#!/usr/bin/env bash&#10;...&#10;docker run --gpus all ... vllm/vllm-openai ... --model org/name"></textarea>
+        <div id="import-report" class="report hidden"></div>
+        <label class="check hidden" id="import-trust-row"><input type="checkbox" id="import-trust">
+          I have read the high-risk findings and trust this script</label>
       </div>
       <div class="error" id="import-error"></div>
       <div class="dialog-foot">
         <button type="button" class="btn ghost" data-close>Cancel</button>
-        <button type="submit" class="btn primary" id="btn-import-go">Parse into form</button>
+        <button type="button" class="btn" id="btn-import-check">Check script</button>
+        <button type="submit" class="btn primary" id="btn-import-go">Import</button>
       </div>
     </form>
   </dialog>
