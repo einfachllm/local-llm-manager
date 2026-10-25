@@ -93,6 +93,10 @@ class LocalExecutor:
     async def start(self, recipe: dict) -> str:
         """Start a recipe that is not running. Returns a message (first line) + the command used."""
         name = recipe["container_name"]
+        # The Manager already refused ports of running recipes; anything still listening is foreign.
+        if await asyncio.to_thread(port_in_use, recipe["host_port"]):
+            raise ActionError(f"Port {recipe['host_port']} on {socket.gethostname()} is already in use by a program "
+                              "the manager did not start. Stop that program or choose another port.", 409)
         if recipe.get("runtime") == "process":
             try:
                 pid = self.procs.start(name, build_process_argv(recipe), process_env(recipe))
@@ -215,6 +219,19 @@ class RemoteExecutor:
     async def drop_caches(self) -> tuple[bool, str]:
         data = await self._call("POST", "/drop-caches", timeout=300.0)
         return data["ok"], data["message"]
+
+
+def port_in_use(port: int) -> bool:
+    """True if something accepts connections on this port (IPv4 or IPv6 loopback)."""
+    for family, addr in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as s:
+                s.settimeout(0.3)
+                if s.connect_ex((addr, int(port))) == 0:
+                    return True
+        except OSError:
+            continue
+    return False
 
 
 def _failed_exit(status: str) -> bool:

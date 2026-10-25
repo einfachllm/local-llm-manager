@@ -298,3 +298,15 @@ input[readonly] { opacity: .6; }
 @media (max-width: 720px) {
   .hosts-strip { margin-left: 0; width: 100%; justify-content: flex-start; }
 }
+
+/* ports */
+.port-row { display: flex; gap: 6px; }
+.port-row input { flex: 1; min-width: 0; }
+.port-hint { min-height: 15px; font-size: 11.5px; }
+.port-hint.ok { color: var(--green); }
+.port-hint.warn { color: var(--yellow); }
+.port-hint.bad { color: var(--red); }
+.ports-head { margin-top: 28px; }
+.muted { color: var(--muted); }
+.warn-chip { color: var(--yellow); border-color: rgba(240,180,41,.5); cursor: default; }
+td .copy { margin-left: 6px; padding: 1px 8px; }

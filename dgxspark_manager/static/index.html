@@ -89,6 +89,14 @@
         <thead><tr><th>Host</th><th>Status</th><th>Platform</th><th>Memory</th><th>GPU</th><th>Models</th><th></th></tr></thead>
         <tbody id="hosts"></tbody>
       </table></div>
+
+      <div class="panel-head ports-head"><h2>Ports &amp; endpoints</h2></div>
+      <p class="hint">Every recipe's port per host. The API of a running model is at its endpoint (OpenAI-compatible
+        for vLLM, SGLang, llama.cpp and MLX). Recipes that share a port on the same host can't run at the same time.</p>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Host</th><th>Port</th><th>Recipe</th><th>Status</th><th>Endpoint</th></tr></thead>
+        <tbody id="ports"></tbody>
+      </table></div>
     </section>
 
     <section id="tab-activity" class="panel hidden">
@@ -125,7 +133,10 @@
         <label class="span2">Model <small id="model-hint">HF id or path inside the container</small><input name="model" placeholder="org/model-name"></label>
         <label><span id="name-label">Container name</span><input name="container_name" placeholder="derived from name"></label>
         <label class="docker-only">GPUs (--gpus)<input name="gpus" placeholder="all"></label>
-        <label><span id="port-label">Host port</span><input name="host_port" type="number" min="1" max="65535" required></label>
+        <label><span id="port-label">Host port</span>
+          <span class="port-row"><input name="host_port" type="number" min="1" max="65535" required>
+            <button type="button" class="btn small ghost" id="btn-next-port" title="First port from 8100 that no recipe on this host uses">Next free</button></span>
+          <small id="port-hint" class="port-hint"></small></label>
         <label class="docker-only">Container port<input name="container_port" type="number" min="1" max="65535"></label>
         <label>Health path<input name="health_path" placeholder="/health"></label>
         <label>Est. memory (GB)<input name="est_memory_gb" type="number" step="0.1" min="0"></label>
