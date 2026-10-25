@@ -12,7 +12,7 @@ from typing import Any, AsyncIterator, Optional
 
 import httpx
 
-from . import __version__, config, system
+from . import __version__, config, logstats, system
 from .docker import Docker, try_drop_caches_locally
 from .processes import ProcessError, ProcessRunner
 from .recipes import build_process_argv, build_run_argv, format_command, format_process_command, process_env
@@ -26,6 +26,9 @@ class ActionError(Exception):
 
 
 RUNNING_STATES = ("ready", "loading", "starting")
+
+# Log tail read per running recipe to pick up the latest engine stats line (vLLM prints one ~every 10s).
+METRICS_TAIL = 80
 
 
 def host_info() -> dict[str, Any]:
@@ -88,7 +91,18 @@ class LocalExecutor:
                 health = await asyncio.gather(*(self._healthy(client, r) for r in running))
             for r, ok in zip(running, health):
                 out[r["id"]]["status"] = "ready" if ok else "loading"
+            stats = await asyncio.gather(*(self._metrics(r) for r in running))
+            for r, m in zip(running, stats):
+                if m:
+                    out[r["id"]]["metrics"] = m
         return out
+
+    async def _metrics(self, recipe: dict) -> dict:
+        """Latest engine stats the server printed to its logs; {} if it prints none."""
+        try:
+            return logstats.from_logs(await self.logs(recipe, tail=METRICS_TAIL))
+        except ActionError:
+            return {}
 
     async def start(self, recipe: dict) -> str:
         """Start a recipe that is not running. Returns a message (first line) + the command used."""

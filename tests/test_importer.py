@@ -44,6 +44,26 @@ def test_starter_script_round_trip():
     assert [a for a in opts(rebuilt) if a not in extra] == [os.path.expanduser(a) for a in opts(original)]
 
 
+def test_preflight_probes_do_not_block_import():
+    # Starter scripts often abort when their preflight probes fail (nvidia-smi missing, little
+    # free memory). The sandbox reports tools as installed and the machine as idle, so the
+    # import still reaches the `docker run`.
+    text = """#!/usr/bin/env bash
+# Starter: probe-heavy starter
+set -euo pipefail
+command -v nvidia-smi >/dev/null || { echo "ERROR: nvidia-smi not found" >&2; exit 1; }
+BUSY="$(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader 2>/dev/null || true)"
+AVAIL=$(awk '/MemAvailable/ {printf "%.0f", $2 / 1048576}' /proc/meminfo)
+[ "${AVAIL}" -gt 120 ] || { echo "ERROR: only ${AVAIL} GiB available" >&2; exit 1; }  # fake reports ~128
+docker run --rm --gpus all -p 8123:8000 vllm/vllm-openai:latest --model org/m --port 8000
+"""
+    res = run_import(text)
+    r = res["recipe"]
+    assert r["framework"] == "vllm" and r["model"] == "org/m"
+    assert (r["host_port"], r["container_port"]) == (8123, 8000)
+    assert r["gpus"] == "all"
+
+
 def test_plain_docker_run_command():
     text = """docker run -d --rm --gpus all -p 8200:8000 \\
       -e HF_TOKEN="" -e FOO=bar -v $HOME/.cache/huggingface:/root/.cache/huggingface \\
