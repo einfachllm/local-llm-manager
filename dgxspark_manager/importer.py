@@ -56,6 +56,44 @@ exec() {
   "$@"
   exit $?
 }
+# Starter scripts abort when a probe like `command -v nvidia-smi` fails. Unknown commands are
+# harmless here anyway (the handler above records and skips them), so report every tool as
+# installed to let the script reach its `docker run`.
+command() {
+  case "${1:-}" in
+    -v | -V)
+      local found
+      found="$(type -P "${2:-}" 2>/dev/null)" || found="/usr/local/bin/${2:-}"
+      [ "${1:-}" = "-v" ] && printf '%s\n' "$found"
+      return 0
+      ;;
+  esac
+  builtin command "$@"
+}
+# Resource preflights (free memory, GPU busy) must not block imports: the manager checks memory
+# again when the recipe actually starts. Scripts see an idle machine with plenty of memory.
+dgxm_meminfo() {
+  printf 'MemTotal: 134217728 kB\nMemFree: 134217728 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\nMemAvailable: 134217728 kB\n'
+}
+awk() {
+  local a fake=0 args=()
+  for a in "$@"; do
+    if [ "$a" = /proc/meminfo ]; then fake=1; else args+=("$a"); fi
+  done
+  if [ "$fake" = 1 ]; then dgxm_meminfo | builtin command awk "${args[@]}"; else builtin command awk "$@"; fi
+}
+grep() {
+  local a fake=0 args=()
+  for a in "$@"; do
+    if [ "$a" = /proc/meminfo ]; then fake=1; else args+=("$a"); fi
+  done
+  if [ "$fake" = 1 ]; then dgxm_meminfo | builtin command grep "${args[@]}"; else builtin command grep "$@"; fi
+}
+cat() {
+  local a
+  for a in "$@"; do [ "$a" = /proc/meminfo ] && { dgxm_meminfo; return 0; }; done
+  builtin command cat "$@"
+}
 """
 
 # docker run options that take a value (the rest of the options are boolean flags).

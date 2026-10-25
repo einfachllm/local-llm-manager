@@ -251,6 +251,21 @@ function renderToolbar() {
   $("#tag-list").innerHTML = tags.map(([t]) => `<option value="${esc(t)}">`).join("");
 }
 
+function fmtTps(v) { return v >= 100 ? Math.round(v).toLocaleString() : +v.toFixed(1); }
+
+// Live numbers from the server's own log lines (see logstats.py); refreshed with the status poll.
+function metricsHtml(r) {
+  const m = r.metrics;
+  if (!m || !RUNNING.includes(r.status)) return "";
+  const parts = [];
+  if (m.prompt_tps != null) parts.push(`<span title="Prompt (input) throughput">${fmtTps(m.prompt_tps)} tok/s in</span>`);
+  if (m.gen_tps != null) parts.push(`<span title="Generation (output) throughput">${fmtTps(m.gen_tps)} tok/s out</span>`);
+  if (m.running != null) parts.push(`<span title="Requests running / waiting">${m.running} req${m.waiting ? ` · +${m.waiting} queued` : ""}</span>`);
+  if (m.kv_cache != null) parts.push(`<span title="KV cache usage">${m.kv_cache}% KV</span>`);
+  if (m.prefix_hit != null) parts.push(`<span title="Prefix cache hit rate">${m.prefix_hit}% hit</span>`);
+  return parts.length ? `<div class="card-metrics mono" title="From the server log tail">📈 ${parts.join(" · ")}</div>` : "";
+}
+
 function cardHtml(r) {
   const busy = state.busy.has(r.id);
   const running = RUNNING.includes(r.status);
@@ -275,6 +290,7 @@ function cardHtml(r) {
           ${r.est_memory_gb ? `<dt>Est. memory</dt><dd>${r.est_memory_gb} GB</dd>` : ""}
           ${r.container ? `<dt>${r.runtime === "process" ? "Process" : "Docker"}</dt><dd>${esc(r.container.status)}</dd>` : ""}
         </dl>
+        ${metricsHtml(r)}
         <div class="actions">
           ${running
             ? `<button class="btn small stop" data-act="stop" ${busy ? "disabled" : ""}>Stop</button>

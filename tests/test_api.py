@@ -112,6 +112,22 @@ def test_switch_stops_others_and_drops_caches(client, fake_docker):
     assert fake_docker.dropped == 1
 
 
+def test_running_recipe_reports_log_metrics(client, fake_docker):
+    fake_docker.log_stats = (
+        "(APIServer pid=1) INFO 10-25 18:34:51 [loggers.py:315] Engine 000: "
+        "Avg prompt throughput: 4897.8 tokens/s, Avg generation throughput: 18.2 tokens/s, "
+        "Running: 2 reqs, Waiting: 1 reqs, GPU KV cache usage: 11.2%, Prefix cache hit rate: 46.5%")
+    r = create(client)
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+    row = client.get(f"/api/recipes/{r['id']}").json()
+    assert row["status"] == "ready"
+    assert row["metrics"] == {"prompt_tps": 4897.8, "gen_tps": 18.2, "running": 2,
+                              "waiting": 1, "kv_cache": 11.2, "prefix_hit": 46.5}
+    # Stopped recipes drop the metrics again.
+    client.post(f"/api/recipes/{r['id']}/stop")
+    assert "metrics" not in client.get(f"/api/recipes/{r['id']}").json()
+
+
 def test_logs(client):
     r = create(client)
     client.post(f"/api/recipes/{r['id']}/start")
@@ -234,13 +250,15 @@ def test_card_color(client):
 def test_start_refuses_port_used_by_foreign_program(client, fake_docker):
     import socket
 
-    with socket.socket() as srv:
+    with socket.socket() as srv:  # binding just picks a free port number
         srv.bind(("127.0.0.1", 0))
         srv.listen()
         port = srv.getsockname()[1]
+        fake_docker.ports_in_use.add(port)
         r = create(client, host_port=port)
         res = client.post(f"/api/recipes/{r['id']}/start")
         assert res.status_code == 409 and f"Port {port}" in res.json()["detail"] and "did not start" in res.json()["detail"]
         assert not fake_docker.containers
     # Once the other program is gone, it starts.
+    fake_docker.ports_in_use.discard(port)
     assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200

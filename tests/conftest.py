@@ -20,6 +20,10 @@ class FakeDocker:
         self.calls: list[list[str]] = []
         self.fail_run = False
         self.dropped = 0
+        # Ports the fake executor reports as already listening (foreign programs).
+        self.ports_in_use: set[int] = set()
+        # Extra log line the fake prints, e.g. a vLLM engine stats line (see test_api metrics test).
+        self.log_stats = ""
 
     async def run_argv(self, argv):
         self.calls.append(argv)
@@ -43,7 +47,8 @@ class FakeDocker:
         return CommandResult(0, name, "")
 
     async def logs(self, name, tail=500):
-        return CommandResult(0, "2026-01-01T00:00:01Z out\n", "2026-01-01T00:00:00Z err\n")
+        out = "2026-01-01T00:00:01Z out\n" + (f"{self.log_stats}\n" if self.log_stats else "")
+        return CommandResult(0, out, "2026-01-01T00:00:00Z err\n")
 
     async def follow_logs(self, name, tail=200):
         for line in ("line 1", "line 2"):
@@ -68,6 +73,9 @@ def client(fake_docker, monkeypatch, tmp_path):
     # Plenty of free memory unless a test says otherwise.
     monkeypatch.setattr(executor_mod.system, "read_meminfo",
                         lambda: {"total_gb": 128, "available_gb": 100, "used_gb": 28})
+    # Ports on the dev/CI machine must not influence start decisions (e.g. Vault on 8200);
+    # a test simulates a foreign listener by adding the port to fake_docker.ports_in_use.
+    monkeypatch.setattr(executor_mod, "port_in_use", lambda port: port in fake_docker.ports_in_use)
     app = create_app(Database(":memory:"), fake_docker, run_scheduler=False,
                      procs=ProcessRunner(tmp_path / "processes"))
     with TestClient(app) as c:
