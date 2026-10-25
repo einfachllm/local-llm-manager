@@ -171,3 +171,12 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   .grid { grid-template-columns: 1fr; }
   .logs-tools input { width: 120px; }
 }
+
+/* import */
+.import-body { padding: 14px 18px 0; }
+.import-body .hint { margin: 0 0 10px; }
+.import-body code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.note {
+  margin: 14px 18px 0; padding: 10px 12px; border-radius: 8px; white-space: pre-wrap;
+  background: rgba(240,180,41,.08); border: 1px solid rgba(240,180,41,.35); color: #f5d38a; font-size: 13px;
+}

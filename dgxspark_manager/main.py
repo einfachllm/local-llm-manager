@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from . import __version__, config, system
 from .db import Database
 from .docker import Docker
+from .importer import ScriptImportError, import_script
 from .manager import ActionError, Manager
 from .recipes import FRAMEWORKS, build_run_argv, format_command
 from .scheduler import ACTIONS, Scheduler, compute_next_run, parse_time, validate_cron
@@ -65,6 +66,10 @@ class RecipeIn(BaseModel):
         if self.health_path and not self.health_path.startswith("/"):
             self.health_path = "/" + self.health_path
         return self
+
+
+class ImportIn(BaseModel):
+    text: str = Field(min_length=1, max_length=200_000)
 
 
 class ScheduleIn(BaseModel):
@@ -247,6 +252,27 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     @app.post("/api/recipes/preview")
     async def preview(body: RecipeIn):
         return {"command": format_command(build_run_argv(body.model_dump()))}
+
+    @app.post("/api/recipes/import")
+    async def import_recipe(body: ImportIn):
+        """Parse a starter script / docker run command into an unsaved recipe draft."""
+        try:
+            result = await import_script(body.text)
+        except ScriptImportError as e:
+            raise HTTPException(422, str(e))
+        recipe = result["recipe"]
+        existing = db.list_recipes()
+        names = {r["name"] for r in existing}
+        containers = {r["container_name"] for r in existing}
+        base, i = recipe["name"], 2
+        while recipe["name"] in names:
+            recipe["name"], i = f"{base} ({i})", i + 1
+        if recipe["container_name"] in containers:
+            base, i = recipe["container_name"], 2
+            while recipe["container_name"] in containers:
+                recipe["container_name"], i = f"{base}-{i}", i + 1
+            result["warnings"].append(f"Container name changed to {recipe['container_name']} (already used)")
+        return result
 
     @app.post("/api/recipes/{recipe_id}/start")
     async def start(recipe_id: int, force: bool = False):

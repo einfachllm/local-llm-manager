@@ -103,6 +103,16 @@ def split_args(text: str) -> list[str]:
     return shlex.split(joined)
 
 
+def uses_host_network(docker_args: list[str]) -> bool:
+    """With --network host the container listens on the host directly and -p is meaningless."""
+    for i, a in enumerate(docker_args):
+        if a in ("--network=host", "--net=host"):
+            return True
+        if a in ("--network", "--net") and i + 1 < len(docker_args) and docker_args[i + 1] == "host":
+            return True
+    return False
+
+
 def build_run_argv(recipe: dict[str, Any]) -> list[str]:
     """Build the full `docker run` argv for a recipe."""
     argv = [
@@ -113,13 +123,15 @@ def build_run_argv(recipe: dict[str, Any]) -> list[str]:
     ]
     if recipe.get("gpus"):
         argv += ["--gpus", recipe["gpus"]]
-    argv += ["-p", f"{recipe['host_port']}:{recipe['container_port']}"]
+    docker_args = split_args(recipe.get("docker_args", ""))
+    if not uses_host_network(docker_args):
+        argv += ["-p", f"{recipe['host_port']}:{recipe['container_port']}"]
     for vol in _lines(recipe.get("volumes", "")):
         argv += ["-v", _expand_home(vol)]
     for env in _lines(recipe.get("env", "")):
         # A bare KEY passes the variable through from the manager's own environment.
         argv += ["-e", env]
-    argv += split_args(recipe.get("docker_args", ""))
+    argv += docker_args
     argv.append(recipe["image"])
     argv += split_args(substitute(recipe.get("command", ""), recipe))
     argv += split_args(recipe.get("args", ""))
