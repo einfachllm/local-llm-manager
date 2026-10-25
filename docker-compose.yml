@@ -1,0 +1,25 @@
+services:
+  dgxspark-manager:
+    build: .
+    image: dgxspark-manager:latest
+    container_name: dgxspark-manager
+    restart: unless-stopped
+    # Host networking so model health checks on 127.0.0.1:<port> reach the model containers.
+    network_mode: host
+    env_file: .env
+    environment:
+      # Volume paths in recipes (e.g. ~/.cache/huggingface) are resolved by the HOST docker daemon,
+      # so "~" must expand to the host user's home, not /root.
+      HOME: ${HOME}
+      NVIDIA_DRIVER_CAPABILITIES: utility
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            # Only for nvidia-smi readings in the header; models get GPUs via their own --gpus flag.
+            - driver: nvidia
+              count: all
+              capabilities: [utility]
