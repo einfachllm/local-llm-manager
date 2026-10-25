@@ -2,3 +2,4 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 croniter>=2.0
 httpx>=0.25
+psutil>=5.9

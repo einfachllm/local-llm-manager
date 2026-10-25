@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 
 DB_PATH = Path(os.environ.get("DGXM_DB", Path(__file__).resolve().parent.parent / "data" / "manager.db"))
+# State and log files of native-process recipes.
+PROC_DIR = Path(os.environ.get("DGXM_PROC_DIR", DB_PATH.parent / "processes"))
 HOST = os.environ.get("DGXM_HOST", "0.0.0.0")
 PORT = int(os.environ.get("DGXM_PORT", "8090"))
 

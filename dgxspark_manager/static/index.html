@@ -94,7 +94,8 @@
       <div class="note hidden" id="recipe-note"></div>
       <div class="form-grid">
         <label>Name<input name="name" required></label>
-        <label>Framework<select name="framework" id="sel-framework"></select></label>
+        <label>Runtime<select name="runtime" id="sel-runtime"></select></label>
+        <label class="span2">Framework<select name="framework" id="sel-framework"></select></label>
         <label class="span2">Description<input name="description"></label>
         <label class="span2">Tags <small>comma-separated; the first one is used for grouping, e.g. the model name</small>
           <input name="tags" list="tag-list" placeholder="qwen3.8-flash, fp4"></label>
@@ -102,12 +103,12 @@
           <input type="hidden" name="color">
           <div class="swatches" id="swatches"></div>
         </div>
-        <label class="span2">Docker image<input name="image" required></label>
-        <label class="span2">Model (HF id or path inside container)<input name="model" placeholder="org/model-name"></label>
-        <label>Container name<input name="container_name" placeholder="derived from name"></label>
-        <label>GPUs (--gpus)<input name="gpus" placeholder="all"></label>
-        <label>Host port<input name="host_port" type="number" min="1" max="65535" required></label>
-        <label>Container port<input name="container_port" type="number" min="1" max="65535" required></label>
+        <label class="span2 docker-only">Docker image<input name="image"></label>
+        <label class="span2">Model <small id="model-hint">HF id or path inside the container</small><input name="model" placeholder="org/model-name"></label>
+        <label><span id="name-label">Container name</span><input name="container_name" placeholder="derived from name"></label>
+        <label class="docker-only">GPUs (--gpus)<input name="gpus" placeholder="all"></label>
+        <label><span id="port-label">Host port</span><input name="host_port" type="number" min="1" max="65535" required></label>
+        <label class="docker-only">Container port<input name="container_port" type="number" min="1" max="65535"></label>
         <label>Health path<input name="health_path" placeholder="/health"></label>
         <label>Est. memory (GB)<input name="est_memory_gb" type="number" step="0.1" min="0"></label>
         <label class="span2">Command <small>placeholders: {model} {port} {host_port} {name}</small>
@@ -116,9 +117,9 @@
           <textarea name="args" rows="6" class="mono"></textarea></label>
         <label>Environment <small>KEY=value per line; bare KEY passes it through</small>
           <textarea name="env" rows="3" class="mono"></textarea></label>
-        <label>Volumes <small>host:container per line</small>
+        <label class="docker-only">Volumes <small>host:container per line</small>
           <textarea name="volumes" rows="3" class="mono"></textarea></label>
-        <label class="span2">Extra docker run flags
+        <label class="span2 docker-only">Extra docker run flags
           <input name="docker_args" class="mono"></label>
       </div>
       <div class="preview">

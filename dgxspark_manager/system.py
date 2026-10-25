@@ -1,27 +1,23 @@
-"""Host memory and GPU readings. DGX Spark uses unified memory, so /proc/meminfo is the pool."""
+"""Host memory and GPU readings. DGX Spark and Apple silicon use unified memory, so system memory is the pool."""
 
 from typing import Any
+
+import psutil
 
 from .docker import run
 
 
-def read_meminfo(path: str = "/proc/meminfo") -> dict[str, float]:
-    values: dict[str, int] = {}
+def read_meminfo() -> dict[str, float]:
+    """Total / available / used memory in GB (Linux: MemAvailable; macOS: free + inactive pages)."""
     try:
-        with open(path) as f:
-            for line in f:
-                key, _, rest = line.partition(":")
-                parts = rest.split()
-                if parts and parts[0].isdigit():
-                    values[key] = int(parts[0])
-    except OSError:
+        vm = psutil.virtual_memory()
+    except Exception:
         return {"total_gb": 0, "available_gb": 0, "used_gb": 0}
-    total = values.get("MemTotal", 0) / 1024 / 1024
-    available = values.get("MemAvailable", 0) / 1024 / 1024
+    gb = 1024 ** 3
     return {
-        "total_gb": round(total, 1),
-        "available_gb": round(available, 1),
-        "used_gb": round(total - available, 1),
+        "total_gb": round(vm.total / gb, 1),
+        "available_gb": round(vm.available / gb, 1),
+        "used_gb": round((vm.total - vm.available) / gb, 1),
     }
 
 

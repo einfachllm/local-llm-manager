@@ -23,10 +23,11 @@ _CMD = r"(?:^|[;&|(`]|\$\(|\b(?:then|do|else|exec|command|nohup|time|env|xargs|s
 NOT_BLOCKED = [
     (_CMD + r"(/(?!dev/null)[^\s;|&)`'\"]+)", "Runs a program by absolute path ({0})", "code"),
     (r"(?<![<0-9&])>>?\s*((?:/|~|\$HOME|\$\{HOME\})(?!dev/(?:null|stdout|stderr)\b)[^\s;|&)]*)", "Writes to a file ({0})", "code"),
-    (r"(?:^|[;&|\s])(?:export\s+)?PATH\+?=", "Changes PATH, which can re-enable commands that are blocked during import", "code"),
     (r"/dev/(?:tcp|udp)/", "Opens a network connection through bash's /dev/tcp", "raw"),
     (r"\b(?:unset\s+-f\s+command_not_found_handle|command_not_found_handle\s*\(\))", "Overrides the hook the importer uses to block commands", "code"),
     (r"\benable\s+-[a-z]*f", "Loads bash builtins from a file", "code"),
+    (r"\bcommand\s+-[a-zA-Z]*p", "command -p runs programs from the system PATH", "code"),
+    (r"\bhash\s+-[a-zA-Z]*p", "hash -p maps a command name to a program path", "code"),
     (r"\b[gm]?awk\b[^\n]*\bsystem\s*\(", "awk system() runs shell commands", "raw"),
     (r"\b[gm]?awk\b[^\n]*(?:print|printf)[^\n]*>\s*\"", "awk writes to a file", "raw"),
     (r"\bsed\b[^\n|;]*\s-[a-zA-Z]*i", "sed -i edits files in place", "code"),
@@ -35,6 +36,8 @@ NOT_BLOCKED = [
 
 # Commands the restricted import run records and skips.
 SKIPPED = [
+    (r"(?:^|[;&|\s])(?:export\s+)?PATH\+?=", "Changes PATH", "code"),
+    (r"(?:^|[;&|\s])(?:source|\.)\s+\S*activate\b", "Activates a Python environment (changes PATH)", "code"),
     (r"(?<![\w./-])rm\s", "rm deletes files", "code"),
     (r"(?<![\w./-])(?:dd|mkfs(?:\.\w+)?|fdisk|parted|wipefs)\b", "Disk-level tool", "code"),
     (r"\b(?:curl|wget)\b", "Network download", "code"),

@@ -153,9 +153,9 @@ function cardHtml(r) {
         <dl class="kv">
           <dt>Model</dt><dd>${esc(r.model || "–")}</dd>
           <dt>Endpoint</dt><dd>${running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(url)}/v1</a>` : `:${r.host_port}`}</dd>
-          <dt>Container</dt><dd>${esc(r.container_name)}</dd>
+          <dt>${r.runtime === "process" ? "Name" : "Container"}</dt><dd>${esc(r.container_name)}</dd>
           ${r.est_memory_gb ? `<dt>Est. memory</dt><dd>${r.est_memory_gb} GB</dd>` : ""}
-          ${r.container ? `<dt>Docker</dt><dd>${esc(r.container.status)}</dd>` : ""}
+          ${r.container ? `<dt>${r.runtime === "process" ? "Process" : "Docker"}</dt><dd>${esc(r.container.status)}</dd>` : ""}
         </dl>
         <div class="actions">
           ${running
@@ -297,10 +297,35 @@ function recipeFromForm() {
 }
 
 function fillRecipeForm(r) {
+  // Runtime first: it decides which frameworks are selectable.
+  if (r.runtime) {
+    recipeForm.elements.runtime.value = r.runtime;
+    renderFrameworkOptions(r.runtime);
+  }
   for (const el of recipeForm.elements) {
     if (el.name && el.name in r) el.value = Array.isArray(r[el.name]) ? r[el.name].join(", ") : r[el.name] ?? "";
   }
+  syncRuntime();
   markSwatch();
+}
+
+function renderFrameworkOptions(runtime) {
+  const sel = $("#sel-framework");
+  const current = sel.value;
+  sel.innerHTML = Object.entries(state.meta.frameworks)
+    .filter(([, v]) => v.runtime === runtime)
+    .map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join("");
+  if ([...sel.options].some((o) => o.value === current)) sel.value = current;
+}
+
+// Native processes run directly on the host: no image, volumes, docker flags or second port.
+function syncRuntime() {
+  const native = recipeForm.elements.runtime.value === "process";
+  $$(".docker-only", recipeForm).forEach((el) => el.classList.toggle("hidden", native));
+  $("#name-label").textContent = native ? "Process name" : "Container name";
+  $("#port-label").textContent = native ? "Port" : "Host port";
+  $("#model-hint").textContent = native ? "HF id or local path (~ allowed)" : "HF id or path inside the container";
+  if (native) recipeForm.elements.container_port.value = recipeForm.elements.host_port.value;
 }
 
 function markSwatch() {
@@ -317,10 +342,14 @@ $("#swatches").addEventListener("click", (ev) => {
 
 function applyFramework(name, overwriteAll) {
   const p = state.meta.frameworks[name];
+  recipeForm.elements.runtime.value = p.runtime;
+  renderFrameworkOptions(p.runtime);
+  recipeForm.elements.framework.value = name;
   const cur = recipeFromForm();
   const set = (k, v) => { if (overwriteAll || !cur[k]) recipeForm.elements[k].value = v ?? ""; };
   ["image", "command", "container_port", "health_path"].forEach((k) => { recipeForm.elements[k].value = p[k] ?? ""; });
   ["args", "docker_args", "volumes", "env"].forEach((k) => set(k, p[k]));
+  syncRuntime();
 }
 
 function nextFreePort() {
@@ -341,10 +370,11 @@ function openRecipeEditor(r) {
   if (r) {
     fillRecipeForm(r);
   } else {
-    recipeForm.elements.framework.value = "vllm";
-    recipeForm.elements.gpus.value = "all";
+    // On a Mac, containers have no GPU access, so native MLX is the sensible default.
+    const mac = state.meta.platform === "darwin";
+    recipeForm.elements.gpus.value = mac ? "" : "all";
     recipeForm.elements.host_port.value = nextFreePort();
-    applyFramework("vllm", true);
+    applyFramework(mac ? "mlx" : "vllm", true);
   }
   syncHostNetworkPorts();
   updatePreview();
@@ -352,6 +382,13 @@ function openRecipeEditor(r) {
 }
 
 $("#btn-new-recipe").addEventListener("click", () => openRecipeEditor(null));
+
+$("#sel-runtime").addEventListener("change", (e) => {
+  const first = Object.entries(state.meta.frameworks).find(([, v]) => v.runtime === e.target.value)[0];
+  const overwrite = !editingRecipe || confirm("Replace arguments and env with this framework's defaults too?");
+  applyFramework(first, overwrite);
+  updatePreview();
+});
 
 $("#sel-framework").addEventListener("change", (e) => {
   const overwrite = !editingRecipe || confirm("Replace arguments, flags, volumes and env with this framework's defaults too?");
@@ -362,7 +399,7 @@ $("#sel-framework").addEventListener("change", (e) => {
 // With --network host the server listens on the host port directly; keep the two ports equal.
 function syncHostNetworkPorts() {
   const f = recipeForm.elements;
-  const hostNet = /(^|\s)--(network|net)(=|\s+)host(\s|$)/.test(f.docker_args.value);
+  const hostNet = f.runtime.value === "process" || /(^|\s)--(network|net)(=|\s+)host(\s|$)/.test(f.docker_args.value);
   f.container_port.readOnly = hostNet;
   f.container_port.title = hostNet ? "Same as the host port because of --network host" : "";
   if (hostNet) f.container_port.value = f.host_port.value;
@@ -926,8 +963,9 @@ $("#btn-refresh-events").addEventListener("click", loadEvents);
 
 async function boot() {
   state.meta = await api("/api/meta");
-  $("#sel-framework").innerHTML = Object.entries(state.meta.frameworks)
-    .map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join("");
+  $("#sel-runtime").innerHTML = Object.entries(state.meta.runtimes)
+    .map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
+  renderFrameworkOptions("docker");
   $("#sel-action").innerHTML = Object.entries(state.meta.actions)
     .map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join("");
   $("#swatches").innerHTML = state.meta.colors.map((c) =>

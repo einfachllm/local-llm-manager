@@ -48,6 +48,14 @@ PRELUDE = """command_not_found_handle() {
   printf '%s\\0' "$@" >> "$DGXM_SKIPPED"; printf '\\036' >> "$DGXM_SKIPPED"
   return 0
 }
+# PATH stays the restricted one: e.g. `source venv/bin/activate` must not make real tools reachable.
+readonly PATH BASH_ENV
+# `exec some-server ...` would bypass the handler above; run it as a normal (recorded) call instead.
+exec() {
+  [ $# -eq 0 ] && return 0
+  "$@"
+  exit $?
+}
 """
 
 # docker run options that take a value (the rest of the options are boolean flags).
@@ -71,10 +79,10 @@ class ScriptImportError(Exception):
     pass
 
 
-async def capture_docker_run(script: str) -> tuple[list[str], str, list[str]]:
+async def capture_docker_run(script: str) -> tuple[Optional[list[str]], str, list[list[str]]]:
     """Run the script with only ALLOWED_TOOLS available.
 
-    Returns (argv after `docker run`, script output, skipped command lines).
+    Returns (argv after `docker run` or None, script output, argv of each skipped call).
     """
     bash = shutil.which("bash") or "/bin/bash"
     with tempfile.TemporaryDirectory(prefix="dgxm-import-") as tmp:
@@ -117,21 +125,15 @@ async def capture_docker_run(script: str) -> tuple[list[str], str, list[str]]:
             await proc.wait()
             out = b""
         output = out.decode(errors="replace")[-4000:]
-        skipped = []
+        skipped: list[list[str]] = []
         if skipped_log.exists():
             # Records are separated by \x1e, arguments by NUL.
             for record in skipped_log.read_bytes().split(b"\x1e"):
                 args = [a.decode(errors="replace") for a in record.split(b"\0")[:-1]]
-                line = shlex.join(args)[:300] if args else ""
-                if line and line not in skipped:
-                    skipped.append(line)
+                if args:
+                    skipped.append(args)
         if not capture.exists():
-            raise ScriptImportError(
-                "No `docker run` was executed by the script. Paste a script or command that starts "
-                "the model with `docker run`."
-                + (f"\n\nSkipped commands:\n" + "\n".join(skipped[:20]) if skipped else "")
-                + (f"\n\nScript output:\n{output.strip()}" if output.strip() else "")
-            )
+            return None, output, skipped
         raw = capture.read_bytes().split(b"\0")
         return [a.decode(errors="replace") for a in raw[:-1]], output, skipped
 
@@ -174,6 +176,71 @@ def _group_flags(tokens: list[str]) -> list[str]:
     return [shlex.join(line) for line in lines]
 
 
+def _split_command(tokens: list[str], detect) -> dict[str, Any]:
+    """Split a server command line into a command template and per-flag arguments.
+
+    `detect(program)` picks the framework from the leading positional words. The model (argument
+    after `...serve`, or --model / --model-path / llama.cpp's -m), --host and --port go into the
+    command template; everything else is returned as `remaining`.
+    """
+    # Leading positional part of the container command, e.g. `serve /model`, `python3 -m sglang.launch_server`.
+    program: list[str] = []
+    j = 0
+    while j < len(tokens):
+        t = tokens[j]
+        if t == "-m" and program and os.path.basename(program[-1]).startswith("python") and j + 1 < len(tokens):
+            program += tokens[j:j + 2]
+            j += 2
+        elif t.startswith("-"):
+            break
+        else:
+            program.append(t)
+            j += 1
+    rest = tokens[j:]
+    framework = detect(program)
+
+    model, model_flag = "", ""
+    for k, t in enumerate(program):
+        if k > 0 and program[k - 1].endswith("serve"):
+            model = t
+            program[k] = "{model}"
+            break
+
+    host, port = "", ""
+    remaining: list[str] = []
+    k = 0
+    while k < len(rest):
+        key, val = _split_opt(rest[k])
+        is_model_flag = key in MODEL_FLAGS or (key == "-m" and framework in ("llamacpp", "llamacpp-native"))
+        if (key in ("--host", "--port") or (is_model_flag and not model)) and (val is not None or k + 1 < len(rest)):
+            if val is None:
+                val = rest[k + 1]
+                k += 2
+            else:
+                k += 1
+            if key == "--host":
+                host = val
+            elif key == "--port":
+                port = val
+            else:
+                model, model_flag = val, key
+            continue
+        remaining.append(rest[k])
+        k += 1
+
+    command = list(program)
+    if model_flag:
+        command += [model_flag, "{model}"]
+    if host:
+        command += ["--host", host]
+    if port:
+        command += ["--port", "{port}"]
+    # shlex.join would quote the placeholders; they are plain words, so join manually.
+    command_str = " ".join(t if t in ("{model}", "{port}") else shlex.quote(t) for t in command)
+    return {"framework": framework, "command": command_str, "model": model, "host": host, "port": port,
+            "remaining": remaining}
+
+
 def recipe_from_argv(argv: list[str], description: str = "") -> tuple[dict[str, Any], list[str]]:
     warnings: list[str] = []
     env, volumes, docker_args, dropped = [], [], [], []
@@ -214,60 +281,9 @@ def recipe_from_argv(argv: list[str], description: str = "") -> tuple[dict[str, 
     image = argv[i]
     tokens = argv[i + 1:]
 
-    # Leading positional part of the container command, e.g. `serve /model`, `python3 -m sglang.launch_server`.
-    program: list[str] = []
-    j = 0
-    while j < len(tokens):
-        t = tokens[j]
-        if t == "-m" and program and os.path.basename(program[-1]).startswith("python") and j + 1 < len(tokens):
-            program += tokens[j:j + 2]
-            j += 2
-        elif t.startswith("-"):
-            break
-        else:
-            program.append(t)
-            j += 1
-    rest = tokens[j:]
-    framework = _detect_framework(image, entrypoint, program)
-
-    model, model_flag = "", ""
-    for k, t in enumerate(program):
-        if k > 0 and program[k - 1].endswith("serve"):
-            model = t
-            program[k] = "{model}"
-            break
-
-    host, port = "", ""
-    remaining: list[str] = []
-    k = 0
-    while k < len(rest):
-        key, val = _split_opt(rest[k])
-        is_model_flag = key in MODEL_FLAGS or (key == "-m" and framework == "llamacpp")
-        if (key in ("--host", "--port") or (is_model_flag and not model)) and (val is not None or k + 1 < len(rest)):
-            if val is None:
-                val = rest[k + 1]
-                k += 2
-            else:
-                k += 1
-            if key == "--host":
-                host = val
-            elif key == "--port":
-                port = val
-            else:
-                model, model_flag = val, key
-            continue
-        remaining.append(rest[k])
-        k += 1
-
-    command = list(program)
-    if model_flag:
-        command += [model_flag, "{model}"]
-    if host:
-        command += ["--host", host]
-    if port:
-        command += ["--port", "{port}"]
-    # shlex.join would quote the placeholders; they are plain words, so join manually.
-    command_str = " ".join(t if t in ("{model}", "{port}") else shlex.quote(t) for t in command)
+    split = _split_command(tokens, lambda program: _detect_framework(image, entrypoint, program))
+    framework, command_str, model, port, remaining = (
+        split["framework"], split["command"], split["model"], split["port"], split["remaining"])
 
     preset = FRAMEWORKS[framework]
     container_port = int(port) if port.isdigit() else None
@@ -298,6 +314,7 @@ def recipe_from_argv(argv: list[str], description: str = "") -> tuple[dict[str, 
     display_name = served or name or (os.path.basename(model.rstrip("/")) if model else "") or "Imported recipe"
 
     recipe = {
+        "runtime": "docker",
         "name": display_name,
         "description": description,
         "framework": framework,
@@ -313,6 +330,65 @@ def recipe_from_argv(argv: list[str], description: str = "") -> tuple[dict[str, 
         "docker_args": shlex.join(docker_args),
         "gpus": gpus,
         "health_path": preset["health_path"],
+        "est_memory_gb": None,
+        "tags": [],
+        "color": "",
+    }
+    return recipe, warnings
+
+
+# Model servers started directly on the host (programs, or `python -m` modules).
+NATIVE_SERVERS = {"mlx_lm.server": "mlx", "llama-server": "llamacpp-native", "vllm": "process-custom",
+                  "trtllm-serve": "process-custom"}
+NATIVE_MODULES = {"mlx_lm.server": "mlx", "mlx_lm": "mlx", "sglang.launch_server": "process-custom",
+                  "vllm.entrypoints.openai.api_server": "process-custom"}
+
+
+def _native_server(argv: list[str]) -> Optional[str]:
+    """Framework key if argv starts a known model server, else None."""
+    prog = os.path.basename(argv[0])
+    if prog == "mlx_lm" and len(argv) > 1 and argv[1] == "server":
+        return "mlx"
+    if prog == "vllm":
+        return "process-custom" if len(argv) > 1 and argv[1] == "serve" else None
+    if prog in NATIVE_SERVERS:
+        return NATIVE_SERVERS[prog]
+    if prog.startswith("python") and len(argv) > 2 and argv[1] == "-m":
+        module = argv[2]
+        if module == "mlx_lm":
+            return "mlx" if len(argv) > 3 and argv[3] == "server" else None
+        return NATIVE_MODULES.get(module)
+    return None
+
+
+def recipe_from_process_argv(argv: list[str], description: str = "") -> tuple[dict[str, Any], list[str]]:
+    framework = _native_server(argv) or "process-custom"
+    split = _split_command(argv, lambda program: framework)
+    warnings = ["No `docker run` found - imported as a native process that runs directly on this machine"]
+    if not split["model"]:
+        warnings.append("Could not tell which argument is the model; check the Model and Command fields")
+    port = int(split["port"]) if split["port"].isdigit() else FRAMEWORKS[framework]["container_port"]
+    if not split["port"]:
+        warnings.append(f"The command sets no --port; the server's default is assumed ({port})")
+    model = split["model"]
+    name = os.path.basename(model.rstrip("/")) if model else os.path.basename(argv[0])
+    recipe = {
+        "runtime": "process",
+        "name": name or "Imported recipe",
+        "description": description,
+        "framework": framework,
+        "image": "",
+        "model": _tildify(model),
+        "container_name": "",
+        "host_port": port,
+        "container_port": port,
+        "command": split["command"],
+        "args": "\n".join(_group_flags(split["remaining"])),
+        "env": "",
+        "volumes": "",
+        "docker_args": "",
+        "gpus": "",
+        "health_path": FRAMEWORKS[framework]["health_path"],
         "est_memory_gb": None,
         "tags": [],
         "color": "",
@@ -337,5 +413,28 @@ def description_from_script(script: str) -> str:
 
 async def import_script(script: str) -> dict[str, Any]:
     argv, output, skipped = await capture_docker_run(script)
-    recipe, warnings = recipe_from_argv(argv, description_from_script(script))
-    return {"recipe": recipe, "warnings": warnings, "docker_argv": argv, "skipped_calls": skipped}
+    description = description_from_script(script)
+    if argv is not None:
+        recipe, warnings = recipe_from_argv(argv, description)
+    else:
+        # No container: maybe the script starts a server directly (e.g. MLX on a Mac).
+        server = next((a for a in reversed(skipped) if _native_server(a)), None)
+        if server is None:
+            lines = _unique_lines(skipped)
+            raise ScriptImportError(
+                "The script neither ran `docker run` nor a known model server (mlx_lm.server, "
+                "llama-server, vllm serve, python -m sglang.launch_server, ...)."
+                + (f"\n\nSkipped commands:\n" + "\n".join(lines[:20]) if lines else "")
+                + (f"\n\nScript output:\n{output.strip()}" if output.strip() else ""))
+        recipe, warnings = recipe_from_process_argv(server, description)
+    return {"recipe": recipe, "warnings": warnings, "docker_argv": argv, "process_argv": None if argv else server,
+            "skipped_calls": _unique_lines(skipped)}
+
+
+def _unique_lines(calls: list[list[str]]) -> list[str]:
+    out: list[str] = []
+    for args in calls:
+        line = shlex.join(args)[:300]
+        if line not in out:
+            out.append(line)
+    return out

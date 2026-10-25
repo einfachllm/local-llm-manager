@@ -1,10 +1,11 @@
 # DGX Spark Manager
 
-A small web dashboard that runs on your DGX Spark and lets you, from any browser on your network:
+A small web dashboard that runs on your DGX Spark (or a Mac) and lets you, from any browser on your network:
 
 - **Keep model recipes**: a recipe is everything needed to `docker run` an inference server
   (vLLM, SGLang, TensorRT-LLM, llama.cpp or any custom image): image, model, ports, framework arguments,
-  env, volumes and extra docker flags.
+  env, volumes and extra docker flags - or to start one directly on the host as a native process
+  (MLX, llama.cpp, … - e.g. on a Mac Studio).
 - **Start / stop / restart** a model. Restarting re-creates the container, so edits to a recipe take effect.
 - **"Switch to"** a model: stop every other model, drop the page cache, then start the chosen one.
 - **Watch logs** live (streamed from `docker logs -f`), filter and download them.
@@ -42,6 +43,29 @@ Other ways to run it:
 > effectively root. Always set `DGXM_PASSWORD`, and only expose the port on a trusted network
 > (or behind a VPN / Tailscale / an HTTPS reverse proxy).
 
+## Install on a Mac (Mac Studio etc.)
+
+On macOS, Docker containers cannot use the Apple GPU (Metal), so MLX does not work in a container
+and llama.cpp in a container is CPU-only. Use **native-process recipes** there: the manager starts the
+model server directly on the Mac (see [Native processes](#native-processes)).
+
+Requirements: Python 3.10+ (`brew install python@3.12`), a current bash for script import
+(`brew install bash`), and your model servers, e.g. `pip install mlx-lm` or `brew install llama.cpp`.
+
+```bash
+git clone https://github.com/olekslev69/dgxspark-manager.git
+cd dgxspark-manager
+./install-macos.sh            # venv + launchd agent; creates .env on first run
+nano .env                     # set DGXM_PASSWORD
+./install-macos.sh            # run again to restart with the password
+```
+
+The agent runs while your user is logged in (enable automatic login for a headless Mac Studio).
+Its PATH is `~/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`; for a server inside a
+virtualenv, use its absolute path in the recipe command (e.g. `~/venvs/mlx/bin/mlx_lm.server`) or set
+`PATH=...` in the recipe's Environment. "Free memory" only stops the models on macOS (there is no
+page-cache drop).
+
 ## Recipes
 
 | Field | Meaning |
@@ -67,6 +91,25 @@ Status values: **Stopped**, **Starting**, **Loading model** (container up, healt
 **Ready**, **Failed** (container exited with an error; check its logs).
 
 Stopping keeps the stopped container so its logs stay readable; the next start removes and re-creates it.
+
+### Native processes
+
+A recipe's **Runtime** is either *Docker container* or *Native process*. Native recipes run the
+command directly on the host, without Docker:
+
+- Presets: **MLX LM server** (`mlx_lm.server --model {model} --host 0.0.0.0 --port {port}`),
+  **llama.cpp server (native)** (`llama-server -m {model} …`) and **Custom (native)**.
+- Fields used: command, framework arguments, environment (`KEY=value`, `~` is expanded), model, port,
+  health path. Image, volumes, docker flags, GPUs and the container port do not apply.
+- Each process runs in its own process group; Stop sends SIGTERM to the group and SIGKILL after
+  `DGXM_STOP_TIMEOUT` seconds. Output goes to `data/processes/<name>.log` (the previous run's log is
+  kept as `.log.1`) and shows up in **Logs** like container logs.
+- Processes keep running when the manager restarts (systemd `KillMode=process`, launchd
+  `AbandonProcessGroup`) and are recognised again by PID + start time. If a server exits with an
+  error, the card shows **Failed** with its exit code.
+- Switch, Stop all, schedules and the timeline treat both runtimes the same.
+- **Import script…** also recognises scripts that start `mlx_lm.server`, `mlx_lm server`, `llama-server`,
+  `vllm serve` or `python -m sglang.launch_server` directly and creates a native recipe from them.
 
 ### Tags, filter, sort
 
@@ -105,7 +148,7 @@ out exactly as the script would have run them. The resulting `docker run` comman
    path like `/bin/rm`, writing to files, changing `PATH`, `/dev/tcp`, `curl | sh`, `awk system()`,
    `sed -i`). Text inside quotes (e.g. `echo "run sudo …"`) is ignored. If any risk is found, the import
    needs a tick on "I have reviewed the risks and trust this script" (logged in Activity).
-2. **Restricted run.** `PATH` only contains read-only text tools (`awk`, `sed`, `grep`, `cut`, `tr`,
+2. **Restricted run.** `PATH` only contains (and cannot be changed, e.g. by `source venv/bin/activate`) read-only text tools (`awk`, `sed`, `grep`, `cut`, `tr`,
    `date`, `cat`, …) and a fake `docker` that records `docker run`. Every other command (`rm`, `curl`,
    `mkdir`, `nvidia-smi`, `docker ps`, …) is **recorded and skipped, not executed**; the editor then
    lists what was skipped. A 20 s time limit applies.
@@ -143,6 +186,7 @@ skipped; a missed one-shot runs if it is less than 10 minutes late.
 | `DGXM_PORT` / `DGXM_HOST` | `8090` / `0.0.0.0` | Listen address |
 | `DGXM_USER` / `DGXM_PASSWORD` | `admin` / *(empty = no auth)* | HTTP Basic auth |
 | `DGXM_DB` | `./data/manager.db` | SQLite file |
+| `DGXM_PROC_DIR` | `<DB folder>/processes` | State and log files of native processes |
 | `DGXM_HEALTH_HOST` | `127.0.0.1` | Host used for model health checks |
 | `DGXM_STOP_TIMEOUT` | `30` | Seconds `docker stop` waits before killing |
 | `DGXM_DROP_CACHES_IMAGE` | `busybox:latest` | Image for the privileged cache drop |
@@ -168,5 +212,5 @@ DGXM_DB=/tmp/dev.db python -m dgxspark_manager.main
 ```
 
 Layout: `dgxspark_manager/` holds the FastAPI app (`main.py`), recipe → `docker run` translation
-(`recipes.py`), script import and its safety check (`importer.py`, `script_check.py`), lifecycle logic (`manager.py`), the scheduler (`scheduler.py`) and its timeline projection (`timeline.py`), SQLite storage (`db.py`)
+(`recipes.py`), script import and its safety check (`importer.py`, `script_check.py`), lifecycle logic (`manager.py`, with native processes in `processes.py`), the scheduler (`scheduler.py`) and its timeline projection (`timeline.py`), SQLite storage (`db.py`)
 and the static UI (`static/`, plain HTML/JS with no build step). Tests use a fake docker client.

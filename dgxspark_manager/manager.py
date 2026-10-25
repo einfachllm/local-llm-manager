@@ -1,14 +1,16 @@
 """Model lifecycle: start / stop / restart / switch recipes, with status and health."""
 
 import asyncio
-from typing import Any, Optional
+import sys
+from typing import Any, AsyncIterator, Optional
 
 import httpx
 
 from . import config, system
 from .db import Database
 from .docker import Docker, try_drop_caches_locally
-from .recipes import build_run_argv, format_command
+from .processes import ProcessError, ProcessRunner
+from .recipes import build_process_argv, build_run_argv, format_command, format_process_command, process_env
 
 
 class ActionError(Exception):
@@ -19,9 +21,11 @@ class ActionError(Exception):
 
 
 class Manager:
-    def __init__(self, db: Database, docker: Optional[Docker] = None):
+    def __init__(self, db: Database, docker: Optional[Docker] = None,
+                 procs: Optional[ProcessRunner] = None):
         self.db = db
         self.docker = docker or Docker()
+        self.procs = procs or ProcessRunner(config.PROC_DIR)
         # Serialises mutating docker operations so the scheduler and UI don't race.
         self.lock = asyncio.Lock()
 
@@ -37,12 +41,22 @@ class Manager:
         except httpx.HTTPError:
             return False
 
+    async def _instances(self, recipes: list[dict]) -> dict[int, Optional[dict]]:
+        """Container (docker) or process (native) info per recipe id, in the same shape."""
+        need_docker = any(r.get("runtime", "docker") == "docker" for r in recipes)
+        containers = await self.docker.list_containers() if need_docker else {}
+        return {
+            r["id"]: self.procs.status(r["container_name"]) if r.get("runtime") == "process"
+            else containers.get(r["container_name"])
+            for r in recipes
+        }
+
     async def recipes_with_status(self) -> list[dict[str, Any]]:
         recipes = self.db.list_recipes()
-        containers = await self.docker.list_containers()
+        instances = await self._instances(recipes)
         running = []
         for r in recipes:
-            c = containers.get(r["container_name"])
+            c = instances[r["id"]]
             r["container"] = c
             if c is None:
                 r["status"] = "stopped"
@@ -51,6 +65,8 @@ class Manager:
                 running.append(r)
             elif c["state"] in ("created", "restarting"):
                 r["status"] = "starting"
+            elif r.get("runtime") == "process":
+                r["status"] = "failed" if c.get("failed") else "stopped"
             else:
                 r["status"] = "failed" if _failed_exit(c["status"]) else "stopped"
         if running:
@@ -71,6 +87,26 @@ class Manager:
         if not recipe:
             raise ActionError("Recipe not found", 404)
         return recipe
+
+    # ---- logs ----------------------------------------------------------
+
+    async def logs(self, recipe: dict, tail: int = 500) -> str:
+        if recipe.get("runtime") == "process":
+            text = self.procs.logs(recipe["container_name"], tail)
+            if text is None:
+                raise ActionError("No logs yet", 404)
+            return text
+        res = await self.docker.logs(recipe["container_name"], tail=tail)
+        if not res.ok:
+            raise ActionError(res.error or "No logs", 404)
+        # docker logs splits the container's stdout/stderr; merge them back in timestamp order.
+        lines = res.stdout.splitlines() + res.stderr.splitlines()
+        return "\n".join(sorted(lines, key=lambda line: line.split(" ", 1)[0])) + "\n"
+
+    def follow_logs(self, recipe: dict, tail: int = 200) -> AsyncIterator[str]:
+        if recipe.get("runtime") == "process":
+            return self.procs.follow_logs(recipe["container_name"], tail)
+        return self.docker.follow_logs(recipe["container_name"], tail)
 
     # ---- actions -------------------------------------------------------
 
@@ -112,18 +148,19 @@ class Manager:
 
     async def _start(self, recipe: dict, source: str, force: bool, action: str = "start") -> str:
         name = recipe["container_name"]
-        containers = await self.docker.list_containers()
-        existing = containers.get(name)
+        all_recipes = self.db.list_recipes()
+        instances = await self._instances(all_recipes)
+        existing = instances.get(recipe["id"])
         if existing and existing["state"] == "running":
             msg = f"{recipe['name']} is already running"
             self.db.add_event(source, action, True, msg, recipe["id"], name)
             return msg
 
         # Refuse to start if another managed recipe already holds the host port.
-        for other in self.db.list_recipes():
+        for other in all_recipes:
             if other["id"] == recipe["id"] or other["host_port"] != recipe["host_port"]:
                 continue
-            c = containers.get(other["container_name"])
+            c = instances.get(other["id"])
             if c and c["state"] == "running":
                 msg = f"Port {recipe['host_port']} is in use by running recipe '{other['name']}'"
                 self.db.add_event(source, action, False, msg, recipe["id"], name)
@@ -137,6 +174,18 @@ class Manager:
                        f"{available:g} GB available. Stop other models or start with force.")
                 self.db.add_event(source, action, False, msg, recipe["id"], name)
                 raise ActionError(msg, 409)
+
+        if recipe.get("runtime") == "process":
+            argv = build_process_argv(recipe)
+            try:
+                pid = self.procs.start(name, argv, process_env(recipe))
+            except (ProcessError, OSError) as e:
+                msg = f"Could not start process: {e}"
+                self.db.add_event(source, action, False, msg, recipe["id"], name)
+                raise ActionError(msg, 500)
+            msg = f"Started {recipe['name']} (pid {pid})"
+            self.db.add_event(source, action, True, msg + "\n" + format_process_command(recipe), recipe["id"], name)
+            return msg
 
         if existing:
             await self.docker.remove(name)
@@ -153,10 +202,15 @@ class Manager:
 
     async def _stop(self, recipe: dict, source: str, record: bool = True) -> str:
         name = recipe["container_name"]
-        containers = await self.docker.list_containers()
-        c = containers.get(name)
+        c = (await self._instances([recipe]))[recipe["id"]]
         if not c or c["state"] != "running":
             msg = f"{recipe['name']} is not running"
+            if record:
+                self.db.add_event(source, "stop", True, msg, recipe["id"], name)
+            return msg
+        if recipe.get("runtime") == "process":
+            await self.procs.stop(name)
+            msg = f"Stopped {recipe['name']}"
             if record:
                 self.db.add_event(source, "stop", True, msg, recipe["id"], name)
             return msg
@@ -171,18 +225,24 @@ class Manager:
         return msg
 
     async def _stop_all(self, source: str, except_id: Optional[int] = None) -> str:
-        containers = await self.docker.list_containers()
+        recipes = self.db.list_recipes()
+        instances = await self._instances(recipes)
         stopped = []
-        for recipe in self.db.list_recipes():
+        for recipe in recipes:
             if recipe["id"] == except_id:
                 continue
-            c = containers.get(recipe["container_name"])
+            c = instances.get(recipe["id"])
             if c and c["state"] == "running":
                 await self._stop(recipe, source)
                 stopped.append(recipe["name"])
         return f"Stopped {', '.join(stopped)}" if stopped else "No other models running"
 
     async def _drop_caches(self, source: str) -> str:
+        if sys.platform == "darwin":
+            # macOS has no drop_caches, and a privileged container would only touch Docker's VM.
+            msg = "Page cache drop is not available on macOS (skipped)"
+            self.db.add_event(source, "drop_caches", True, msg)
+            return msg
         err = await try_drop_caches_locally()
         if err is None:
             msg, ok = "Dropped page cache", True
