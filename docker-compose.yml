@@ -1,7 +1,8 @@
 services:
   dgxspark-manager:
+    # Prebuilt image from CI (amd64 + arm64). `docker compose up -d --build` builds it locally instead.
+    image: ghcr.io/olekslev69/dgxspark-manager:latest
     build: .
-    image: dgxspark-manager:latest
     container_name: dgxspark-manager
     restart: unless-stopped
     # Host networking so model health checks on 127.0.0.1:<port> reach the model containers.
