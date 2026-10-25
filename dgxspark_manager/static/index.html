@@ -53,10 +53,25 @@
         <button class="btn primary" id="btn-new-schedule">+ New schedule</button>
       </div>
       <p class="hint">Times are in the Spark's local time zone. A "switch" stops every other model, drops the page cache, then starts the chosen one.</p>
-      <table class="table">
+      <div class="timeline-card">
+        <div class="timeline-head">
+          <h3>Planned runs</h3>
+          <div class="seg" id="tl-range">
+            <button type="button" data-h="24">24 h</button>
+            <button type="button" data-h="72">3 days</button>
+            <button type="button" data-h="168">7 days</button>
+          </div>
+        </div>
+        <div id="timeline" class="timeline"></div>
+        <p class="hint tl-legend">Each row is one model: a block means running (1), a gap means stopped (0).
+          <span class="tl-key mark"></span> a schedule fires on that model,
+          <span class="tl-key global"></span> “stop all” / “free memory”. Assumes every scheduled action succeeds.
+          Click a block or marker to edit its schedule.</p>
+      </div>
+      <div class="table-wrap"><table class="table">
         <thead><tr><th>On</th><th>Name</th><th>Action</th><th>When</th><th>Next run</th><th>Last run</th><th></th></tr></thead>
         <tbody id="schedules"></tbody>
-      </table>
+      </table></div>
     </section>
 
     <section id="tab-activity" class="panel hidden">
@@ -186,6 +201,7 @@
   </dialog>
 
   <datalist id="tag-list"></datalist>
+  <div id="tl-tip" class="tl-tip hidden"></div>
   <div id="toasts"></div>
   <script src="/static/app.js"></script>
 </body>

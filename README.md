@@ -113,6 +113,13 @@ or write a cron expression such as `0 22 * * 1-5`) or a one-shot date and time.
 | Stop all models | Stop every model that has a recipe |
 | Stop all models and free memory | Stop all, then `sync; echo 3 > /proc/sys/vm/drop_caches` |
 
+**Planned runs timeline.** Above the schedule list, a chart shows the next 24 hours, 3 days or 7 days:
+one row per model, a block where the model will be running (1) and a gap where it is stopped (0).
+It starts from the models running right now and plays the enabled schedules forward (a "switch" ends the
+other models' blocks, "stop all" / "free memory" are dashed red lines). It assumes every action succeeds,
+so it is a plan, not a guarantee. Hover a block for its times and the schedules that start/stop it; click
+it to edit the schedule.
+
 Dropping the page cache needs root: the manager tries directly, and otherwise runs it in a short-lived
 privileged `busybox` container. If the manager was down when a repeating schedule was due, that run is
 skipped; a missed one-shot runs if it is less than 10 minutes late.
@@ -149,5 +156,5 @@ DGXM_DB=/tmp/dev.db python -m dgxspark_manager.main
 ```
 
 Layout: `dgxspark_manager/` holds the FastAPI app (`main.py`), recipe → `docker run` translation
-(`recipes.py`), script import (`importer.py`), lifecycle logic (`manager.py`), the scheduler (`scheduler.py`), SQLite storage (`db.py`)
+(`recipes.py`), script import (`importer.py`), lifecycle logic (`manager.py`), the scheduler (`scheduler.py`) and its timeline projection (`timeline.py`), SQLite storage (`db.py`)
 and the static UI (`static/`, plain HTML/JS with no build step). Tests use a fake docker client.

@@ -235,3 +235,40 @@ input[readonly] { opacity: .6; }
 .swatch[data-color=red]    { background: #ef5b5b; }
 .swatch[data-color=black]  { background: #000; border-color: #3a4152; }
 .swatch.on { outline: 2px solid var(--text); outline-offset: 2px; }
+
+/* schedule timeline */
+.timeline-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px 6px; margin-bottom: 18px; }
+.timeline-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.timeline-head h3 { font-size: 15px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { background: transparent; border: 0; color: var(--muted); padding: 5px 12px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button.on { background: var(--panel-2); color: var(--text); }
+.timeline { width: 100%; overflow: hidden; }
+.timeline svg { display: block; }
+.tl-lane { fill: rgba(255,255,255,.025); }
+.tl-label { fill: var(--text); font-size: 12.5px; }
+.tl-grid { stroke: var(--border); stroke-width: 1; }
+.tl-grid.day { stroke: #3a4a6e; }
+.tl-axis { fill: var(--muted); font-size: 11.5px; }
+.tl-axis.day { fill: var(--text); font-weight: 600; }
+.tl-block { opacity: .9; }
+.tl-block.black { stroke: #4a5266; stroke-width: 1; }
+.tl-hit { cursor: pointer; }
+.tl-hit:hover .tl-block { opacity: 1; stroke: var(--text); stroke-width: 1.5; }
+.tl-block-text { fill: #fff; font-size: 11.5px; font-weight: 600; pointer-events: none; paint-order: stroke; stroke: rgba(0,0,0,.35); stroke-width: 2px; }
+.tl-open { fill: none; stroke: rgba(255,255,255,.85); stroke-width: 2; pointer-events: none; }
+.tl-mark { fill: var(--text); }
+.tl-hit:hover .tl-mark { fill: var(--accent); }
+.tl-global { stroke: var(--red); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.tl-now { fill: var(--muted); font-size: 11px; }
+.tl-legend { font-size: 12.5px; margin: 6px 0 4px; }
+.tl-key { display: inline-block; vertical-align: middle; margin: 0 3px 0 8px; }
+.tl-key.mark { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--text); }
+.tl-key.global { width: 0; height: 12px; border-left: 2px dashed var(--red); }
+.tl-tip {
+  position: fixed; z-index: 200; pointer-events: none; white-space: pre-line; max-width: 340px;
+  background: #0a1020; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 12.5px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.45);
+}
+.table-wrap { overflow-x: auto; border-radius: var(--radius); }

@@ -567,6 +567,7 @@ async function loadSchedules() {
   try {
     state.schedules = await api("/api/schedules");
   } catch (e) { toast(e.message, "bad"); return; }
+  loadTimeline();
   const tbody = $("#schedules");
   if (!state.schedules.length) {
     tbody.innerHTML = `<tr><td colspan="7" class="empty">No schedules yet.</td></tr>`;
@@ -706,6 +707,155 @@ scheduleForm.addEventListener("submit", async (ev) => {
     $("#schedule-error").textContent = e.message;
   }
 });
+
+
+/* ---------------- schedule timeline ---------------- */
+
+const TL_KEY = "dgxm.timelineHours";
+let tlHours = 24;
+try { tlHours = Number(localStorage.getItem(TL_KEY)) || 24; } catch { /* storage unavailable */ }
+let tlData = null;
+
+const CARD_HEX = {
+  "": "#4f8cff", green: "#22c58b", teal: "#2cc4c9", blue: "#4f8cff", purple: "#a77bf3", pink: "#ec6fb4",
+  orange: "#f2884b", yellow: "#f0c93a", red: "#ef5b5b", black: "#000000",
+};
+const ACTION_SHORT = { start: "start", stop: "stop", restart: "restart", switch: "switch to", stop_all: "stop all", free_memory: "free memory" };
+const HOUR = 3600e3;
+
+async function loadTimeline() {
+  $$("#tl-range button").forEach((b) => b.classList.toggle("on", Number(b.dataset.h) === tlHours));
+  try {
+    tlData = await api(`/api/schedules/timeline?hours=${tlHours}`);
+    renderTimeline();
+  } catch (e) {
+    $("#timeline").innerHTML = `<div class="empty">Could not load timeline: ${esc(e.message)}</div>`;
+  }
+}
+
+$("#tl-range").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-h]");
+  if (!b) return;
+  tlHours = Number(b.dataset.h);
+  try { localStorage.setItem(TL_KEY, String(tlHours)); } catch { /* ignore */ }
+  loadTimeline();
+});
+
+function fmtClock(d) { return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); }
+function fmtDayClock(d) { return d.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
+
+function renderTimeline() {
+  const el = $("#timeline");
+  const tl = tlData;
+  if (!tl) return;
+  if (!tl.lanes.length) {
+    el.innerHTML = `<div class="empty">Nothing planned – no model is running and no enabled schedule targets a model in this period.</div>`;
+    return;
+  }
+  const t0 = new Date(tl.start).getTime();
+  const t1 = new Date(tl.end).getTime();
+  const width = Math.max(el.clientWidth, 280);
+  const labelW = Math.min(200, Math.max(90, Math.round(width * 0.22)));
+  const maxChars = Math.max(6, Math.floor((labelW - 14) / 7));
+  const padR = 12, axisH = 34, laneH = 34, top = axisH + 4;
+  const plotW = width - labelW - padR;
+  const height = top + tl.lanes.length * laneH + 6;
+  const x = (t) => labelW + ((t - t0) / (t1 - t0)) * plotW;
+
+  // Ticks: smallest step leaving >= 64px between labels.
+  const step = [1, 2, 3, 6, 12, 24].find((h) => (h * HOUR / (t1 - t0)) * plotW >= 64) ?? 24;
+  const first = new Date(t0);
+  first.setMinutes(0, 0, 0);
+  const ticks = [];
+  for (let t = first.getTime(); t <= t1; t += HOUR) {
+    const d = new Date(t);
+    if (t >= t0 && d.getHours() % step === 0) ticks.push(d);
+  }
+
+  const parts = [];
+  // lane backgrounds + labels
+  tl.lanes.forEach((lane, i) => {
+    const y = top + i * laneH;
+    if (i % 2 === 0) parts.push(`<rect class="tl-lane" x="${labelW}" y="${y}" width="${plotW}" height="${laneH}"/>`);
+    const name = lane.name.length > maxChars ? lane.name.slice(0, maxChars - 1) + "…" : lane.name;
+    parts.push(`<text class="tl-label" x="${labelW - 10}" y="${y + laneH / 2}" text-anchor="end" dominant-baseline="central"><title>${esc(lane.name)}</title>${esc(name)}</text>`);
+  });
+  // grid + axis labels
+  for (const d of ticks) {
+    const tx = x(d.getTime());
+    const midnight = d.getHours() === 0;
+    parts.push(`<line class="tl-grid ${midnight ? "day" : ""}" x1="${tx}" x2="${tx}" y1="${axisH - 6}" y2="${height - 6}"/>`);
+    const label = midnight || step >= 24 ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "numeric" }) : fmtClock(d);
+    if (tx + label.length * 6.5 < width) parts.push(`<text class="tl-axis ${midnight ? "day" : ""}" x="${tx + 4}" y="${axisH - 12}">${esc(label)}</text>`);
+  }
+  // global events (stop all / free memory)
+  for (const e of tl.events.filter((ev) => !ev.recipe_id)) {
+    const tx = x(new Date(e.time).getTime());
+    const tip = `${fmtDayClock(new Date(e.time))} · ${e.schedule}: ${ACTION_SHORT[e.action]}`;
+    parts.push(`<g class="tl-hit" data-sid="${e.schedule_id}" data-tip="${esc(tip)}">
+      <line class="tl-global" x1="${tx}" x2="${tx}" y1="${top}" y2="${height - 6}"/>
+      <rect x="${tx - 5}" y="${top}" width="10" height="${height - top - 6}" fill="transparent"/></g>`);
+  }
+  // blocks
+  tl.lanes.forEach((lane, i) => {
+    const y = top + i * laneH + 6;
+    const h = laneH - 12;
+    const color = CARD_HEX[lane.color] ?? CARD_HEX[""];
+    for (const b of lane.blocks) {
+      const s = new Date(b.start), en = new Date(b.end);
+      const bx = x(s.getTime()), bw = Math.max(2, x(en.getTime()) - bx - 2);
+      const from = b.running_at_start ? "running now" : `${fmtDayClock(s)} (${b.started_by})`;
+      const to = b.open_end ? "beyond this view" : `${fmtDayClock(en)} (${b.stopped_by})`;
+      const hours = (en - s) / HOUR;
+      const tip = `${lane.name}\n${from} → ${to}\n${hours >= 1 ? hours.toFixed(hours < 10 ? 1 : 0) + " h" : Math.round(hours * 60) + " min"}`;
+      const text = bw > 96 ? `${b.running_at_start ? "now" : fmtClock(s)} – ${b.open_end ? "…" : fmtClock(en)}` : "";
+      const sid = b.started_by_id ?? b.stopped_by_id ?? "";
+      parts.push(`<g class="tl-hit" data-sid="${sid}" data-tip="${esc(tip)}">
+        <rect class="tl-block ${lane.color === "black" ? "black" : ""}" x="${bx}" y="${y}" width="${bw}" height="${h}" rx="4" fill="${color}"/>
+        ${text ? `<text class="tl-block-text" x="${bx + 8}" y="${y + h / 2}" dominant-baseline="central">${esc(text)}</text>` : ""}
+        ${b.open_end ? `<path class="tl-open" d="M${bx + bw - 7} ${y + 4} l5 ${h / 2 - 4} l-5 ${h / 2 - 4}"/>` : ""}
+      </g>`);
+    }
+  });
+  // per-model event markers
+  for (const e of tl.events.filter((ev) => ev.recipe_id)) {
+    const i = tl.lanes.findIndex((l) => l.recipe_id === e.recipe_id);
+    if (i < 0) continue;
+    const tx = x(new Date(e.time).getTime());
+    const y = top + i * laneH + 1;
+    const tip = `${fmtDayClock(new Date(e.time))} · ${e.schedule}: ${ACTION_SHORT[e.action]} ${tl.lanes[i].name}`;
+    parts.push(`<g class="tl-hit" data-sid="${e.schedule_id}" data-tip="${esc(tip)}">
+      <path class="tl-mark" d="M${tx - 5} ${y} h10 l-5 6 z"/><rect x="${tx - 7}" y="${y - 2}" width="14" height="12" fill="transparent"/></g>`);
+  }
+  // now
+  parts.push(`<text class="tl-now" x="${labelW + 2}" y="${height - 1}">now</text>`);
+
+  el.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img"
+    aria-label="Planned model runs over the next ${tlHours} hours">${parts.join("")}</svg>`;
+}
+
+const tip = $("#tl-tip");
+$("#timeline").addEventListener("mousemove", (ev) => {
+  const g = ev.target.closest("[data-tip]");
+  if (!g) { tip.classList.add("hidden"); return; }
+  tip.textContent = g.dataset.tip;
+  tip.classList.remove("hidden");
+  const pad = 14;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let left = ev.clientX + pad, topPos = ev.clientY + pad;
+  if (left + w > window.innerWidth - 8) left = ev.clientX - w - pad;
+  if (topPos + h > window.innerHeight - 8) topPos = ev.clientY - h - pad;
+  tip.style.left = `${left}px`;
+  tip.style.top = `${topPos}px`;
+});
+$("#timeline").addEventListener("mouseleave", () => tip.classList.add("hidden"));
+$("#timeline").addEventListener("click", (ev) => {
+  const g = ev.target.closest("[data-sid]");
+  const s = g && state.schedules.find((x) => x.id === Number(g.dataset.sid));
+  if (s) { tip.classList.add("hidden"); openScheduleEditor(s); }
+});
+let tlResize = null;
+window.addEventListener("resize", () => { clearTimeout(tlResize); tlResize = setTimeout(renderTimeline, 150); });
 
 /* ---------------- activity ---------------- */
 
