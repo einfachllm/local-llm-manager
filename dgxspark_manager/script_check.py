@@ -38,7 +38,7 @@ NOT_BLOCKED = [
 SKIPPED = [
     (r"(?:^|[;&|\s])(?:export\s+)?PATH\+?=", "Changes PATH", "code"),
     (r"(?:^|[;&|\s])(?:source|\.)\s+\S*activate\b", "Activates a Python environment (changes PATH)", "code"),
-    (r"(?<![\w./-])rm\s", "rm deletes files", "code"),
+    (r"(?<![\w./-])(?<!docker )(?<!podman )rm\s", "rm deletes files", "code"),
     (r"(?<![\w./-])(?:dd|mkfs(?:\.\w+)?|fdisk|parted|wipefs)\b", "Disk-level tool", "code"),
     (r"\b(?:curl|wget)\b", "Network download", "code"),
     (r"\bsudo\b", "sudo (root privileges)", "code"),
