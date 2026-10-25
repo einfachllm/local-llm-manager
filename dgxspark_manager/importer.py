@@ -275,6 +275,7 @@ def recipe_from_argv(argv: list[str], description: str = "") -> tuple[dict[str, 
         "gpus": gpus,
         "health_path": preset["health_path"],
         "est_memory_gb": None,
+        "tags": [],
     }
     return recipe, warnings
 

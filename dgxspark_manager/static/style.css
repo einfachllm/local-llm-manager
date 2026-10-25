@@ -180,3 +180,24 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   margin: 14px 18px 0; padding: 10px 12px; border-radius: 8px; white-space: pre-wrap;
   background: rgba(240,180,41,.08); border: 1px solid rgba(240,180,41,.35); color: #f5d38a; font-size: 13px;
 }
+
+/* recipe toolbar, tags, groups */
+.toolbar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.toolbar input[type=search] { width: 320px; max-width: 100%; }
+label.inline { flex-direction: row; align-items: center; gap: 8px; }
+label.inline select { width: auto; }
+.tag-filter { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; min-height: 28px; align-items: center; }
+.tag-filter .hint { margin: 0; font-size: 13px; }
+.chip {
+  border: 1px solid var(--border); background: var(--panel); color: var(--muted); font: inherit; font-size: 12.5px;
+  padding: 3px 10px; border-radius: 999px; cursor: pointer;
+}
+.chip span { opacity: .65; margin-left: 2px; }
+.chip:hover { color: var(--text); border-color: #3a4a6e; }
+.chip.on { background: rgba(79,140,255,.18); border-color: rgba(79,140,255,.6); color: #cfe0ff; }
+.chip.small { font-size: 11.5px; padding: 1px 8px; }
+.card-tags { display: flex; gap: 5px; flex-wrap: wrap; }
+.group { margin-bottom: 26px; }
+.group-title { font-size: 15px; margin: 0 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.group-title span { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+input[readonly] { opacity: .6; }

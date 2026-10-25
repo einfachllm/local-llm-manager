@@ -174,3 +174,49 @@ def test_compute_next_run_cron():
     now = local_now().replace(hour=10, minute=0, second=0, microsecond=0)
     nxt = compute_next_run({"cron": "30 12 * * *"}, now)
     assert nxt.startswith(now.date().isoformat()) and "T12:30:00" in nxt
+
+
+def test_tags_roundtrip_and_duplicate(client):
+    r = create(client, tags=[" Qwen3.8 Flash ", "fp4", "qwen3.8   flash", "", "long,ctx"])
+    assert r["tags"] == ["Qwen3.8 Flash", "fp4", "long ctx"]
+    assert client.get("/api/recipes").json()[0]["tags"] == ["Qwen3.8 Flash", "fp4", "long ctx"]
+
+    upd = client.put(f"/api/recipes/{r['id']}", json=recipe_body(tags="a, b ,a")).json()
+    assert upd["tags"] == ["a", "b"]
+
+    dup = client.post(f"/api/recipes/{r['id']}/duplicate").json()
+    assert dup["tags"] == ["a", "b"]
+    assert create(client, name="untagged", host_port=8300)["tags"] == []
+
+
+def test_tags_column_added_to_existing_db(tmp_path):
+    import sqlite3
+
+    from dgxspark_manager.db import Database
+
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.execute("""CREATE TABLE recipes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL DEFAULT '', framework TEXT NOT NULL, image TEXT NOT NULL,
+        model TEXT NOT NULL DEFAULT '', container_name TEXT NOT NULL UNIQUE, host_port INTEGER NOT NULL,
+        container_port INTEGER NOT NULL, command TEXT NOT NULL DEFAULT '', args TEXT NOT NULL DEFAULT '',
+        env TEXT NOT NULL DEFAULT '', volumes TEXT NOT NULL DEFAULT '', docker_args TEXT NOT NULL DEFAULT '',
+        gpus TEXT NOT NULL DEFAULT 'all', health_path TEXT NOT NULL DEFAULT '/health', est_memory_gb REAL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+    conn.execute("""INSERT INTO recipes (name, framework, image, container_name, host_port, container_port,
+        created_at, updated_at) VALUES ('old', 'vllm', 'img', 'old', 8000, 8000, 'x', 'x')""")
+    conn.commit()
+    conn.close()
+
+    db = Database(path)
+    assert db.list_recipes()[0]["tags"] == []
+    db.update_recipe(1, {**db.get_recipe(1), "tags": ["kept"]})
+    assert Database(path).get_recipe(1)["tags"] == ["kept"]
+
+
+def test_host_network_keeps_single_port(client):
+    r = create(client, docker_args="--network host --ipc host", host_port=8082, container_port=8081)
+    assert r["container_port"] == 8082
+    cmd = client.post("/api/recipes/preview", json=recipe_body(docker_args="--net=host", host_port=9000)).json()["command"]
+    assert "--port 9000" in cmd and " -p " not in cmd
+    assert client.post("/api/recipes", json=recipe_body(name="q", docker_args="--x 'oops")).status_code == 422
