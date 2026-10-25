@@ -1,5 +1,8 @@
 # DGX Spark Manager
 
+[![CI](https://github.com/olekslev69/dgxspark-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/olekslev69/dgxspark-manager/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 A small web dashboard that runs on your DGX Spark (or a Mac) and lets you, from any browser on your network:
 
 - **Keep model recipes**: a recipe is everything needed to `docker run` an inference server
@@ -35,9 +38,11 @@ Then open `http://<spark-ip>:8090` and log in with `admin` / your password.
 Other ways to run it:
 
 - **Foreground:** `cp .env.example .env && ./run.sh`
-- **Docker Compose:** `cp .env.example .env && docker compose up -d --build`
-  (mounts the docker socket and uses host networking; `HOME` is passed through so `~` in recipe volumes
-  points at your home on the host).
+- **Docker Compose:** `cp .env.example .env && docker compose up -d` uses the prebuilt image
+  `ghcr.io/olekslev69/dgxspark-manager:latest` (amd64 + arm64, built by CI); add `--build` to build it
+  locally instead. It mounts the docker socket and uses host networking; `HOME` is passed through so `~`
+  in recipe volumes points at your home on the host. In a container, use Docker recipes: native-process
+  recipes would run inside the manager's container, not on the host.
 
 > **Security:** anyone who can open the dashboard can run arbitrary containers on the Spark, which is
 > effectively root. Always set `DGXM_PASSWORD`, and only expose the port on a trusted network
@@ -255,3 +260,15 @@ Layout: `dgxspark_manager/` holds the FastAPI app (`main.py`), recipe → `docke
 (`recipes.py`), script import and its safety check (`importer.py`, `script_check.py`), lifecycle rules (`manager.py`), where things run (`executor.py`: this machine or a remote agent; agent API in
 `agent.py`; native processes in `processes.py`), the scheduler (`scheduler.py`) and its timeline projection (`timeline.py`), SQLite storage (`db.py`)
 and the static UI (`static/`, plain HTML/JS with no build step). Tests use a fake docker client.
+
+### CI
+
+`.github/workflows/ci.yml` runs the tests on Python 3.10, 3.12 and 3.13 for every push and pull request,
+then builds the Docker image for `linux/amd64` and `linux/arm64` and smoke-tests it. On `main` it pushes
+`ghcr.io/olekslev69/dgxspark-manager:latest` (plus a `sha-…` tag); a git tag `v1.2.3` also publishes
+`1.2.3` and `1.2`. Pull requests only build. After the first push, check the package's visibility under
+*GitHub → Packages*, if it should be pullable without `docker login ghcr.io`.
+
+## License
+
+Apache License 2.0 – see [LICENSE](LICENSE) and [NOTICE](NOTICE).
