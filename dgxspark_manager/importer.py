@@ -1,14 +1,16 @@
 """Turn a pasted starter script or `docker run` command into a recipe draft.
 
 Rather than parsing bash (defaults, conditionals, arrays, computed JSON), the text is executed by
-bash with a fake `docker` first on PATH that records the argv of `docker run`. That argv is then
-split into the recipe fields.
+bash with a PATH holding only a few read-only text tools and a fake `docker` that records the argv
+of `docker run`; every other command is recorded and skipped. The argv is then split into the
+recipe fields.
 """
 
 import asyncio
 import os
 import re
 import shlex
+import shutil
 import signal
 import tempfile
 from pathlib import Path
@@ -18,22 +20,35 @@ from .recipes import FRAMEWORKS
 
 RUN_TIMEOUT = 20
 
-# Fake commands. `docker run` records its argv (NUL-separated) and every other docker subcommand
-# is a silent no-op, so checks like `docker ps -q -f name=...` see "nothing there".
-SHIMS = {
-    "docker": """#!/bin/sh
+# The only external programs the script may really run during import: read-only text tools that
+# starter scripts use to compute values. Anything else found by PATH lookup is recorded and skipped
+# by bash's command_not_found_handle (it returns 0, so `set -e` scripts keep going). `docker` is a
+# fake that records `docker run`. Programs called by absolute path bypass this, which is why the
+# static check (script_check.py) flags them before import.
+ALLOWED_TOOLS = (
+    "awk", "gawk", "mawk", "sed", "grep", "egrep", "fgrep", "cut", "tr", "head", "tail", "wc",
+    "sort", "uniq", "basename", "dirname", "realpath", "readlink", "date", "printf", "echo",
+    "cat", "seq", "expr", "bc", "id", "whoami", "hostname", "uname", "nproc", "getconf", "true",
+    "false", "test", "[", "bash", "numfmt", "rev", "paste", "column",
+)
+
+DOCKER_SHIM = """#!{bash}
 if [ "$1" = "run" ]; then
   shift
   : > "$DGXM_CAPTURE"
   for a in "$@"; do printf '%s\\0' "$a" >> "$DGXM_CAPTURE"; done
+else
+  printf '%q ' docker "$@" >> "$DGXM_SKIPPED"; printf '\\n' >> "$DGXM_SKIPPED"
 fi
 exit 0
-""",
-    "sudo": "#!/bin/sh\nexit 1\n",
-    "sleep": "#!/bin/sh\nexit 0\n",
-    "curl": "#!/bin/sh\nexit 1\n",
-    "wget": "#!/bin/sh\nexit 1\n",
+"""
+
+# Loaded by every bash started for the import (BASH_ENV), including nested `bash -c`.
+PRELUDE = """command_not_found_handle() {
+  printf '%q ' "$@" >> "$DGXM_SKIPPED"; printf '\\n' >> "$DGXM_SKIPPED"
+  return 0
 }
+"""
 
 # docker run options that take a value (the rest of the options are boolean flags).
 VALUE_OPTS = {
@@ -56,28 +71,42 @@ class ScriptImportError(Exception):
     pass
 
 
-async def capture_docker_run(script: str) -> tuple[list[str], str]:
-    """Run the script with the docker shim. Returns (argv after `docker run`, script output)."""
+async def capture_docker_run(script: str) -> tuple[list[str], str, list[str]]:
+    """Run the script with only ALLOWED_TOOLS available.
+
+    Returns (argv after `docker run`, script output, skipped command lines).
+    """
+    bash = shutil.which("bash") or "/bin/bash"
     with tempfile.TemporaryDirectory(prefix="dgxm-import-") as tmp:
         tmpdir = Path(tmp)
         bindir = tmpdir / "bin"
         bindir.mkdir()
-        for name, body in SHIMS.items():
-            p = bindir / name
-            p.write_text(body)
-            p.chmod(0o755)
+        for tool in ALLOWED_TOOLS:
+            real = shutil.which(tool)
+            if real:
+                (bindir / tool).symlink_to(real)
+        shim = bindir / "docker"
+        shim.write_text(DOCKER_SHIM.format(bash=bash))
+        shim.chmod(0o755)
+        prelude = tmpdir / "prelude.sh"
+        prelude.write_text(PRELUDE)
         script_path = tmpdir / "script.sh"
         script_path.write_text(script)
         capture = tmpdir / "capture"
+        skipped_log = tmpdir / "skipped"
+        work = tmpdir / "work"
+        work.mkdir()
         env = {
-            "PATH": f"{bindir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+            "PATH": str(bindir),
             "HOME": os.path.expanduser("~"),
             "USER": os.environ.get("USER", ""),
             "LANG": os.environ.get("LANG", "C.UTF-8"),
+            "BASH_ENV": str(prelude),
             "DGXM_CAPTURE": str(capture),
+            "DGXM_SKIPPED": str(skipped_log),
         }
         proc = await asyncio.create_subprocess_exec(
-            "bash", str(script_path), cwd=tmp, env=env,
+            bash, str(script_path), cwd=work, env=env,
             stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT, start_new_session=True,
         )
@@ -88,13 +117,21 @@ async def capture_docker_run(script: str) -> tuple[list[str], str]:
             await proc.wait()
             out = b""
         output = out.decode(errors="replace")[-4000:]
+        skipped = []
+        if skipped_log.exists():
+            for line in skipped_log.read_text(errors="replace").splitlines():
+                line = line.strip()
+                if line and line not in skipped:
+                    skipped.append(line[:300])
         if not capture.exists():
             raise ScriptImportError(
                 "No `docker run` was executed by the script. Paste a script or command that starts "
-                "the model with `docker run`." + (f"\n\nScript output:\n{output.strip()}" if output.strip() else "")
+                "the model with `docker run`."
+                + (f"\n\nSkipped commands:\n" + "\n".join(skipped[:20]) if skipped else "")
+                + (f"\n\nScript output:\n{output.strip()}" if output.strip() else "")
             )
         raw = capture.read_bytes().split(b"\0")
-        return [a.decode(errors="replace") for a in raw[:-1]], output
+        return [a.decode(errors="replace") for a in raw[:-1]], output, skipped
 
 
 def _tildify(path: str) -> str:
@@ -297,6 +334,6 @@ def description_from_script(script: str) -> str:
 
 
 async def import_script(script: str) -> dict[str, Any]:
-    argv, output = await capture_docker_run(script)
+    argv, output, skipped = await capture_docker_run(script)
     recipe, warnings = recipe_from_argv(argv, description_from_script(script))
-    return {"recipe": recipe, "warnings": warnings, "docker_argv": argv}
+    return {"recipe": recipe, "warnings": warnings, "docker_argv": argv, "skipped_calls": skipped}

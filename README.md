@@ -84,10 +84,9 @@ are remembered in the browser.
 ### Importing a starter script
 
 In the recipe editor, **Import script…** takes a starter script (or a plain `docker run …` command) and
-fills the form from it. The script is not parsed as text: bash runs it on the Spark with a fake `docker`
-first on `PATH` that only records the final `docker run` arguments, so defaults like `${PORT:-8081}`,
-`if`/`case` branches and computed values (e.g. a generated `--hf-overrides` JSON) come out exactly as
-the script would have run them. The recorded command is then split up:
+fills the form from it. The script is not parsed as text: bash runs it so that defaults like
+`${PORT:-8081}`, `if`/`case` branches and computed values (e.g. a generated `--hf-overrides` JSON) come
+out exactly as the script would have run them. The resulting `docker run` command is then split up:
 
 - `-e` → Environment (an empty `KEY=` becomes a bare `KEY`, passed through from the manager's environment),
   `-v` → Volumes (your home directory becomes `~`), `--gpus`, `--name`, `-p` → ports;
@@ -98,8 +97,22 @@ the script would have run them. The recorded command is then split up:
   `--model` / `--model-path`.
 - With `--network host`, no `-p` is added and host port = the server's `--port`.
 
-Other commands in the script do run (with `sudo`, `curl`, `wget` and `sleep` stubbed out, and a 20 s
-limit), so only import scripts you trust. Review the fields and the command preview before saving.
+**Safety.** Importing happens in two layers:
+
+1. **Check (static, nothing runs).** *Check script* lists unusual calls with line numbers:
+   *high risk* for things the restricted run below cannot block (programs called by absolute path like
+   `/bin/rm`, writing files outside the import folder, changing `PATH`, `/dev/tcp`, `curl | sh`,
+   `awk system()`, `sed -i`); *unusual* for `rm`, `curl`, `sudo`, `ssh`, `pip install`, `python -c`, …;
+   *notes* for `docker ps/rm/logs`, `eval`, `source`. Text inside quotes (e.g. `echo "run sudo …"`) is
+   ignored. An import with high-risk findings is refused unless you tick "I trust this script"
+   (and that is logged in Activity).
+2. **Restricted run.** `PATH` only contains read-only text tools (`awk`, `sed`, `grep`, `cut`, `tr`,
+   `date`, `cat`, …) and a fake `docker` that records `docker run`. Every other command (`rm`, `curl`,
+   `mkdir`, `nvidia-smi`, `docker ps`, …) is **recorded and skipped, not executed**; the editor then
+   lists what was skipped. A 20 s time limit applies.
+
+The check is a line-based heuristic, not a full shell parser, and the restricted run is not a sandbox
+(a trusted high-risk script can still do anything your user can). Only import scripts you trust.
 
 ## Schedules
 
@@ -156,5 +169,5 @@ DGXM_DB=/tmp/dev.db python -m dgxspark_manager.main
 ```
 
 Layout: `dgxspark_manager/` holds the FastAPI app (`main.py`), recipe → `docker run` translation
-(`recipes.py`), script import (`importer.py`), lifecycle logic (`manager.py`), the scheduler (`scheduler.py`) and its timeline projection (`timeline.py`), SQLite storage (`db.py`)
+(`recipes.py`), script import and its safety check (`importer.py`, `script_check.py`), lifecycle logic (`manager.py`), the scheduler (`scheduler.py`) and its timeline projection (`timeline.py`), SQLite storage (`db.py`)
 and the static UI (`static/`, plain HTML/JS with no build step). Tests use a fake docker client.
