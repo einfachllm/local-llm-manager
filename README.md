@@ -196,6 +196,12 @@ out exactly as the script would have run them. The resulting `docker run` comman
    `mkdir`, `nvidia-smi`, `docker ps`, …) is **recorded and skipped, not executed**; the editor then
    lists what was skipped. A 20 s time limit applies.
 
+**Scripts with preflight checks.** The import runs the script on the dashboard's machine, which may not
+have the model folder, `nvidia-smi` etc. If a script stops before its `docker run` (e.g.
+`[ -f "$MODEL_DIR/config.json" ] || exit 1` under `set -e`), the import runs it once more in a lenient
+mode where `exit` and `set -e` are ignored, imports what it then starts, and lists the checks that failed
+in the editor so you can review them.
+
 The check is a line-based heuristic, not a full shell parser, and the restricted run is not a sandbox
 (once you confirm, the calls marked *not blocked* really run with your user's rights). Only import scripts you trust.
 
