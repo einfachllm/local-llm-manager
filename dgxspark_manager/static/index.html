@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DGX Spark Manager</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">DGX Spark <span>Manager</span></div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="recipes">Recipes</button>
+      <button class="tab" data-tab="schedules">Schedules</button>
+      <button class="tab" data-tab="activity">Activity</button>
+    </nav>
+    <div class="sys" id="sys">
+      <div class="mem">
+        <div class="mem-label"><span>Memory</span><span id="mem-text">–</span></div>
+        <div class="bar"><div class="bar-fill" id="mem-bar"></div></div>
+      </div>
+      <div class="gpu" id="gpu-text">GPU –</div>
+      <button class="btn small ghost" id="btn-free" title="Stop all models and drop the page cache">Free memory</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="tab-recipes" class="panel">
+      <div class="panel-head">
+        <h2>Model recipes</h2>
+        <button class="btn primary" id="btn-new-recipe">+ New recipe</button>
+      </div>
+      <div class="grid" id="recipes"></div>
+    </section>
+
+    <section id="tab-schedules" class="panel hidden">
+      <div class="panel-head">
+        <h2>Schedules</h2>
+        <button class="btn primary" id="btn-new-schedule">+ New schedule</button>
+      </div>
+      <p class="hint">Times are in the Spark's local time zone. A "switch" stops every other model, drops the page cache, then starts the chosen one.</p>
+      <table class="table">
+        <thead><tr><th>On</th><th>Name</th><th>Action</th><th>When</th><th>Next run</th><th>Last run</th><th></th></tr></thead>
+        <tbody id="schedules"></tbody>
+      </table>
+    </section>
+
+    <section id="tab-activity" class="panel hidden">
+      <div class="panel-head"><h2>Activity</h2><button class="btn ghost" id="btn-refresh-events">Refresh</button></div>
+      <table class="table">
+        <thead><tr><th>Time</th><th>Source</th><th>Action</th><th>Target</th><th>Result</th></tr></thead>
+        <tbody id="events"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- Recipe editor -->
+  <dialog id="dlg-recipe" class="dialog wide">
+    <form id="form-recipe" method="dialog">
+      <div class="dialog-head"><h3 id="recipe-title">Recipe</h3><button type="button" class="x" data-close>&times;</button></div>
+      <div class="form-grid">
+        <label>Name<input name="name" required></label>
+        <label>Framework<select name="framework" id="sel-framework"></select></label>
+        <label class="span2">Description<input name="description"></label>
+        <label class="span2">Docker image<input name="image" required></label>
+        <label class="span2">Model (HF id or path inside container)<input name="model" placeholder="org/model-name"></label>
+        <label>Container name<input name="container_name" placeholder="derived from name"></label>
+        <label>GPUs (--gpus)<input name="gpus" placeholder="all"></label>
+        <label>Host port<input name="host_port" type="number" min="1" max="65535" required></label>
+        <label>Container port<input name="container_port" type="number" min="1" max="65535" required></label>
+        <label>Health path<input name="health_path" placeholder="/health"></label>
+        <label>Est. memory (GB)<input name="est_memory_gb" type="number" step="0.1" min="0"></label>
+        <label class="span2">Command <small>placeholders: {model} {port} {host_port} {name}</small>
+          <input name="command" class="mono"></label>
+        <label class="span2">Framework arguments <small>one or more per line, # for comments</small>
+          <textarea name="args" rows="6" class="mono"></textarea></label>
+        <label>Environment <small>KEY=value per line; bare KEY passes it through</small>
+          <textarea name="env" rows="3" class="mono"></textarea></label>
+        <label>Volumes <small>host:container per line</small>
+          <textarea name="volumes" rows="3" class="mono"></textarea></label>
+        <label class="span2">Extra docker run flags
+          <input name="docker_args" class="mono"></label>
+      </div>
+      <div class="preview">
+        <div class="preview-head">Command preview</div>
+        <pre id="recipe-preview" class="mono"></pre>
+      </div>
+      <div class="error" id="recipe-error"></div>
+      <div class="dialog-foot">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Logs -->
+  <dialog id="dlg-logs" class="dialog full">
+    <div class="dialog-head">
+      <h3 id="logs-title">Logs</h3>
+      <div class="logs-tools">
+        <input id="logs-filter" placeholder="Filter…">
+        <label class="check"><input type="checkbox" id="logs-follow" checked> Auto-scroll</label>
+        <button class="btn small ghost" id="logs-clear">Clear</button>
+        <button class="btn small ghost" id="logs-download">Download</button>
+        <span class="pill" id="logs-state">connecting</span>
+      </div>
+      <button type="button" class="x" data-close>&times;</button>
+    </div>
+    <pre id="logs" class="logs mono"></pre>
+  </dialog>
+
+  <!-- Schedule editor -->
+  <dialog id="dlg-schedule" class="dialog">
+    <form id="form-schedule" method="dialog">
+      <div class="dialog-head"><h3 id="schedule-title">Schedule</h3><button type="button" class="x" data-close>&times;</button></div>
+      <div class="form-grid">
+        <label class="span2">Name<input name="name" required></label>
+        <label>Action<select name="action" id="sel-action"></select></label>
+        <label id="lbl-recipe">Recipe<select name="recipe_id" id="sel-recipe"></select></label>
+        <label class="span2">When
+          <select id="sel-when">
+            <option value="weekly">Repeat at a time of day</option>
+            <option value="cron">Repeat (cron expression)</option>
+            <option value="once">Once</option>
+          </select>
+        </label>
+        <div class="span2 when" data-when="weekly">
+          <label>Time<input type="time" id="in-time" value="22:00"></label>
+          <div class="days" id="days"></div>
+        </div>
+        <label class="span2 when" data-when="cron">Cron (min hour day month weekday)
+          <input id="in-cron" class="mono" placeholder="0 22 * * 1-5"></label>
+        <label class="span2 when" data-when="once">Date and time<input type="datetime-local" id="in-once"></label>
+        <label class="check span2"><input type="checkbox" name="enabled" checked> Enabled</label>
+      </div>
+      <div class="error" id="schedule-error"></div>
+      <div class="dialog-foot">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
