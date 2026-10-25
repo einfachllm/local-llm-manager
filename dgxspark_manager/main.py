@@ -7,6 +7,7 @@ import re
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -21,7 +22,8 @@ from .docker import Docker
 from .importer import ScriptImportError, import_script
 from .manager import ActionError, Manager
 from .recipes import CARD_COLORS, FRAMEWORKS, build_run_argv, format_command, split_args, uses_host_network
-from .scheduler import ACTIONS, Scheduler, compute_next_run, parse_time, validate_cron
+from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
+from .timeline import build_timeline
 
 STATIC_DIR = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
@@ -348,6 +350,15 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     @app.get("/api/schedules")
     async def list_schedules():
         return db.list_schedules()
+
+    @app.get("/api/schedules/timeline")
+    async def schedule_timeline(hours: int = 168):
+        """Which model runs when over the next `hours`, if every scheduled action succeeds."""
+        start = local_now().replace(second=0, microsecond=0)
+        end = start + timedelta(hours=max(1, min(hours, 24 * 31)))
+        recipes = await manager.recipes_with_status()
+        running = {r["id"] for r in recipes if r["status"] in ("ready", "loading", "starting")}
+        return build_timeline(db.list_schedules(), recipes, running, start, end)
 
     @app.post("/api/schedules", status_code=201)
     async def create_schedule(body: ScheduleIn):
