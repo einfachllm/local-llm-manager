@@ -100,3 +100,8 @@ mlx_lm.server --model m/z --port 8099
     msgs = risks(script)
     assert any(m.startswith("Activates a Python environment") for m in msgs)
     assert any(m.startswith("command -p") and "not blocked" in m for m in msgs)
+
+
+def test_docker_rm_is_not_file_deletion():
+    assert risks('docker rm -f "$CONTAINER_NAME" >/dev/null') == []
+    assert risks("rm -f ./x") == ["rm deletes files – skipped during import"]
