@@ -99,20 +99,19 @@ out exactly as the script would have run them. The resulting `docker run` comman
 
 **Safety.** Importing happens in two layers:
 
-1. **Check (static, nothing runs).** *Check script* lists unusual calls with line numbers:
-   *high risk* for things the restricted run below cannot block (programs called by absolute path like
-   `/bin/rm`, writing files outside the import folder, changing `PATH`, `/dev/tcp`, `curl | sh`,
-   `awk system()`, `sed -i`); *unusual* for `rm`, `curl`, `sudo`, `ssh`, `pip install`, `python -c`, …;
-   *notes* for `docker ps/rm/logs`, `eval`, `source`. Text inside quotes (e.g. `echo "run sudo …"`) is
-   ignored. An import with high-risk findings is refused unless you tick "I trust this script"
-   (and that is logged in Activity).
+1. **Check (static, nothing runs).** *Check script* lists every risky call with its line number, in
+   one list. Each entry says whether it is *skipped during import* (`rm`, `curl`, `sudo`, `ssh`,
+   `pip install`, `python -c`, `mkdir`, …) or *not blocked during import* (programs called by absolute
+   path like `/bin/rm`, writing to files, changing `PATH`, `/dev/tcp`, `curl | sh`, `awk system()`,
+   `sed -i`). Text inside quotes (e.g. `echo "run sudo …"`) is ignored. If any risk is found, the import
+   needs a tick on "I have reviewed the risks and trust this script" (logged in Activity).
 2. **Restricted run.** `PATH` only contains read-only text tools (`awk`, `sed`, `grep`, `cut`, `tr`,
    `date`, `cat`, …) and a fake `docker` that records `docker run`. Every other command (`rm`, `curl`,
    `mkdir`, `nvidia-smi`, `docker ps`, …) is **recorded and skipped, not executed**; the editor then
    lists what was skipped. A 20 s time limit applies.
 
 The check is a line-based heuristic, not a full shell parser, and the restricted run is not a sandbox
-(a trusted high-risk script can still do anything your user can). Only import scripts you trust.
+(once you confirm, the calls marked *not blocked* really run with your user's rights). Only import scripts you trust.
 
 ## Schedules
 

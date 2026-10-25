@@ -38,14 +38,14 @@ if [ "$1" = "run" ]; then
   : > "$DGXM_CAPTURE"
   for a in "$@"; do printf '%s\\0' "$a" >> "$DGXM_CAPTURE"; done
 else
-  printf '%q ' docker "$@" >> "$DGXM_SKIPPED"; printf '\\n' >> "$DGXM_SKIPPED"
+  printf '%s\\0' docker "$@" >> "$DGXM_SKIPPED"; printf '\\036' >> "$DGXM_SKIPPED"
 fi
 exit 0
 """
 
 # Loaded by every bash started for the import (BASH_ENV), including nested `bash -c`.
 PRELUDE = """command_not_found_handle() {
-  printf '%q ' "$@" >> "$DGXM_SKIPPED"; printf '\\n' >> "$DGXM_SKIPPED"
+  printf '%s\\0' "$@" >> "$DGXM_SKIPPED"; printf '\\036' >> "$DGXM_SKIPPED"
   return 0
 }
 """
@@ -119,10 +119,12 @@ async def capture_docker_run(script: str) -> tuple[list[str], str, list[str]]:
         output = out.decode(errors="replace")[-4000:]
         skipped = []
         if skipped_log.exists():
-            for line in skipped_log.read_text(errors="replace").splitlines():
-                line = line.strip()
+            # Records are separated by \x1e, arguments by NUL.
+            for record in skipped_log.read_bytes().split(b"\x1e"):
+                args = [a.decode(errors="replace") for a in record.split(b"\0")[:-1]]
+                line = shlex.join(args)[:300] if args else ""
                 if line and line not in skipped:
-                    skipped.append(line[:300])
+                    skipped.append(line)
         if not capture.exists():
             raise ScriptImportError(
                 "No `docker run` was executed by the script. Paste a script or command that starts "
