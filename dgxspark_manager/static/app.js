@@ -220,6 +220,7 @@ function openRecipeEditor(r) {
   editingRecipe = r;
   recipeForm.reset();
   $("#recipe-error").textContent = "";
+  showRecipeNote([]);
   $("#recipe-title").textContent = r ? `Edit recipe – ${r.name}` : "New recipe";
   if (r) {
     fillRecipeForm(r);
@@ -275,6 +276,47 @@ recipeForm.addEventListener("submit", async (ev) => {
     }
   } catch (e) {
     $("#recipe-error").textContent = e.message;
+  }
+});
+
+/* ---------------- import ---------------- */
+
+function showRecipeNote(lines) {
+  const note = $("#recipe-note");
+  note.textContent = lines.join("\n");
+  note.classList.toggle("hidden", !lines.length);
+}
+
+$("#btn-import").addEventListener("click", () => {
+  $("#import-error").textContent = "";
+  $("#dlg-import").showModal();
+  $("#import-text").focus();
+});
+
+$("#form-import").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const btn = $("#btn-import-go");
+  btn.disabled = true;
+  btn.textContent = "Parsing…";
+  try {
+    const res = await api("/api/recipes/import", { method: "POST", body: { text: $("#import-text").value } });
+    const r = res.recipe;
+    if (editingRecipe) {
+      // Re-importing into an existing recipe keeps its identity.
+      r.name = editingRecipe.name;
+      r.container_name = editingRecipe.container_name;
+      r.description = r.description || editingRecipe.description;
+      r.est_memory_gb = editingRecipe.est_memory_gb;
+    }
+    fillRecipeForm(r);
+    showRecipeNote(["Imported – review the fields and the command preview, then save.", ...res.warnings.map((w) => `• ${w}`)]);
+    $("#dlg-import").close();
+    updatePreview();
+  } catch (e) {
+    $("#import-error").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Parse into form";
   }
 });
 

@@ -57,7 +57,12 @@
   <!-- Recipe editor -->
   <dialog id="dlg-recipe" class="dialog wide">
     <form id="form-recipe" method="dialog">
-      <div class="dialog-head"><h3 id="recipe-title">Recipe</h3><button type="button" class="x" data-close>&times;</button></div>
+      <div class="dialog-head">
+        <h3 id="recipe-title">Recipe</h3>
+        <button type="button" class="btn small" id="btn-import" title="Fill this form from a starter script or docker run command">Import script…</button>
+        <button type="button" class="x" data-close>&times;</button>
+      </div>
+      <div class="note hidden" id="recipe-note"></div>
       <div class="form-grid">
         <label>Name<input name="name" required></label>
         <label>Framework<select name="framework" id="sel-framework"></select></label>
@@ -89,6 +94,25 @@
       <div class="dialog-foot">
         <button type="button" class="btn ghost" data-close>Cancel</button>
         <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Import -->
+  <dialog id="dlg-import" class="dialog wide">
+    <form id="form-import" method="dialog">
+      <div class="dialog-head"><h3>Import from script or docker run</h3><button type="button" class="x" data-close>&times;</button></div>
+      <div class="import-body">
+        <p class="hint">Paste a starter script or a <code>docker run …</code> command. It is executed by bash on the Spark with
+          a fake <code>docker</code> that only records the final <code>docker run</code> command (with all defaults and
+          conditions resolved), which is then split into the recipe fields. Other commands in the script run for real,
+          except <code>sudo</code>, <code>curl</code>, <code>wget</code> and <code>sleep</code>.</p>
+        <textarea id="import-text" rows="18" class="mono" placeholder="#!/usr/bin/env bash&#10;...&#10;docker run --gpus all ... vllm/vllm-openai ... --model org/name"></textarea>
+      </div>
+      <div class="error" id="import-error"></div>
+      <div class="dialog-foot">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary" id="btn-import-go">Parse into form</button>
       </div>
     </form>
   </dialog>

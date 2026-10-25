@@ -67,6 +67,26 @@ Status values: **Stopped**, **Starting**, **Loading model** (container up, healt
 
 Stopping keeps the stopped container so its logs stay readable; the next start removes and re-creates it.
 
+### Importing a starter script
+
+In the recipe editor, **Import script…** takes a starter script (or a plain `docker run …` command) and
+fills the form from it. The script is not parsed as text: bash runs it on the Spark with a fake `docker`
+first on `PATH` that only records the final `docker run` arguments, so defaults like `${PORT:-8081}`,
+`if`/`case` branches and computed values (e.g. a generated `--hf-overrides` JSON) come out exactly as
+the script would have run them. The recorded command is then split up:
+
+- `-e` → Environment (an empty `KEY=` becomes a bare `KEY`, passed through from the manager's environment),
+  `-v` → Volumes (your home directory becomes `~`), `--gpus`, `--name`, `-p` → ports;
+  all other docker options (`--network host`, `--entrypoint`, `--shm-size`, …) → Extra docker flags.
+  `-d`, `--rm`, `-it` are dropped because the manager runs containers detached itself.
+- The container command is split into **Command** (`serve {model} --host … --port {port}`) and one
+  **Framework arguments** line per flag. The model is the argument after `serve`, or the value of
+  `--model` / `--model-path`.
+- With `--network host`, no `-p` is added and host port = the server's `--port`.
+
+Other commands in the script do run (with `sudo`, `curl`, `wget` and `sleep` stubbed out, and a 20 s
+limit), so only import scripts you trust. Review the fields and the command preview before saving.
+
 ## Schedules
 
 Times use the Spark's local time zone. Each schedule is either a repeat (pick a time and weekdays,
@@ -115,5 +135,5 @@ DGXM_DB=/tmp/dev.db python -m dgxspark_manager.main
 ```
 
 Layout: `dgxspark_manager/` holds the FastAPI app (`main.py`), recipe → `docker run` translation
-(`recipes.py`), lifecycle logic (`manager.py`), the scheduler (`scheduler.py`), SQLite storage (`db.py`)
+(`recipes.py`), script import (`importer.py`), lifecycle logic (`manager.py`), the scheduler (`scheduler.py`), SQLite storage (`db.py`)
 and the static UI (`static/`, plain HTML/JS with no build step). Tests use a fake docker client.
