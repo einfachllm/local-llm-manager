@@ -229,3 +229,18 @@ def test_card_color(client):
     assert client.post("/api/recipes", json=recipe_body(name="x", color="chartreuse")).status_code == 422
     assert client.post(f"/api/recipes/{r['id']}/duplicate").json()["color"] == "green"
     assert "black" in client.get("/api/meta").json()["colors"]
+
+
+def test_start_refuses_port_used_by_foreign_program(client, fake_docker):
+    import socket
+
+    with socket.socket() as srv:
+        srv.bind(("127.0.0.1", 0))
+        srv.listen()
+        port = srv.getsockname()[1]
+        r = create(client, host_port=port)
+        res = client.post(f"/api/recipes/{r['id']}/start")
+        assert res.status_code == 409 and f"Port {port}" in res.json()["detail"] and "did not start" in res.json()["detail"]
+        assert not fake_docker.containers
+    # Once the other program is gone, it starts.
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200

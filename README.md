@@ -118,6 +118,18 @@ Status values: **Stopped**, **Starting**, **Loading model** (container up, healt
 
 Stopping keeps the stopped container so its logs stay readable; the next start removes and re-creates it.
 
+### Ports and endpoints
+
+Each recipe has a port per host; a running model's API is at `http://<host>:<port>/v1`.
+
+- **Hosts → Ports & endpoints** lists every recipe by host and port, with status, its endpoint and a
+  Copy button. Recipes sharing a port on the same host are marked *shared* (only one of them can run).
+- In the editor, the port field says whether another recipe on that host uses the port (and whether it is
+  running), and **Next free** picks the first port from 8100 that no recipe on that host uses.
+- Start is refused if a running recipe on the same host has the port, or if *any other program* is
+  already listening on it on that host (e.g. a model started by hand), with a message saying so.
+- The same port can be used on different hosts.
+
 ### Native processes
 
 A recipe's **Runtime** is either *Docker container* or *Native process*. Native recipes run the

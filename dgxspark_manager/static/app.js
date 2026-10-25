@@ -112,6 +112,7 @@ function renderHostOptions() {
 }
 
 function renderHosts() {
+  renderPorts();
   const running = (id) => state.recipes.filter((r) => r.host_id === id && RUNNING.includes(r.status)).length;
   const total = (id) => state.recipes.filter((r) => r.host_id === id).length;
   $("#hosts").innerHTML = state.hosts.map((h) => {
@@ -269,7 +270,7 @@ function cardHtml(r) {
         ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
         <dl class="kv">
           <dt>Model</dt><dd>${esc(r.model || "–")}</dd>
-          <dt>Endpoint</dt><dd>${running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(url)}/v1</a>` : `:${r.host_port}`}</dd>
+          <dt>Endpoint</dt><dd>${running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(url)}/v1</a>` : `<span class="muted">${esc(url)}/v1</span>`}</dd>
           <dt>${r.runtime === "process" ? "Name" : "Container"}</dt><dd>${esc(r.container_name)}</dd>
           ${r.est_memory_gb ? `<dt>Est. memory</dt><dd>${r.est_memory_gb} GB</dd>` : ""}
           ${r.container ? `<dt>${r.runtime === "process" ? "Process" : "Docker"}</dt><dd>${esc(r.container.status)}</dd>` : ""}
@@ -471,12 +472,67 @@ function applyFramework(name, overwriteAll) {
   syncRuntime();
 }
 
-function nextFreePort() {
-  const used = new Set(state.recipes.map((r) => r.host_port));
+// Ports are per host: the same port may be used on two different machines.
+function recipesOnPort(hostId, port, exceptId) {
+  return state.recipes.filter((r) => r.host_id === Number(hostId) && r.host_port === Number(port) && r.id !== exceptId);
+}
+
+function nextFreePort(hostId) {
+  const used = new Set(state.recipes.filter((r) => r.host_id === Number(hostId)).map((r) => r.host_port));
   let p = 8100;
   while (used.has(p)) p++;
   return p;
 }
+
+function updatePortHint() {
+  const f = recipeForm.elements;
+  const hint = $("#port-hint");
+  const port = Number(f.host_port.value);
+  if (!port) { hint.textContent = ""; hint.className = "port-hint"; return; }
+  const others = recipesOnPort(f.host_id.value, port, editingRecipe?.id);
+  const where = multiHost() ? ` on ${hostName(f.host_id.value)}` : "";
+  if (!others.length) {
+    hint.textContent = `No other recipe uses port ${port}${where}.`;
+    hint.className = "port-hint ok";
+    return;
+  }
+  const running = others.filter((r) => RUNNING.includes(r.status));
+  hint.textContent = running.length
+    ? `Port ${port}${where} is in use by running “${running.map((r) => r.name).join("”, “")}” – this recipe can't start while it runs.`
+    : `Also used by “${others.map((r) => r.name).join("”, “")}”${where} – only one of them can run at a time.`;
+  hint.className = `port-hint ${running.length ? "bad" : "warn"}`;
+}
+
+$("#btn-next-port").addEventListener("click", () => {
+  recipeForm.elements.host_port.value = nextFreePort(recipeForm.elements.host_id.value);
+  recipeForm.dispatchEvent(new Event("input"));
+});
+
+function endpointUrl(r) { return `http://${endpointHost(r.host_id)}:${r.host_port}/v1`; }
+
+function renderPorts() {
+  const order = (r) => state.hosts.findIndex((h) => h.id === r.host_id);
+  const rows = [...state.recipes].sort((a, b) => order(a) - order(b) || a.host_port - b.host_port || byName(a, b));
+  $("#ports").innerHTML = rows.length ? rows.map((r) => {
+    const shared = recipesOnPort(r.host_id, r.host_port, r.id);
+    const running = RUNNING.includes(r.status);
+    return `<tr>
+      <td>${esc(hostName(r.host_id))}</td>
+      <td class="mono">${r.host_port}${shared.length ? ` <span class="chip small warn-chip" title="Also used by: ${esc(shared.map((x) => x.name).join(", "))}">shared</span>` : ""}</td>
+      <td>${esc(r.name)}</td>
+      <td><span class="pill ${r.status}">${STATUS_LABEL[r.status] ?? r.status}</span></td>
+      <td class="mono">${running ? `<a href="${esc(endpointUrl(r))}/models" target="_blank" rel="noopener">${esc(endpointUrl(r))}</a>` : `<span class="muted">${esc(endpointUrl(r))}</span>`}
+        <button class="btn small ghost copy" data-copy="${esc(endpointUrl(r))}" title="Copy endpoint">Copy</button></td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="5" class="empty">No recipes yet.</td></tr>`;
+}
+
+$("#ports").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("[data-copy]");
+  if (!b) return;
+  try { await navigator.clipboard.writeText(b.dataset.copy); toast("Endpoint copied", "ok"); }
+  catch { prompt("Copy the endpoint:", b.dataset.copy); }
+});
 
 function openRecipeEditor(r) {
   editingRecipe = r;
@@ -497,10 +553,11 @@ function openRecipeEditor(r) {
     // On a Mac, containers have no GPU access, so native MLX is the sensible default.
     const mac = hostPlatform(hostId) === "darwin";
     recipeForm.elements.gpus.value = mac ? "" : "all";
-    recipeForm.elements.host_port.value = nextFreePort();
+    recipeForm.elements.host_port.value = nextFreePort(recipeForm.elements.host_id.value);
     applyFramework(mac ? "mlx" : "vllm", true);
   }
   syncHostNetworkPorts();
+  updatePortHint();
   updatePreview();
   $("#dlg-recipe").showModal();
 }
@@ -508,6 +565,7 @@ function openRecipeEditor(r) {
 $("#btn-new-recipe").addEventListener("click", () => openRecipeEditor(null));
 
 $("#sel-host").addEventListener("change", (e) => {
+  updatePortHint();
   // New recipe moved to a Mac: switch to native MLX (Docker on macOS has no GPU access).
   if (!editingRecipe && hostPlatform(e.target.value) === "darwin" && recipeForm.elements.runtime.value === "docker") {
     recipeForm.elements.gpus.value = "";
@@ -540,6 +598,7 @@ function syncHostNetworkPorts() {
 
 recipeForm.addEventListener("input", () => {
   syncHostNetworkPorts();
+  updatePortHint();
   clearTimeout(previewTimer);
   previewTimer = setTimeout(updatePreview, 250);
 });
