@@ -107,9 +107,25 @@ def normalize_tags(tags: Any) -> list[str]:
     return out
 
 
+# NOT NULL columns with a schema default; a missing or None input value would
+# otherwise be inserted as NULL and violate the constraint (create_recipe and
+# update_recipe always write the full RECIPE_FIELDS list).
+RECIPE_DEFAULTS = {
+    "description": "", "framework": "", "image": "", "model": "",
+    "command": "", "args": "", "env": "", "volumes": "", "docker_args": "",
+    "gpus": "all", "health_path": "/health", "color": "", "runtime": "docker",
+}
+
+
 def _recipe_values(data: dict[str, Any]) -> tuple:
     # Tags are stored as a comma-separated string and exposed as a list.
-    return tuple(",".join(normalize_tags(data.get(f))) if f == "tags" else data.get(f) for f in RECIPE_FIELDS)
+    def value(field: str) -> Any:
+        v = data.get(field)
+        if v is None and field in RECIPE_DEFAULTS:
+            return RECIPE_DEFAULTS[field]
+        return v
+
+    return tuple(",".join(normalize_tags(value(f))) if f == "tags" else value(f) for f in RECIPE_FIELDS)
 
 
 def _recipe_out(row: dict, local_host_id: int) -> dict:

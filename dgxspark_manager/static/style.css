@@ -71,6 +71,10 @@ main { padding: 24px; max-width: 1500px; margin: 0 auto; }
 .card-head { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
 .card-title { font-weight: 600; font-size: 15.5px; word-break: break-word; }
 .card-desc { color: var(--muted); font-size: 13px; }
+.card-metrics {
+  color: var(--accent); font-size: 12px; background: var(--panel-2); border-radius: 6px;
+  padding: 5px 8px; white-space: nowrap; overflow-x: auto; scrollbar-width: thin;
+}
 .badge {
   font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
   padding: 2px 8px; border-radius: 6px; background: rgba(79,140,255,.15); color: #8fb4ff; white-space: nowrap;
