@@ -120,3 +120,32 @@ def test_native_import_saves_as_process_recipe(client):
     res = client.post("/api/recipes/import", json={"text": "mlx_lm.server --model m/y --port 8086"}).json()
     saved = client.post("/api/recipes", json=res["recipe"])
     assert saved.status_code == 201 and saved.json()["runtime"] == "process"
+
+
+def test_script_with_failing_preflight_checks_still_imports():
+    # Typical starter: `set -e`, checks for the model folder / nvidia-smi that fail on the dashboard's machine.
+    text = (FIXTURES / "starter-nemotron35-super-vl-120b.sh").read_text()
+    res = run_import(text)
+    r = res["recipe"]
+    assert r["image"].startswith("vllm/vllm-openai:nightly-") and r["container_name"] == "nemotron-super-vl"
+    assert r["command"] == "serve {model} --host 0.0.0.0 --port {port}" and r["host_port"] == 8081
+    assert "--limit-mm-per-prompt '{\"video\":1,\"image\":4}'" in r["args"].splitlines()
+    assert "VLLM_ALLOW_LONG_MAX_MODEL_LEN=1" in r["env"].splitlines()
+    assert "stopped before starting the model" in res["warnings"][0]
+    assert "no config.json" in res["warnings"][0]
+
+
+def test_lenient_retry_ignores_exit_and_set_e_only_when_needed():
+    text = """set -euo pipefail
+set -- --port 9300
+[ -d /definitely/not/here ] || { echo "ERROR: model missing" >&2; exit 1; }
+false
+docker run --name t -p 9301:8000 vllm/vllm-openai --model org/m "$@"
+"""
+    res = run_import(text)
+    assert res["recipe"]["args"] == "" and res["recipe"]["command"].endswith("--port {port}")
+    assert res["recipe"]["container_port"] == 9300  # positional args from `set --` survived
+    assert "ERROR: model missing" in res["warnings"][0]
+    # A script that works on the first try gets no such warning.
+    ok = run_import("docker run --name u -p 9302:8000 vllm/vllm-openai --model org/m")
+    assert not any("stopped before" in w for w in ok["warnings"])

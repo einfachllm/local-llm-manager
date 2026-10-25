@@ -54,9 +54,20 @@ readonly PATH BASH_ENV
 exec() {
   [ $# -eq 0 ] && return 0
   "$@"
-  exit $?
+  builtin exit $?
 }
 """
+
+# Second attempt when a script stops before its `docker run` (typically preflight checks such as
+# `[ -f "$MODEL_DIR/config.json" ] || exit 1` that fail because the model lives on another machine):
+# `exit` only reports, and the script is sourced as an `if` condition, where bash ignores `set -e`.
+LENIENT_PRELUDE = """exit() {
+  echo "[import] ignored: exit ${1:-0}" >&2
+  return 0
+}
+"""
+LENIENT_RUNNER = 'if source "$0" "$@"; then :; fi'
+
 
 # docker run options that take a value (the rest of the options are boolean flags).
 VALUE_OPTS = {
@@ -79,8 +90,8 @@ class ScriptImportError(Exception):
     pass
 
 
-async def capture_docker_run(script: str) -> tuple[Optional[list[str]], str, list[list[str]]]:
-    """Run the script with only ALLOWED_TOOLS available.
+async def capture_docker_run(script: str, lenient: bool = False) -> tuple[Optional[list[str]], str, list[list[str]]]:
+    """Run the script with only ALLOWED_TOOLS available (lenient: ignore `exit` and `set -e`).
 
     Returns (argv after `docker run` or None, script output, argv of each skipped call).
     """
@@ -97,7 +108,7 @@ async def capture_docker_run(script: str) -> tuple[Optional[list[str]], str, lis
         shim.write_text(DOCKER_SHIM.format(bash=bash))
         shim.chmod(0o755)
         prelude = tmpdir / "prelude.sh"
-        prelude.write_text(PRELUDE)
+        prelude.write_text(PRELUDE + (LENIENT_PRELUDE if lenient else ""))
         script_path = tmpdir / "script.sh"
         script_path.write_text(script)
         capture = tmpdir / "capture"
@@ -114,7 +125,8 @@ async def capture_docker_run(script: str) -> tuple[Optional[list[str]], str, lis
             "DGXM_SKIPPED": str(skipped_log),
         }
         proc = await asyncio.create_subprocess_exec(
-            bash, str(script_path), cwd=work, env=env,
+            *([bash, "-c", LENIENT_RUNNER, str(script_path)] if lenient else [bash, str(script_path)]),
+            cwd=work, env=env,
             stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT, start_new_session=True,
         )
@@ -414,6 +426,14 @@ def description_from_script(script: str) -> str:
 async def import_script(script: str) -> dict[str, Any]:
     argv, output, skipped = await capture_docker_run(script)
     description = description_from_script(script)
+    stopped_early: list[str] = []
+    if argv is None and not any(_native_server(a) for a in skipped):
+        # The script ended before starting anything; retry ignoring its own exit / error checks.
+        retry = await capture_docker_run(script, lenient=True)
+        if retry[0] is not None or any(_native_server(a) for a in retry[2]):
+            stopped_early = [line.strip() for line in output.splitlines()
+                             if "error" in line.lower() or "warning" in line.lower()][-5:]
+            argv, output, skipped = retry
     if argv is not None:
         recipe, warnings = recipe_from_argv(argv, description)
     else:
@@ -427,6 +447,11 @@ async def import_script(script: str) -> dict[str, Any]:
                 + (f"\n\nSkipped commands:\n" + "\n".join(lines[:20]) if lines else "")
                 + (f"\n\nScript output:\n{output.strip()}" if output.strip() else ""))
         recipe, warnings = recipe_from_process_argv(server, description)
+    if stopped_early or argv is not None and output and "[import] ignored: exit" in output:
+        warnings.insert(0, "The script stopped before starting the model (its checks run on the dashboard's "
+                        "machine, where e.g. the model folder or nvidia-smi may be missing). Imported by "
+                        "ignoring its exit/error checks - review the fields."
+                        + ("\n    " + "\n    ".join(stopped_early) if stopped_early else ""))
     return {"recipe": recipe, "warnings": warnings, "docker_argv": argv, "process_argv": None if argv else server,
             "skipped_calls": _unique_lines(skipped)}
 
