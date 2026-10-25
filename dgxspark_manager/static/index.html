@@ -138,7 +138,7 @@
     <form id="form-import" method="dialog">
       <div class="dialog-head"><h3>Import from script or docker run</h3><button type="button" class="x" data-close>&times;</button></div>
       <div class="import-body">
-        <p class="hint">Paste a starter script or a <code>docker run …</code> command. It is first checked for unusual
+        <p class="hint">Paste a starter script or a <code>docker run …</code> command. It is first checked for risky
           calls (nothing is executed), then run by bash on the Spark in a restricted mode: only read-only text tools
           (<code>awk</code>, <code>sed</code>, <code>grep</code>, <code>cut</code>, <code>date</code>, …) really run, a fake
           <code>docker</code> records the final <code>docker run</code> command, and every other command is
@@ -146,7 +146,7 @@
         <textarea id="import-text" rows="16" class="mono" placeholder="#!/usr/bin/env bash&#10;...&#10;docker run --gpus all ... vllm/vllm-openai ... --model org/name"></textarea>
         <div id="import-report" class="report hidden"></div>
         <label class="check hidden" id="import-trust-row"><input type="checkbox" id="import-trust">
-          I have read the high-risk findings and trust this script</label>
+          I have reviewed the risks and trust this script</label>
       </div>
       <div class="error" id="import-error"></div>
       <div class="dialog-foot">

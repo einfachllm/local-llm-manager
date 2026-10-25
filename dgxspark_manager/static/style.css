@@ -277,14 +277,9 @@ input[readonly] { opacity: .6; }
 .report { margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; max-height: 260px; overflow: auto; background: var(--bg); }
 .report-head { padding: 8px 12px; font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); }
 .report-head.ok { color: var(--green); }
-.report-head.warn { color: var(--yellow); }
 .report-head.bad { color: var(--red); }
-.finding { display: grid; grid-template-columns: 82px 62px 1fr; gap: 2px 10px; padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.finding { display: grid; grid-template-columns: 62px 1fr; gap: 2px 10px; padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
 .finding:last-child { border-bottom: 0; }
-.finding code { grid-column: 3; color: var(--muted); white-space: pre-wrap; word-break: break-all; }
-.finding .sev { font-weight: 700; }
-.finding.high .sev { color: var(--red); }
-.finding.medium .sev { color: var(--yellow); }
-.finding.info .sev { color: var(--muted); }
+.finding code { grid-column: 2; color: var(--muted); white-space: pre-wrap; word-break: break-all; }
 .finding .ln { color: var(--muted); }
 #import-trust-row { margin-top: 10px; color: var(--red); }

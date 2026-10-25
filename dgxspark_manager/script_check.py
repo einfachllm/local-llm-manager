@@ -1,14 +1,10 @@
 """Static review of a pasted starter script before the importer runs it.
 
-During import only a small allowlist of read-only tools actually runs (see importer.ALLOWED_TOOLS);
-every other command found on PATH is recorded and skipped. This check therefore separates:
-
-- "high":   things the PATH-based blocking cannot stop (absolute-path commands, writing files,
-            changing PATH, raw network via /dev/tcp, disabling the blocking hook, awk/sed side
-            effects). Import requires an explicit "I trust this script".
-- "medium": unusual or dangerous commands (rm, curl, sudo, ssh, ...). They will be skipped during
-            import; listed so you know what the script would do when run for real.
-- "info":   harmless but worth knowing (docker commands other than `docker run`, eval, sourcing files).
+Lists every risky call per line as one flat list of risks. Each message says whether the call is
+skipped during import (the import only really runs a few read-only tools, see
+importer.ALLOWED_TOOLS) or whether the import cannot block it (absolute-path programs, file writes,
+PATH changes, /dev/tcp, awk/sed side effects). Any risk means the import needs an explicit
+"I trust this script".
 
 It is a line-based heuristic, not a shell parser: it can miss things and flag false positives.
 """
@@ -22,9 +18,11 @@ _CMD = r"(?:^|[;&|(`]|\$\(|\b(?:then|do|else|exec|command|nohup|time|env|xargs|s
 # Each rule: (pattern, message, view). "code" sees the line with quoted text blanked out (except
 # $(...) inside double quotes), so messages like `echo "run: sudo ..."` don't trigger; "raw" sees
 # everything, needed for awk/sed programs which live inside single quotes.
-HIGH = [
-    (_CMD + r"(/(?!dev/null)[^\s;|&)`'\"]+)", "Runs a program by absolute path ({0}), which bypasses the import's command blocking", "code"),
-    (r"(?<![<0-9&])>>?\s*((?:/|~|\$HOME|\$\{HOME\})(?!dev/(?:null|stdout|stderr)\b)[^\s;|&)]*)", "Writes to a file outside the import folder ({0})", "code"),
+
+# Calls the restricted import run cannot stop.
+NOT_BLOCKED = [
+    (_CMD + r"(/(?!dev/null)[^\s;|&)`'\"]+)", "Runs a program by absolute path ({0})", "code"),
+    (r"(?<![<0-9&])>>?\s*((?:/|~|\$HOME|\$\{HOME\})(?!dev/(?:null|stdout|stderr)\b)[^\s;|&)]*)", "Writes to a file ({0})", "code"),
     (r"(?:^|[;&|\s])(?:export\s+)?PATH\+?=", "Changes PATH, which can re-enable commands that are blocked during import", "code"),
     (r"/dev/(?:tcp|udp)/", "Opens a network connection through bash's /dev/tcp", "raw"),
     (r"\b(?:unset\s+-f\s+command_not_found_handle|command_not_found_handle\s*\(\))", "Overrides the hook the importer uses to block commands", "code"),
@@ -35,7 +33,8 @@ HIGH = [
     (r"\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b", "Downloads and runs a script (curl | sh)", "code"),
 ]
 
-MEDIUM = [
+# Commands the restricted import run records and skips.
+SKIPPED = [
     (r"(?<![\w./-])rm\s", "rm deletes files", "code"),
     (r"(?<![\w./-])(?:dd|mkfs(?:\.\w+)?|fdisk|parted|wipefs)\b", "Disk-level tool", "code"),
     (r"\b(?:curl|wget)\b", "Network download", "code"),
@@ -52,12 +51,6 @@ MEDIUM = [
     (r"\b(?:shutdown|reboot|poweroff|halt)\b", "Shuts down or reboots", "code"),
     (r"/proc/sys/", "Writes kernel settings under /proc/sys", "code"),
     (r"\bmkdir\b|\btouch\b|\bmv\s|\bcp\s|\bln\s", "Creates, moves or copies files", "code"),
-]
-
-INFO = [
-    (r"\bdocker\s+(?!run\b)(\w[\w-]*)", "docker {0} - ignored during import (only `docker run` is recorded)", "code"),
-    (r"\beval\b", "eval runs dynamically built commands (still subject to blocking)", "code"),
-    (_CMD + r"(?:source|\.)\s+(\S+)", "Sources another file ({0})", "code"),
 ]
 
 
@@ -112,6 +105,7 @@ def _code_only(line: str) -> str:
 
 def check_script(text: str) -> dict[str, Any]:
     findings = []
+    seen = set()
     for n, raw in enumerate(text.splitlines(), start=1):
         if n == 1 and raw.startswith("#!"):
             continue
@@ -119,27 +113,17 @@ def check_script(text: str) -> dict[str, Any]:
         if not line.strip():
             continue
         views = {"raw": line, "code": _code_only(line)}
-        for severity, rules in (("high", HIGH), ("medium", MEDIUM), ("info", INFO)):
+        for rules, note in ((NOT_BLOCKED, "not blocked during import"), (SKIPPED, "skipped during import")):
             for pattern, message, view in rules:
-                for m in re.finditer(pattern, views[view]):
-                    arg = next((g for g in m.groups() if g), "") if m.groups() else ""
-                    findings.append({
-                        "severity": severity,
-                        "line": n,
-                        "code": raw.strip()[:200],
-                        "message": message.format(arg),
-                    })
-                    break  # one hit per rule per line is enough
-    # Same message on the same line from different rules is noise.
-    seen, unique = set(), []
-    for f in findings:
-        key = (f["line"], f["message"])
-        if key not in seen:
-            seen.add(key)
-            unique.append(f)
-    order = {"high": 0, "medium": 1, "info": 2}
-    unique.sort(key=lambda f: (order[f["severity"]], f["line"]))
-    return {
-        "findings": unique,
-        "counts": {s: sum(f["severity"] == s for f in unique) for s in order},
-    }
+                m = re.search(pattern, views[view])
+                if not m:
+                    continue
+                arg = next((g for g in m.groups() if g), "") if m.groups() else ""
+                text_ = f"{message.format(arg)} – {note}"
+                if (n, text_) in seen:
+                    continue
+                seen.add((n, text_))
+                findings.append({"line": n, "code": raw.strip()[:200], "message": text_,
+                                 "skipped": rules is SKIPPED})
+    findings.sort(key=lambda f: f["line"])
+    return {"findings": findings, "count": len(findings)}

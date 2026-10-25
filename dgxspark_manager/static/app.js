@@ -414,8 +414,6 @@ function showRecipeNote(lines) {
   note.classList.toggle("hidden", !lines.length);
 }
 
-const SEVERITY_LABEL = { high: "High risk", medium: "Unusual", info: "Note" };
-
 function resetImportReport() {
   $("#import-report").classList.add("hidden");
   $("#import-trust-row").classList.add("hidden");
@@ -424,21 +422,17 @@ function resetImportReport() {
 }
 
 function renderImportReport(check) {
-  const { findings, counts } = check;
   const box = $("#import-report");
   box.classList.remove("hidden");
-  const summary = findings.length
-    ? `${counts.high} high risk · ${counts.medium} unusual · ${counts.info} notes`
-    : "No unusual calls found.";
-  box.innerHTML = `<div class="report-head ${counts.high ? "bad" : counts.medium ? "warn" : "ok"}">${esc(summary)}
-      ${counts.high ? " – these can't be blocked during import." : counts.medium ? " – these commands will be skipped during import." : ""}</div>` +
-    findings.map((f) => `<div class="finding ${f.severity}">
-        <span class="sev">${SEVERITY_LABEL[f.severity]}</span>
+  box.innerHTML = `<div class="report-head ${check.count ? "bad" : "ok"}">${check.count
+      ? `${check.count} risk${check.count === 1 ? "" : "s"} found`
+      : "No risky calls found."}</div>` +
+    check.findings.map((f) => `<div class="finding">
         <span class="ln">line ${f.line}</span>
         <span class="msg">${esc(f.message)}</span>
         <code>${esc(f.code)}</code>
       </div>`).join("");
-  $("#import-trust-row").classList.toggle("hidden", !counts.high);
+  $("#import-trust-row").classList.toggle("hidden", !check.count);
 }
 
 async function runImportCheck() {
@@ -467,8 +461,8 @@ $("#form-import").addEventListener("submit", async (ev) => {
   try {
     const check = await runImportCheck();
     const trust = $("#import-trust").checked;
-    if (check.counts.high && !trust) {
-      $("#import-error").textContent = "Review the high-risk findings above and tick the box to import anyway.";
+    if (check.count && !trust) {
+      $("#import-error").textContent = "Review the risks above and tick the box to import anyway.";
       return;
     }
     btn.textContent = "Importing…";
@@ -487,11 +481,11 @@ $("#form-import").addEventListener("submit", async (ev) => {
     fillRecipeForm(r);
     syncHostNetworkPorts();
     const skipped = res.skipped_calls || [];
-    const c = res.check?.counts ?? { high: 0, medium: 0 };
+    const riskCount = res.check?.count ?? 0;
     showRecipeNote([
       "Imported – review the fields and the command preview, then save.",
       ...res.warnings.map((w) => `• ${w}`),
-      ...(c.high || c.medium ? [`• Script check: ${c.high} high risk, ${c.medium} unusual`] : []),
+      ...(riskCount ? [`• Script check: ${riskCount} risk${riskCount === 1 ? "" : "s"} (confirmed)`] : []),
       ...(skipped.length ? [`• Not executed during import (${skipped.length}):`,
         ...skipped.slice(0, 12).map((s) => `    ${s}`), ...(skipped.length > 12 ? [`    … ${skipped.length - 12} more`] : [])] : []),
     ]);
