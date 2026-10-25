@@ -16,11 +16,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from . import __version__, config, system
-from .db import Database
+from .db import Database, normalize_tags
 from .docker import Docker
 from .importer import ScriptImportError, import_script
 from .manager import ActionError, Manager
-from .recipes import FRAMEWORKS, build_run_argv, format_command
+from .recipes import FRAMEWORKS, build_run_argv, format_command, split_args, uses_host_network
 from .scheduler import ACTIONS, Scheduler, compute_next_run, parse_time, validate_cron
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -44,6 +44,12 @@ class RecipeIn(BaseModel):
     gpus: str = "all"
     health_path: str = "/health"
     est_memory_gb: Optional[float] = Field(default=None, ge=0)
+    tags: list[str] = []
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def clean_tags(cls, v):
+        return normalize_tags(v)
 
     @field_validator("name", "image", "model", "container_name", "gpus", "health_path")
     @classmethod
@@ -65,6 +71,13 @@ class RecipeIn(BaseModel):
             raise ValueError("container_name may only contain letters, digits, '_', '.', '-'")
         if self.health_path and not self.health_path.startswith("/"):
             self.health_path = "/" + self.health_path
+        try:
+            host_network = uses_host_network(split_args(self.docker_args))
+        except ValueError:
+            raise ValueError("Extra docker flags: unbalanced quotes")
+        if host_network:
+            # The server listens on the host directly, so there is only one port.
+            self.container_port = self.host_port
         return self
 
 
@@ -117,7 +130,7 @@ def seed_examples(db: Database) -> None:
         "args": ("--max-model-len 65536\n--max-num-seqs 8\n--gpu-memory-utilization 0.4\n"
                  "--enable-prefix-caching\n--enable-auto-tool-choice\n--tool-call-parser qwen3_coder"),
         "env": vllm["env"], "volumes": vllm["volumes"], "docker_args": vllm["docker_args"],
-        "gpus": "all", "health_path": "/health", "est_memory_gb": 45,
+        "gpus": "all", "health_path": "/health", "est_memory_gb": 45, "tags": ["qwen3-coder", "example"],
     })
     sg = FRAMEWORKS["sglang"]
     db.create_recipe({
@@ -127,6 +140,7 @@ def seed_examples(db: Database) -> None:
         "container_name": "sglang-qwen3-8b", "host_port": 8110, "container_port": 30000,
         "command": sg["command"], "args": sg["args"], "env": sg["env"], "volumes": sg["volumes"],
         "docker_args": sg["docker_args"], "gpus": "all", "health_path": "/health", "est_memory_gb": 30,
+        "tags": ["qwen3-8b", "example"],
     })
 
 

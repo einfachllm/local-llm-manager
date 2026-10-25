@@ -85,24 +85,70 @@ async function loadRecipes() {
   }
 }
 
-function renderRecipes() {
-  const host = location.hostname;
-  if (!state.recipes.length) {
-    $("#recipes").innerHTML = `<div class="empty">No recipes yet. Click “New recipe”.</div>`;
-    return;
-  }
-  $("#recipes").innerHTML = state.recipes.map((r) => {
-    const busy = state.busy.has(r.id);
-    const running = ["ready", "loading", "starting"].includes(r.status);
-    const fw = state.meta?.frameworks[r.framework]?.label ?? r.framework;
-    const url = `http://${host}:${r.host_port}`;
-    return `
+/* ---------------- recipe list: filter, sort, group ---------------- */
+
+const VIEW_KEY = "dgxm.recipeView";
+const view = { search: "", tags: [], sort: "name", group: false };
+try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || "{}")); } catch { /* storage unavailable */ }
+const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* ignore */ } };
+
+const RUNNING = ["ready", "loading", "starting"];
+const STATUS_ORDER = { ready: 0, loading: 1, starting: 2, failed: 3, stopped: 4 };
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
+const SORTS = {
+  name: byName,
+  status: (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || byName(a, b),
+  framework: (a, b) => a.framework.localeCompare(b.framework) || byName(a, b),
+  port: (a, b) => a.host_port - b.host_port || byName(a, b),
+  updated: (a, b) => (b.updated_at || "").localeCompare(a.updated_at || "") || byName(a, b),
+};
+
+function allTags() {
+  const counts = new Map();
+  for (const r of state.recipes) for (const t of r.tags || []) counts.set(t, (counts.get(t) || 0) + 1);
+  return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base", numeric: true }));
+}
+
+function visibleRecipes() {
+  const q = view.search.trim().toLowerCase();
+  const want = view.tags.map((t) => t.toLowerCase());
+  return state.recipes.filter((r) => {
+    const tags = (r.tags || []).map((t) => t.toLowerCase());
+    if (!want.every((t) => tags.includes(t))) return false;
+    if (!q) return true;
+    return [r.name, r.model, r.description, r.image, r.container_name, r.framework, ...tags]
+      .some((v) => String(v || "").toLowerCase().includes(q));
+  }).sort(SORTS[view.sort] || byName);
+}
+
+function renderToolbar() {
+  const tags = allTags();
+  // Drop filters for tags that no longer exist.
+  const known = new Set(tags.map(([t]) => t.toLowerCase()));
+  view.tags = view.tags.filter((t) => known.has(t.toLowerCase()));
+  const active = new Set(view.tags.map((t) => t.toLowerCase()));
+  $("#tag-filter").innerHTML = tags.length
+    ? `<button class="chip ${active.size ? "" : "on"}" data-tag="">All <span>${state.recipes.length}</span></button>` +
+      tags.map(([t, n]) => `<button class="chip ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}">${esc(t)} <span>${n}</span></button>`).join("")
+    : `<span class="hint">Add tags to recipes (e.g. the model name) to filter and group them here.</span>`;
+  $("#tag-list").innerHTML = tags.map(([t]) => `<option value="${esc(t)}">`).join("");
+}
+
+function cardHtml(r) {
+  const busy = state.busy.has(r.id);
+  const running = RUNNING.includes(r.status);
+  const fw = state.meta?.frameworks[r.framework]?.label ?? r.framework;
+  const url = `http://${location.hostname}:${r.host_port}`;
+  const active = new Set(view.tags.map((t) => t.toLowerCase()));
+  return `
       <article class="card is-${r.status}" data-id="${r.id}">
         <div class="card-head">
           <div class="card-title">${esc(r.name)}</div>
           <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
         </div>
         <div><span class="pill ${busy ? "busy" : r.status}">${busy ? "Working…" : STATUS_LABEL[r.status] ?? r.status}</span></div>
+        ${r.tags?.length ? `<div class="card-tags">${r.tags.map((t) =>
+          `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}</div>` : ""}
         ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
         <dl class="kv">
           <dt>Model</dt><dd>${esc(r.model || "–")}</dd>
@@ -123,8 +169,60 @@ function renderRecipes() {
           <button class="btn small ghost danger" data-act="delete" ${running ? "disabled" : ""}>Delete</button>
         </div>
       </article>`;
+}
+
+function renderRecipes() {
+  renderToolbar();
+  if (!state.recipes.length) {
+    $("#recipes").innerHTML = `<div class="empty">No recipes yet. Click “New recipe”.</div>`;
+    return;
+  }
+  const list = visibleRecipes();
+  if (!list.length) {
+    $("#recipes").innerHTML = `<div class="empty">No recipe matches the current filter.</div>`;
+    return;
+  }
+  if (!view.group) {
+    $("#recipes").innerHTML = `<div class="grid">${list.map(cardHtml).join("")}</div>`;
+    return;
+  }
+  // Group by each recipe's first tag (e.g. the model name), so every recipe appears once.
+  const groups = new Map();
+  for (const r of list) {
+    const t = r.tags?.[0] ?? "";
+    const key = t.toLowerCase();
+    if (!groups.has(key)) groups.set(key, { label: t, items: [] });
+    groups.get(key).items.push(r);
+  }
+  const keys = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b, undefined, { numeric: true }));
+  $("#recipes").innerHTML = keys.map((k) => {
+    const g = groups.get(k);
+    const running = g.items.filter((r) => RUNNING.includes(r.status)).length;
+    return `<section class="group">
+        <h3 class="group-title">${k ? esc(g.label) : "Untagged"} <span>${g.items.length} recipe${g.items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}</span></h3>
+        <div class="grid">${g.items.map(cardHtml).join("")}</div>
+      </section>`;
   }).join("");
 }
+
+function toggleTagFilter(tag) {
+  if (!tag) view.tags = [];
+  else if (view.tags.some((t) => t.toLowerCase() === tag.toLowerCase())) view.tags = view.tags.filter((t) => t.toLowerCase() !== tag.toLowerCase());
+  else view.tags = [...view.tags, tag];
+  saveView();
+  renderRecipes();
+}
+
+$("#tag-filter").addEventListener("click", (ev) => {
+  const chip = ev.target.closest("[data-tag]");
+  if (chip) toggleTagFilter(chip.dataset.tag);
+});
+$("#recipe-search").addEventListener("input", (ev) => { view.search = ev.target.value; saveView(); renderRecipes(); });
+$("#recipe-sort").addEventListener("change", (ev) => { view.sort = ev.target.value; saveView(); renderRecipes(); });
+$("#recipe-group").addEventListener("change", (ev) => { view.group = ev.target.checked; saveView(); renderRecipes(); });
+$("#recipe-search").value = view.search;
+$("#recipe-sort").value = SORTS[view.sort] ? view.sort : "name";
+$("#recipe-group").checked = !!view.group;
 
 async function runAction(key, path, okMsg) {
   state.busy.add(key);
@@ -144,6 +242,8 @@ async function runAction(key, path, okMsg) {
 }
 
 $("#recipes").addEventListener("click", async (ev) => {
+  const chip = ev.target.closest(".card [data-tag]");
+  if (chip) { toggleTagFilter(chip.dataset.tag); return; }
   const btn = ev.target.closest("button[data-act]");
   if (!btn) return;
   const id = Number(btn.closest(".card").dataset.id);
@@ -192,12 +292,13 @@ function recipeFromForm() {
   data.host_port = Number(data.host_port) || 0;
   data.container_port = Number(data.container_port) || 0;
   data.est_memory_gb = data.est_memory_gb === "" ? null : Number(data.est_memory_gb);
+  data.tags = (data.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
   return data;
 }
 
 function fillRecipeForm(r) {
   for (const el of recipeForm.elements) {
-    if (el.name && el.name in r) el.value = r[el.name] ?? "";
+    if (el.name && el.name in r) el.value = Array.isArray(r[el.name]) ? r[el.name].join(", ") : r[el.name] ?? "";
   }
 }
 
@@ -230,6 +331,7 @@ function openRecipeEditor(r) {
     recipeForm.elements.host_port.value = nextFreePort();
     applyFramework("vllm", true);
   }
+  syncHostNetworkPorts();
   updatePreview();
   $("#dlg-recipe").showModal();
 }
@@ -242,7 +344,17 @@ $("#sel-framework").addEventListener("change", (e) => {
   updatePreview();
 });
 
+// With --network host the server listens on the host port directly; keep the two ports equal.
+function syncHostNetworkPorts() {
+  const f = recipeForm.elements;
+  const hostNet = /(^|\s)--(network|net)(=|\s+)host(\s|$)/.test(f.docker_args.value);
+  f.container_port.readOnly = hostNet;
+  f.container_port.title = hostNet ? "Same as the host port because of --network host" : "";
+  if (hostNet) f.container_port.value = f.host_port.value;
+}
+
 recipeForm.addEventListener("input", () => {
+  syncHostNetworkPorts();
   clearTimeout(previewTimer);
   previewTimer = setTimeout(updatePreview, 250);
 });
@@ -308,7 +420,10 @@ $("#form-import").addEventListener("submit", async (ev) => {
       r.description = r.description || editingRecipe.description;
       r.est_memory_gb = editingRecipe.est_memory_gb;
     }
+    // Scripts carry no tags; keep whatever the form already has.
+    if (!r.tags?.length) r.tags = recipeFromForm().tags;
     fillRecipeForm(r);
+    syncHostNetworkPorts();
     showRecipeNote(["Imported – review the fields and the command preview, then save.", ...res.warnings.map((w) => `• ${w}`)]);
     $("#dlg-import").close();
     updatePreview();

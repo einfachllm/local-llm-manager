@@ -30,7 +30,21 @@
         <h2>Model recipes</h2>
         <button class="btn primary" id="btn-new-recipe">+ New recipe</button>
       </div>
-      <div class="grid" id="recipes"></div>
+      <div class="toolbar">
+        <input id="recipe-search" type="search" placeholder="Search name, model, image, tag…">
+        <label class="inline">Sort
+          <select id="recipe-sort">
+            <option value="name">Name</option>
+            <option value="status">Status (running first)</option>
+            <option value="framework">Framework</option>
+            <option value="port">Port</option>
+            <option value="updated">Last edited</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="recipe-group"> Group by first tag</label>
+      </div>
+      <div class="tag-filter" id="tag-filter"></div>
+      <div id="recipes"></div>
     </section>
 
     <section id="tab-schedules" class="panel hidden">
@@ -67,6 +81,8 @@
         <label>Name<input name="name" required></label>
         <label>Framework<select name="framework" id="sel-framework"></select></label>
         <label class="span2">Description<input name="description"></label>
+        <label class="span2">Tags <small>comma-separated; the first one is used for grouping, e.g. the model name</small>
+          <input name="tags" list="tag-list" placeholder="qwen3.8-flash, fp4"></label>
         <label class="span2">Docker image<input name="image" required></label>
         <label class="span2">Model (HF id or path inside container)<input name="model" placeholder="org/model-name"></label>
         <label>Container name<input name="container_name" placeholder="derived from name"></label>
@@ -165,6 +181,7 @@
     </form>
   </dialog>
 
+  <datalist id="tag-list"></datalist>
   <div id="toasts"></div>
   <script src="/static/app.js"></script>
 </body>

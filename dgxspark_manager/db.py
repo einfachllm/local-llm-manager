@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     gpus            TEXT NOT NULL DEFAULT 'all',
     health_path     TEXT NOT NULL DEFAULT '/health',
     est_memory_gb   REAL,
+    tags            TEXT NOT NULL DEFAULT '',
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
@@ -59,14 +60,42 @@ CREATE TABLE IF NOT EXISTS events (
 RECIPE_FIELDS = (
     "name", "description", "framework", "image", "model", "container_name", "host_port",
     "container_port", "command", "args", "env", "volumes", "docker_args", "gpus",
-    "health_path", "est_memory_gb",
+    "health_path", "est_memory_gb", "tags",
 )
+
+# Columns added after the first release, created on existing databases at startup.
+RECIPE_MIGRATIONS = {
+    "tags": "ALTER TABLE recipes ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
+}
 
 SCHEDULE_FIELDS = ("name", "action", "recipe_id", "cron", "run_at", "enabled")
 
 
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def normalize_tags(tags: Any) -> list[str]:
+    """Trimmed, whitespace-collapsed, de-duplicated (case-insensitively) tags in input order."""
+    if isinstance(tags, str):
+        tags = tags.split(",")
+    out, seen = [], set()
+    for t in tags or []:
+        t = " ".join(str(t).replace(",", " ").split())[:40]
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    return out
+
+
+def _recipe_values(data: dict[str, Any]) -> tuple:
+    # Tags are stored as a comma-separated string and exposed as a list.
+    return tuple(",".join(normalize_tags(data.get(f))) if f == "tags" else data.get(f) for f in RECIPE_FIELDS)
+
+
+def _recipe_out(row: dict) -> dict:
+    row["tags"] = normalize_tags(row.get("tags"))
+    return row
 
 
 class Database:
@@ -82,6 +111,10 @@ class Database:
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(SCHEMA)
+            existing = {r["name"] for r in self._conn.execute("PRAGMA table_info(recipes)")}
+            for column, sql in RECIPE_MIGRATIONS.items():
+                if column not in existing:
+                    self._conn.execute(sql)
             self._conn.commit()
 
     def _query(self, sql: str, params: tuple = ()) -> list[dict]:
@@ -97,11 +130,11 @@ class Database:
     # ---- recipes -------------------------------------------------------
 
     def list_recipes(self) -> list[dict]:
-        return self._query("SELECT * FROM recipes ORDER BY name COLLATE NOCASE")
+        return [_recipe_out(r) for r in self._query("SELECT * FROM recipes ORDER BY name COLLATE NOCASE")]
 
     def get_recipe(self, recipe_id: int) -> Optional[dict]:
         rows = self._query("SELECT * FROM recipes WHERE id = ?", (recipe_id,))
-        return rows[0] if rows else None
+        return _recipe_out(rows[0]) if rows else None
 
     def create_recipe(self, data: dict[str, Any]) -> int:
         ts = now_iso()
@@ -109,14 +142,14 @@ class Database:
         marks = ", ".join("?" for _ in RECIPE_FIELDS)
         return self._execute(
             f"INSERT INTO recipes ({cols}, created_at, updated_at) VALUES ({marks}, ?, ?)",
-            tuple(data.get(f) for f in RECIPE_FIELDS) + (ts, ts),
+            _recipe_values(data) + (ts, ts),
         )
 
     def update_recipe(self, recipe_id: int, data: dict[str, Any]) -> None:
         sets = ", ".join(f"{f} = ?" for f in RECIPE_FIELDS)
         self._execute(
             f"UPDATE recipes SET {sets}, updated_at = ? WHERE id = ?",
-            tuple(data.get(f) for f in RECIPE_FIELDS) + (now_iso(), recipe_id),
+            _recipe_values(data) + (now_iso(), recipe_id),
         )
 
     def delete_recipe(self, recipe_id: int) -> None:

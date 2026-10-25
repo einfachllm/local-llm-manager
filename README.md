@@ -49,7 +49,7 @@ Other ways to run it:
 | Framework | Picks defaults for image, command, container port and health path. Everything stays editable. |
 | Docker image | e.g. `nvcr.io/nvidia/vllm:25.11-py3`, `lmsysorg/sglang:spark` |
 | Model | HF id or a path inside the container; substituted for `{model}` |
-| Host port / container port | Published as `-p host:container`. The API is at `http://<spark>:<host port>/v1`. |
+| Host port / container port | Published as `-p host:container`. The API is at `http://<spark>:<host port>/v1`. With `--network host` there is no `-p` and both ports are the same. |
 | Command | Server command; placeholders `{model}`, `{port}` (container port), `{host_port}`, `{name}` |
 | Framework arguments | Extra CLI args, one or more per line, `#` comments allowed. Quote JSON like `'{"a": 1}'`. |
 | Environment | `KEY=value` per line. A bare `KEY` (e.g. `HF_TOKEN`) is passed through from the manager's environment, so secrets are not stored in the DB. |
@@ -66,6 +66,19 @@ Status values: **Stopped**, **Starting**, **Loading model** (container up, healt
 **Ready**, **Failed** (container exited with an error; check its logs).
 
 Stopping keeps the stopped container so its logs stay readable; the next start removes and re-creates it.
+
+### Tags, filter, sort
+
+Each recipe can have tags (comma-separated in the editor). Above the recipe grid you can:
+
+- **filter** by clicking tags (several tags = recipes that have all of them; tags on cards are clickable too),
+- **search** name, model, image, container and tags,
+- **sort** by name, status (running first), framework, port or last edit,
+- **group by first tag**: each recipe appears once, under its first tag.
+
+A handy pattern for several variants of one model: put the model name first (`qwen3.8-flash, fp4, 128k`),
+then **Duplicate** a recipe for each variant (tags are copied) and change what differs. The view settings
+are remembered in the browser.
 
 ### Importing a starter script
 
