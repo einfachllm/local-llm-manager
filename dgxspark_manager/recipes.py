@@ -70,6 +70,9 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
     },
 }
 
+# Card colours offered in the UI (purely visual). "" is the default card.
+CARD_COLORS = ("", "green", "teal", "blue", "purple", "pink", "orange", "yellow", "red", "black")
+
 MANAGED_LABEL = "dgxspark-manager"
 
 

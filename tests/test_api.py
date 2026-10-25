@@ -220,3 +220,12 @@ def test_host_network_keeps_single_port(client):
     cmd = client.post("/api/recipes/preview", json=recipe_body(docker_args="--net=host", host_port=9000)).json()["command"]
     assert "--port 9000" in cmd and " -p " not in cmd
     assert client.post("/api/recipes", json=recipe_body(name="q", docker_args="--x 'oops")).status_code == 422
+
+
+def test_card_color(client):
+    r = create(client, color="Green")
+    assert r["color"] == "green"
+    assert create(client, name="plain", host_port=8301)["color"] == ""
+    assert client.post("/api/recipes", json=recipe_body(name="x", color="chartreuse")).status_code == 422
+    assert client.post(f"/api/recipes/{r['id']}/duplicate").json()["color"] == "green"
+    assert "black" in client.get("/api/meta").json()["colors"]

@@ -276,6 +276,7 @@ def recipe_from_argv(argv: list[str], description: str = "") -> tuple[dict[str, 
         "health_path": preset["health_path"],
         "est_memory_gb": None,
         "tags": [],
+        "color": "",
     }
     return recipe, warnings
 

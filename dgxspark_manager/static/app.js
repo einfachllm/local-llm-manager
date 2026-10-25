@@ -141,7 +141,7 @@ function cardHtml(r) {
   const url = `http://${location.hostname}:${r.host_port}`;
   const active = new Set(view.tags.map((t) => t.toLowerCase()));
   return `
-      <article class="card is-${r.status}" data-id="${r.id}">
+      <article class="card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}">
         <div class="card-head">
           <div class="card-title">${esc(r.name)}</div>
           <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
@@ -300,7 +300,20 @@ function fillRecipeForm(r) {
   for (const el of recipeForm.elements) {
     if (el.name && el.name in r) el.value = Array.isArray(r[el.name]) ? r[el.name].join(", ") : r[el.name] ?? "";
   }
+  markSwatch();
 }
+
+function markSwatch() {
+  const current = recipeForm.elements.color.value;
+  $$("#swatches .swatch").forEach((b) => b.classList.toggle("on", b.dataset.color === current));
+}
+
+$("#swatches").addEventListener("click", (ev) => {
+  const b = ev.target.closest(".swatch");
+  if (!b) return;
+  recipeForm.elements.color.value = b.dataset.color;
+  markSwatch();
+});
 
 function applyFramework(name, overwriteAll) {
   const p = state.meta.frameworks[name];
@@ -322,6 +335,8 @@ function openRecipeEditor(r) {
   recipeForm.reset();
   $("#recipe-error").textContent = "";
   showRecipeNote([]);
+  recipeForm.elements.color.value = "";
+  markSwatch();
   $("#recipe-title").textContent = r ? `Edit recipe – ${r.name}` : "New recipe";
   if (r) {
     fillRecipeForm(r);
@@ -419,6 +434,7 @@ $("#form-import").addEventListener("submit", async (ev) => {
       r.container_name = editingRecipe.container_name;
       r.description = r.description || editingRecipe.description;
       r.est_memory_gb = editingRecipe.est_memory_gb;
+      r.color = editingRecipe.color;
     }
     // Scripts carry no tags; keep whatever the form already has.
     if (!r.tags?.length) r.tags = recipeFromForm().tags;
@@ -716,6 +732,8 @@ async function boot() {
     .map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join("");
   $("#sel-action").innerHTML = Object.entries(state.meta.actions)
     .map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join("");
+  $("#swatches").innerHTML = state.meta.colors.map((c) =>
+    `<button type="button" class="swatch" data-color="${c}" title="${c || "default"}" aria-label="${c || "default"} colour"></button>`).join("");
   await Promise.all([loadRecipes(), loadSystem()]);
   setInterval(() => { if (!document.hidden) { loadRecipes(); loadSystem(); } }, 5000);
   setInterval(() => { if (!document.hidden && state.tab === "schedules") loadSchedules(); }, 15000);

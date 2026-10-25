@@ -58,6 +58,7 @@ Other ways to run it:
 | GPUs | Value for `--gpus` (empty to omit). |
 | Health path | Polled on the host port to tell *loading* from *ready*. Empty disables the check. |
 | Est. memory | If set, starting is refused when less memory is free (you can force it). |
+| Tags / Card colour | Organisation only: tags for filtering and grouping, a colour (green, black, …) to tell cards apart at a glance. |
 
 The editor shows a live preview of the exact `docker run` command. Every container the manager starts is
 named after the recipe's container name and labelled `dgxspark-manager=1`.
