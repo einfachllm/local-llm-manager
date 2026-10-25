@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import sqlite3
+import sys
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
@@ -22,7 +23,9 @@ from .docker import Docker
 from .importer import ScriptImportError, import_script
 from .script_check import check_script
 from .manager import ActionError, Manager
-from .recipes import CARD_COLORS, FRAMEWORKS, build_run_argv, format_command, split_args, uses_host_network
+from .processes import ProcessRunner
+from .recipes import (CARD_COLORS, FRAMEWORKS, RUNTIMES, build_run_argv, format_command, format_process_command,
+                      split_args, uses_host_network)
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
 from .timeline import build_timeline
 
@@ -33,8 +36,9 @@ NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
 class RecipeIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     description: str = ""
+    runtime: str = "docker"
     framework: str = "vllm"
-    image: str = Field(min_length=1)
+    image: str = ""
     model: str = ""
     container_name: str = ""
     host_port: int = Field(ge=1, le=65535)
@@ -74,6 +78,21 @@ class RecipeIn(BaseModel):
         if v not in FRAMEWORKS:
             raise ValueError(f"framework must be one of {', '.join(FRAMEWORKS)}")
         return v
+
+    @model_validator(mode="after")
+    def check_runtime(self):
+        if self.runtime not in RUNTIMES:
+            raise ValueError(f"runtime must be one of {', '.join(RUNTIMES)}")
+        if FRAMEWORKS[self.framework]["runtime"] != self.runtime:
+            raise ValueError(f"framework '{self.framework}' is not a {RUNTIMES[self.runtime]} framework")
+        if self.runtime == "docker" and not self.image:
+            raise ValueError("image is required for Docker recipes")
+        if self.runtime == "process":
+            if not self.command.strip():
+                raise ValueError("command is required for native-process recipes")
+            # The server listens on the host directly: one port, and the docker-only fields are unused.
+            self.container_port = self.host_port
+        return self
 
     @model_validator(mode="after")
     def derive_container_name(self):
@@ -133,6 +152,9 @@ class ScheduleIn(BaseModel):
 def seed_examples(db: Database) -> None:
     if db.list_recipes():
         return
+    if sys.platform == "darwin":
+        seed_mac_examples(db)
+        return
     vllm = FRAMEWORKS["vllm"]
     db.create_recipe({
         "name": "Qwen3-Coder-30B-AWQ (vLLM)",
@@ -158,12 +180,31 @@ def seed_examples(db: Database) -> None:
     })
 
 
+def seed_mac_examples(db: Database) -> None:
+    mlx = FRAMEWORKS["mlx"]
+    db.create_recipe({
+        "name": "Qwen3-8B (MLX)", "description": "Example recipe - needs `pip install mlx-lm`.",
+        "runtime": "process", "framework": "mlx", "image": "", "model": "mlx-community/Qwen3-8B-4bit",
+        "container_name": "mlx-qwen3-8b", "host_port": 8080, "container_port": 8080,
+        "command": mlx["command"], "args": "", "env": "", "volumes": "", "docker_args": "", "gpus": "",
+        "health_path": mlx["health_path"], "est_memory_gb": 6, "tags": ["qwen3-8b", "example"],
+    })
+    llama = FRAMEWORKS["llamacpp-native"]
+    db.create_recipe({
+        "name": "GGUF model (llama.cpp)", "description": "Example recipe - needs `brew install llama.cpp`.",
+        "runtime": "process", "framework": "llamacpp-native", "image": "", "model": "~/models/model.gguf",
+        "container_name": "llamacpp-gguf", "host_port": 8081, "container_port": 8081,
+        "command": llama["command"], "args": llama["args"], "env": "", "volumes": "", "docker_args": "",
+        "gpus": "", "health_path": llama["health_path"], "est_memory_gb": None, "tags": ["gguf", "example"],
+    })
+
+
 def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
-               run_scheduler: bool = True) -> FastAPI:
+               run_scheduler: bool = True, procs: Optional[ProcessRunner] = None) -> FastAPI:
     db = db or Database(config.DB_PATH)
     if os.environ.get("DGXM_SEED", "1") != "0":
         seed_examples(db)
-    manager = Manager(db, docker)
+    manager = Manager(db, docker, procs)
     scheduler = Scheduler(db, manager)
 
     @asynccontextmanager
@@ -218,6 +259,8 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             "version": __version__,
             "frameworks": FRAMEWORKS,
             "colors": CARD_COLORS,
+            "runtimes": RUNTIMES,
+            "platform": sys.platform,
             "actions": ACTIONS,
         }
 
@@ -280,7 +323,10 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
 
     @app.post("/api/recipes/preview")
     async def preview(body: RecipeIn):
-        return {"command": format_command(build_run_argv(body.model_dump()))}
+        recipe = body.model_dump()
+        if body.runtime == "process":
+            return {"command": format_process_command(recipe)}
+        return {"command": format_command(build_run_argv(recipe))}
 
     @app.post("/api/recipes/import/check")
     async def check_import(body: ImportIn):
@@ -334,19 +380,14 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     @app.get("/api/recipes/{recipe_id}/logs", response_class=PlainTextResponse)
     async def logs(recipe_id: int, tail: int = 500):
         r = get_recipe_or_404(recipe_id)
-        res = await manager.docker.logs(r["container_name"], tail=max(1, min(tail, 20000)))
-        if not res.ok:
-            raise HTTPException(404, res.error or "No logs")
-        # docker logs splits the container's stdout/stderr; merge them back in timestamp order.
-        lines = res.stdout.splitlines() + res.stderr.splitlines()
-        return "\n".join(sorted(lines, key=lambda line: line.split(" ", 1)[0])) + "\n"
+        return await manager.logs(r, tail=max(1, min(tail, 20000)))
 
     @app.get("/api/recipes/{recipe_id}/logs/stream")
     async def logs_stream(recipe_id: int, tail: int = 200):
         r = get_recipe_or_404(recipe_id)
 
         async def events():
-            async for line in manager.docker.follow_logs(r["container_name"], tail=max(0, min(tail, 20000))):
+            async for line in manager.follow_logs(r, tail=max(0, min(tail, 20000))):
                 yield f"data: {line}\n\n"
             yield "event: end\ndata: \n\n"
 

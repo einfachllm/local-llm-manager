@@ -1,4 +1,4 @@
-"""Framework presets and translation of a recipe into a `docker run` command."""
+"""Framework presets and translation of a recipe into a `docker run` or native process command."""
 
 import os
 import shlex
@@ -7,13 +7,15 @@ from typing import Any
 from . import config
 
 # Defaults offered by the UI when a framework is picked. Every value stays editable per recipe.
-# In `command`, these placeholders are substituted: {model}, {port} (container port),
-# {host_port}, {name} (container name).
+# In `command`, these placeholders are substituted: {model}, {port} (container port; for native
+# processes the same as the host port), {host_port}, {name} (container / process name).
+# `runtime` is "docker" (run in a container) or "process" (run directly on the host, e.g. MLX on a Mac).
 SPARK_DOCKER_ARGS = "--ipc=host --ulimit memlock=-1 --ulimit stack=67108864"
 HF_CACHE_VOLUME = "~/.cache/huggingface:/root/.cache/huggingface"
 
 FRAMEWORKS: dict[str, dict[str, Any]] = {
     "vllm": {
+        "runtime": "docker",
         "label": "vLLM",
         "image": "nvcr.io/nvidia/vllm:25.11-py3",
         "container_port": 8000,
@@ -25,6 +27,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "env": "HF_TOKEN",
     },
     "sglang": {
+        "runtime": "docker",
         "label": "SGLang",
         "image": "lmsysorg/sglang:spark",
         "container_port": 30000,
@@ -36,6 +39,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "env": "HF_TOKEN",
     },
     "trtllm": {
+        "runtime": "docker",
         "label": "TensorRT-LLM",
         "image": "nvcr.io/nvidia/tensorrt-llm/release:latest",
         "container_port": 8000,
@@ -47,6 +51,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "env": "HF_TOKEN",
     },
     "llamacpp": {
+        "runtime": "docker",
         "label": "llama.cpp server",
         "image": "ghcr.io/ggml-org/llama.cpp:server-cuda",
         "container_port": 8080,
@@ -58,7 +63,8 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "env": "",
     },
     "custom": {
-        "label": "Custom",
+        "runtime": "docker",
+        "label": "Custom (Docker)",
         "image": "",
         "container_port": 8000,
         "command": "",
@@ -68,7 +74,45 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "volumes": "",
         "env": "",
     },
+    "mlx": {
+        "runtime": "process",
+        "label": "MLX LM server",
+        "image": "",
+        "container_port": 8080,
+        "command": "mlx_lm.server --model {model} --host 0.0.0.0 --port {port}",
+        "args": "",
+        "health_path": "/v1/models",
+        "docker_args": "",
+        "volumes": "",
+        "env": "",
+    },
+    "llamacpp-native": {
+        "runtime": "process",
+        "label": "llama.cpp server (native)",
+        "image": "",
+        "container_port": 8080,
+        "command": "llama-server -m {model} --host 0.0.0.0 --port {port}",
+        "args": "-ngl 999\n-c 32768",
+        "health_path": "/health",
+        "docker_args": "",
+        "volumes": "",
+        "env": "",
+    },
+    "process-custom": {
+        "runtime": "process",
+        "label": "Custom (native)",
+        "image": "",
+        "container_port": 8000,
+        "command": "",
+        "args": "",
+        "health_path": "/health",
+        "docker_args": "",
+        "volumes": "",
+        "env": "",
+    },
 }
+
+RUNTIMES = {"docker": "Docker container", "process": "Native process"}
 
 # Card colours offered in the UI (purely visual). "" is the default card.
 CARD_COLORS = ("", "green", "teal", "blue", "purple", "pink", "orange", "yellow", "red", "black")
@@ -144,3 +188,24 @@ def build_run_argv(recipe: dict[str, Any]) -> list[str]:
 def format_command(argv: list[str]) -> str:
     """Human-readable, copy-pasteable rendering of an argv (secrets passed as bare env names stay hidden)."""
     return shlex.join(argv)
+
+
+def build_process_argv(recipe: dict[str, Any]) -> list[str]:
+    """argv for a native-process recipe: command + framework arguments, with `~` expanded."""
+    argv = split_args(substitute(recipe.get("command", ""), recipe)) + split_args(recipe.get("args", ""))
+    return [os.path.expanduser(a) if a.startswith("~") else a for a in argv]
+
+
+def process_env(recipe: dict[str, Any]) -> dict[str, str]:
+    """Environment for a native process: the manager's own, plus KEY=value lines of the recipe."""
+    env = dict(os.environ)
+    for line in _lines(recipe.get("env", "")):
+        key, sep, value = line.partition("=")
+        if sep:
+            env[key.strip()] = os.path.expanduser(value)
+    return env
+
+
+def format_process_command(recipe: dict[str, Any]) -> str:
+    env = [line for line in _lines(recipe.get("env", "")) if "=" in line]
+    return " ".join([shlex.quote(e) for e in env] + [shlex.join(build_process_argv(recipe))])

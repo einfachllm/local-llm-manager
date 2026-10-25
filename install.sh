@@ -37,6 +37,8 @@ EnvironmentFile=-${ENV_FILE}
 ExecStart=${APP_DIR}/.venv/bin/python -m dgxspark_manager.main
 Restart=on-failure
 RestartSec=5
+# Only stop the manager itself; native-process models keep running across restarts (like containers).
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target

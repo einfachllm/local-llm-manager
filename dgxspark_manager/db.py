@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     est_memory_gb   REAL,
     tags            TEXT NOT NULL DEFAULT '',
     color           TEXT NOT NULL DEFAULT '',
+    runtime         TEXT NOT NULL DEFAULT 'docker',
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
@@ -61,13 +62,14 @@ CREATE TABLE IF NOT EXISTS events (
 RECIPE_FIELDS = (
     "name", "description", "framework", "image", "model", "container_name", "host_port",
     "container_port", "command", "args", "env", "volumes", "docker_args", "gpus",
-    "health_path", "est_memory_gb", "tags", "color",
+    "health_path", "est_memory_gb", "tags", "color", "runtime",
 )
 
 # Columns added after the first release, created on existing databases at startup.
 RECIPE_MIGRATIONS = {
     "tags": "ALTER TABLE recipes ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
     "color": "ALTER TABLE recipes ADD COLUMN color TEXT NOT NULL DEFAULT ''",
+    "runtime": "ALTER TABLE recipes ADD COLUMN runtime TEXT NOT NULL DEFAULT 'docker'",
 }
 
 SCHEDULE_FIELDS = ("name", "action", "recipe_id", "cron", "run_at", "enabled")

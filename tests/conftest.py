@@ -9,6 +9,7 @@ from dgxspark_manager import manager as manager_mod  # noqa: E402
 from dgxspark_manager.db import Database  # noqa: E402
 from dgxspark_manager.docker import CommandResult  # noqa: E402
 from dgxspark_manager.main import create_app  # noqa: E402
+from dgxspark_manager.processes import ProcessRunner  # noqa: E402
 
 
 class FakeDocker:
@@ -59,7 +60,7 @@ def fake_docker():
 
 
 @pytest.fixture
-def client(fake_docker, monkeypatch):
+def client(fake_docker, monkeypatch, tmp_path):
     async def no_local_drop():
         return "not root"
 
@@ -67,7 +68,8 @@ def client(fake_docker, monkeypatch):
     # Plenty of free memory unless a test says otherwise.
     monkeypatch.setattr(manager_mod.system, "read_meminfo",
                         lambda: {"total_gb": 128, "available_gb": 100, "used_gb": 28})
-    app = create_app(Database(":memory:"), fake_docker, run_scheduler=False)
+    app = create_app(Database(":memory:"), fake_docker, run_scheduler=False,
+                     procs=ProcessRunner(tmp_path / "processes"))
     with TestClient(app) as c:
         yield c
 

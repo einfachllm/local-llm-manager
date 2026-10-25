@@ -75,7 +75,7 @@ def test_sglang_python_module():
 def test_no_docker_run(client):
     res = client.post("/api/recipes/import", json={"text": "echo hello"})
     assert res.status_code == 422
-    assert "No `docker run`" in res.json()["detail"] and "hello" in res.json()["detail"]
+    assert "neither ran `docker run`" in res.json()["detail"] and "hello" in res.json()["detail"]
 
 
 def test_import_endpoint_avoids_name_clashes(client):
@@ -85,3 +85,38 @@ def test_import_endpoint_avoids_name_clashes(client):
     second = client.post("/api/recipes/import", json={"text": text}).json()
     assert second["recipe"]["name"] == "m1 (2)" and second["recipe"]["container_name"] == "m1-2"
     assert client.post("/api/recipes", json=second["recipe"]).status_code == 201
+
+
+def test_native_mlx_script():
+    text = """#!/usr/bin/env bash
+# Starter: Qwen3 on the Mac Studio with MLX
+MODEL="${MODEL:-mlx-community/Qwen3-30B-A3B-4bit}"
+PORT="${PORT:-8085}"
+source ~/venvs/mlx/bin/activate
+exec mlx_lm.server --model "$MODEL" --host 0.0.0.0 --port "$PORT" --max-tokens 4096 --log-level INFO
+"""
+    res = run_import(text)
+    r = res["recipe"]
+    assert r["runtime"] == "process" and r["framework"] == "mlx"
+    assert r["model"] == "mlx-community/Qwen3-30B-A3B-4bit"
+    assert r["command"] == "mlx_lm.server --model {model} --host 0.0.0.0 --port {port}"
+    assert (r["host_port"], r["container_port"]) == (8085, 8085)
+    assert r["args"].splitlines() == ["--max-tokens 4096", "--log-level INFO"]
+    assert r["description"] == "Starter: Qwen3 on the Mac Studio with MLX"
+    assert any("native process" in w for w in res["warnings"])
+
+
+def test_native_llama_server_and_python_module():
+    r = run_import("llama-server -m ~/models/q.gguf --port 8090 -ngl 999 -c 8192")["recipe"]
+    assert r["framework"] == "llamacpp-native" and r["model"] == "~/models/q.gguf"
+    assert r["command"] == "llama-server -m {model} --port {port}" and r["args"].splitlines() == ["-ngl 999", "-c 8192"]
+
+    r = run_import("python3 -m mlx_lm server --model m/x")["recipe"]
+    assert r["framework"] == "mlx" and r["command"] == "python3 -m mlx_lm server --model {model}"
+    assert r["host_port"] == 8080  # mlx default, no --port given
+
+
+def test_native_import_saves_as_process_recipe(client):
+    res = client.post("/api/recipes/import", json={"text": "mlx_lm.server --model m/y --port 8086"}).json()
+    saved = client.post("/api/recipes", json=res["recipe"])
+    assert saved.status_code == 201 and saved.json()["runtime"] == "process"

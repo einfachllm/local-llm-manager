@@ -79,3 +79,24 @@ def test_import_requires_trust_when_risky(client):
 def test_clean_script_imports_without_trust(client):
     res = client.post("/api/recipes/import", json={"text": "docker run -p 9200:8000 vllm/vllm-openai --model org/c"})
     assert res.status_code == 200 and res.json()["check"]["count"] == 0
+
+
+def test_path_changes_cannot_unlock_real_tools(tmp_path):
+    venv = tmp_path / "venv" / "bin"
+    venv.mkdir(parents=True)
+    marker = tmp_path / "server-really-started"
+    fake = venv / "mlx_lm.server"
+    fake.write_text(f"#!/bin/sh\ntouch {marker}\n")
+    fake.chmod(0o755)
+    (venv / "activate").write_text(f'PATH="{venv}:$PATH"\nexport PATH\n')
+    script = f"""source {venv}/activate
+export PATH="{venv}:$PATH"
+command -p true
+mlx_lm.server --model m/z --port 8099
+"""
+    res = asyncio.run(import_script(script))
+    assert not marker.exists()
+    assert res["recipe"]["runtime"] == "process" and res["recipe"]["model"] == "m/z"
+    msgs = risks(script)
+    assert any(m.startswith("Activates a Python environment") for m in msgs)
+    assert any(m.startswith("command -p") and "not blocked" in m for m in msgs)

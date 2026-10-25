@@ -147,7 +147,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 
 /* logs */
 .logs-tools { display: flex; gap: 10px; align-items: center; }
-.logs-tools input { width: 220px; padding: 4px 8px; }
+.logs-tools input:not([type=checkbox]) { width: 220px; padding: 4px 8px; }
 .logs { flex: 1; margin: 0; padding: 12px 16px; overflow: auto; background: #070b14; white-space: pre-wrap; word-break: break-all; }
 .logs .err { color: #ff8f8f; }
 .logs .warn { color: #ffd27a; }
