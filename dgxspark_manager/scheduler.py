@@ -18,7 +18,7 @@ ACTIONS = {
     "start": {"label": "Start model", "needs_recipe": True},
     "stop": {"label": "Stop model", "needs_recipe": True},
     "restart": {"label": "Restart model", "needs_recipe": True},
-    "switch": {"label": "Switch to model (stop others, free memory, start)", "needs_recipe": True},
+    "switch": {"label": "Switch to model (stop others on its host, free memory, start)", "needs_recipe": True},
     "stop_all": {"label": "Stop all models", "needs_recipe": False},
     "free_memory": {"label": "Stop all models and free memory", "needs_recipe": False},
 }
@@ -62,9 +62,9 @@ async def execute(manager: Manager, schedule: dict, source: str) -> str:
     if action == "switch":
         return await manager.switch(rid, source)
     if action == "stop_all":
-        return await manager.stop_all(source)
+        return await manager.stop_all(source, host_id=schedule.get("host_id"))
     if action == "free_memory":
-        return await manager.free_memory(source)
+        return await manager.free_memory(source, host_id=schedule.get("host_id"))
     raise ActionError(f"Unknown action {action!r}")
 
 

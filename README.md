@@ -43,6 +43,32 @@ Other ways to run it:
 > effectively root. Always set `DGXM_PASSWORD`, and only expose the port on a trusted network
 > (or behind a VPN / Tailscale / an HTTPS reverse proxy).
 
+## One dashboard for several machines
+
+One installation is the **hub**: it has the dashboard, the database (recipes, schedules, activity) and
+the scheduler. Every other machine runs the same app in **agent mode**: no dashboard, just a small API
+that runs what the hub sends. A typical setup is the Spark as hub and a Mac Studio as agent.
+
+1. On the agent machine, in its `.env` (`~/.config/dgxspark-manager.env` with `install.sh`):
+   ```bash
+   DGXM_MODE=agent
+   DGXM_AGENT_TOKEN=<output of: openssl rand -hex 32>
+   ```
+   then install/restart it (`./install-macos.sh` on a Mac, `./install.sh` on Linux).
+2. In the hub's dashboard: **Hosts → Add host**, with the agent's URL (e.g. `http://mac-studio.local:8090`)
+   and the same token. The host list shows whether it is online, its platform, memory and GPU.
+3. Recipes get a **Host** field. Status, logs, start/stop, schedules and the timeline then work across
+   all hosts. **Switch to** only stops other models on the same host; "Stop all" / "Free memory" (on the
+   Hosts tab and as schedules) work on one host or on all of them. The recipe list can be filtered and
+   grouped by host, and the header shows each host's memory.
+
+Ports only conflict within one host. If a host is unreachable, its recipes show **Host offline** and
+actions on them fail with the reason (e.g. a wrong token).
+
+> **Security:** the agent token gives full control over models on that machine (effectively the
+> agent user's rights). The hub talks to agents over plain HTTP, so keep them on a trusted network or a
+> VPN such as Tailscale, and use a long random token. The hub never shows stored tokens in the UI.
+
 ## Install on a Mac (Mac Studio etc.)
 
 On macOS, Docker containers cannot use the Apple GPU (Metal), so MLX does not work in a container
@@ -158,15 +184,15 @@ The check is a line-based heuristic, not a full shell parser, and the restricted
 
 ## Schedules
 
-Times use the Spark's local time zone. Each schedule is either a repeat (pick a time and weekdays,
+Times use the hub's local time zone. Each schedule is either a repeat (pick a time and weekdays,
 or write a cron expression such as `0 22 * * 1-5`) or a one-shot date and time.
 
 | Action | Does |
 |---|---|
 | Start / Stop / Restart model | What the buttons do |
-| Switch to model | Stop all other managed models, drop the page cache, start this one |
-| Stop all models | Stop every model that has a recipe |
-| Stop all models and free memory | Stop all, then `sync; echo 3 > /proc/sys/vm/drop_caches` |
+| Switch to model | Stop all other models on the same host, drop its page cache, start this one |
+| Stop all models | Stop every model with a recipe, on one host or all hosts |
+| Stop all models and free memory | Stop all, then `sync; echo 3 > /proc/sys/vm/drop_caches` (one host or all) |
 
 **Planned runs timeline.** Above the schedule list, a chart shows the next 24 hours, 3 days or 7 days:
 one row per model, a block where the model will be running (1) and a gap where it is stopped (0).
@@ -191,6 +217,8 @@ skipped; a missed one-shot runs if it is less than 10 minutes late.
 | `DGXM_STOP_TIMEOUT` | `30` | Seconds `docker stop` waits before killing |
 | `DGXM_DROP_CACHES_IMAGE` | `busybox:latest` | Image for the privileged cache drop |
 | `DGXM_SEED` | `1` | Create two example recipes on an empty database |
+| `DGXM_MODE` | `hub` | `agent`: no dashboard, only the agent API for a hub on another machine |
+| `DGXM_AGENT_TOKEN` | *(empty)* | Token the hub must send to this agent (required in agent mode) |
 
 ## API
 
@@ -212,5 +240,6 @@ DGXM_DB=/tmp/dev.db python -m dgxspark_manager.main
 ```
 
 Layout: `dgxspark_manager/` holds the FastAPI app (`main.py`), recipe → `docker run` translation
-(`recipes.py`), script import and its safety check (`importer.py`, `script_check.py`), lifecycle logic (`manager.py`, with native processes in `processes.py`), the scheduler (`scheduler.py`) and its timeline projection (`timeline.py`), SQLite storage (`db.py`)
+(`recipes.py`), script import and its safety check (`importer.py`, `script_check.py`), lifecycle rules (`manager.py`), where things run (`executor.py`: this machine or a remote agent; agent API in
+`agent.py`; native processes in `processes.py`), the scheduler (`scheduler.py`) and its timeline projection (`timeline.py`), SQLite storage (`db.py`)
 and the static UI (`static/`, plain HTML/JS with no build step). Tests use a fake docker client.

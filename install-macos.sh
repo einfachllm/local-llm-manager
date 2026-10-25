@@ -71,6 +71,12 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 PORT="$(grep -E '^DGXM_PORT=' .env | cut -d= -f2)"
 IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo localhost)"
-echo "Installed. Open http://${IP}:${PORT:-8090}"
+if grep -qE '^DGXM_MODE=agent' .env; then
+  echo "Installed as agent. In the hub dashboard, Hosts -> Add host:"
+  echo "  URL:   http://${IP}:${PORT:-8090}"
+  echo "  Token: the DGXM_AGENT_TOKEN from ${APP_DIR}/.env"
+else
+  echo "Installed. Open http://${IP}:${PORT:-8090}"
+fi
 echo "Service log: tail -f ${LOG}"
 echo "Uninstall:   launchctl bootout gui/\$(id -u) ${PLIST} && rm ${PLIST}"

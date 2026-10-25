@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 os.environ.setdefault("DGXM_SEED", "0")
 
-from dgxspark_manager import manager as manager_mod  # noqa: E402
+from dgxspark_manager import executor as executor_mod  # noqa: E402
 from dgxspark_manager.db import Database  # noqa: E402
 from dgxspark_manager.docker import CommandResult  # noqa: E402
 from dgxspark_manager.main import create_app  # noqa: E402
@@ -64,9 +64,9 @@ def client(fake_docker, monkeypatch, tmp_path):
     async def no_local_drop():
         return "not root"
 
-    monkeypatch.setattr(manager_mod, "try_drop_caches_locally", no_local_drop)
+    monkeypatch.setattr(executor_mod, "try_drop_caches_locally", no_local_drop)
     # Plenty of free memory unless a test says otherwise.
-    monkeypatch.setattr(manager_mod.system, "read_meminfo",
+    monkeypatch.setattr(executor_mod.system, "read_meminfo",
                         lambda: {"total_gb": 128, "available_gb": 100, "used_gb": 28})
     app = create_app(Database(":memory:"), fake_docker, run_scheduler=False,
                      procs=ProcessRunner(tmp_path / "processes"))

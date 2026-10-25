@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from conftest import recipe_body
 
-from dgxspark_manager import manager as manager_mod
+from dgxspark_manager import executor as executor_mod
 from dgxspark_manager.recipes import build_run_argv
 from dgxspark_manager.scheduler import compute_next_run, local_now
 
@@ -122,9 +122,9 @@ def test_logs(client):
 
 
 def test_failed_exit_detection():
-    assert manager_mod._failed_exit("Exited (1) 2 minutes ago")
-    assert not manager_mod._failed_exit("Exited (137) 2 minutes ago")
-    assert not manager_mod._failed_exit("Up 3 hours")
+    assert executor_mod._failed_exit("Exited (1) 2 minutes ago")
+    assert not executor_mod._failed_exit("Exited (137) 2 minutes ago")
+    assert not executor_mod._failed_exit("Up 3 hours")
 
 
 def test_schedule_crud_and_validation(client):

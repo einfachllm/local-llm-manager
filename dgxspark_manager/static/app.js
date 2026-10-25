@@ -4,8 +4,8 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const state = { meta: null, recipes: [], schedules: [], busy: new Set(), tab: "recipes" };
-const STATUS_LABEL = { ready: "Ready", loading: "Loading model", starting: "Starting", stopped: "Stopped", failed: "Failed" };
+const state = { meta: null, recipes: [], schedules: [], hosts: [], busy: new Set(), tab: "recipes" };
+const STATUS_LABEL = { ready: "Ready", loading: "Loading model", starting: "Starting", stopped: "Stopped", failed: "Failed", offline: "Host offline" };
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 async function api(path, opts = {}) {
@@ -48,30 +48,144 @@ $$(".tab").forEach((btn) => btn.addEventListener("click", () => {
   $$(".panel").forEach((p) => p.classList.toggle("hidden", p.id !== `tab-${state.tab}`));
   if (state.tab === "schedules") loadSchedules();
   if (state.tab === "activity") loadEvents();
+  if (state.tab === "hosts") renderHosts();
 }));
 
 $$("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
 
-/* ---------------- system ---------------- */
+/* ---------------- hosts ---------------- */
 
-async function loadSystem() {
-  try {
-    const s = await api("/api/system");
-    const m = s.memory;
-    const pct = m.total_gb ? (m.used_gb / m.total_gb) * 100 : 0;
-    $("#mem-text").textContent = `${m.used_gb} / ${m.total_gb} GB (${m.available_gb} free)`;
-    const bar = $("#mem-bar");
-    bar.style.width = `${pct.toFixed(1)}%`;
-    bar.className = "bar-fill" + (pct > 90 ? " crit" : pct > 75 ? " warn" : "");
-    $("#gpu-text").textContent = s.gpus.length
-      ? s.gpus.map((g) => `GPU ${g.utilization ?? "?"}% · ${g.temperature ?? "?"}°C · ${g.power_w ?? "?"} W`).join("  ")
-      : "GPU n/a";
-  } catch { /* keep last values */ }
+const multiHost = () => state.hosts.length > 1;
+const hostById = (id) => state.hosts.find((h) => h.id === Number(id));
+const hostName = (id) => hostById(id)?.name ?? `#${id}`;
+const hostPlatform = (id) => hostById(id)?.info?.platform ?? "";
+const PLATFORM = { darwin: "macOS", linux: "Linux" };
+
+function memText(m) { return `${m.used_gb} / ${m.total_gb} GB`; }
+function memPct(m) { return m.total_gb ? (m.used_gb / m.total_gb) * 100 : 0; }
+function barClass(pct) { return "bar-fill" + (pct > 90 ? " crit" : pct > 75 ? " warn" : ""); }
+
+// Address of a model endpoint: the host's own name for remote hosts, else the one in the address bar.
+function endpointHost(hostId) {
+  const h = hostById(hostId);
+  if (h?.url) { try { return new URL(h.url).hostname; } catch { /* fall through */ } }
+  return location.hostname;
 }
 
-$("#btn-free").addEventListener("click", async () => {
-  if (!confirm("Stop ALL running models and drop the page cache?")) return;
-  await runAction("free", "/api/system/free-memory");
+async function loadHosts() {
+  try {
+    state.hosts = await api("/api/hosts");
+  } catch { return; }
+  renderHostsStrip();
+  renderHostOptions();
+  if (state.tab === "hosts") renderHosts();
+}
+
+function renderHostsStrip() {
+  $("#hosts-strip").innerHTML = state.hosts.map((h) => {
+    if (!h.online) {
+      return `<button class="host-chip offline" data-host="${h.id}" title="${esc(h.error || "offline")}">
+        <span class="host-name">${esc(h.name)}</span><span class="host-mem">offline</span></button>`;
+    }
+    const m = h.system.memory;
+    const pct = memPct(m);
+    const gpu = h.system.gpus[0];
+    const title = `${h.name}: ${memText(m)} used, ${m.available_gb} GB free` + (gpu ? `\nGPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C · ${gpu.power_w ?? "?"} W` : "");
+    return `<button class="host-chip" data-host="${h.id}" title="${esc(title)}">
+        <span class="host-name">${esc(h.name)}</span>
+        <span class="bar"><span class="${barClass(pct)}" style="width:${pct.toFixed(1)}%"></span></span>
+        <span class="host-mem">${esc(memText(m))}${gpu ? ` · GPU ${gpu.utilization ?? "?"}%` : ""}</span>
+      </button>`;
+  }).join("");
+}
+
+$("#hosts-strip").addEventListener("click", () => $('.tab[data-tab="hosts"]').click());
+
+function renderHostOptions() {
+  const opts = state.hosts.map((h) => `<option value="${h.id}">${esc(h.name)}${h.is_local ? " (this machine)" : ""}</option>`).join("");
+  const filter = $("#recipe-host");
+  const cur = filter.value;
+  filter.innerHTML = `<option value="">All hosts</option>` + opts;
+  filter.value = state.hosts.some((h) => String(h.id) === cur) ? cur : "";
+  filter.closest("label").classList.toggle("hidden", !multiHost());
+  // Editor selects are refreshed when their dialog opens, so an open form keeps its choice.
+}
+
+function renderHosts() {
+  const running = (id) => state.recipes.filter((r) => r.host_id === id && RUNNING.includes(r.status)).length;
+  const total = (id) => state.recipes.filter((r) => r.host_id === id).length;
+  $("#hosts").innerHTML = state.hosts.map((h) => {
+    const m = h.system?.memory;
+    const gpu = h.system?.gpus?.[0];
+    return `<tr data-id="${h.id}">
+      <td><b>${esc(h.name)}</b>${h.is_local ? ` <span class="chip small on">this machine</span>` : `<br><small>${esc(h.url)}</small>`}</td>
+      <td>${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span><br><small>${esc(h.error || "")}</small>`}</td>
+      <td>${h.info ? `${esc(PLATFORM[h.info.platform] ?? h.info.platform)} · ${esc(h.info.machine)}<br><small>${esc(h.info.hostname)} · v${esc(h.info.version)}</small>` : "–"}</td>
+      <td style="min-width:160px">${m ? `<div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
+        <small>${esc(memText(m))} · ${m.available_gb} GB free</small>` : "–"}</td>
+      <td>${gpu ? `${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C` : "–"}</td>
+      <td>${running(h.id)} running / ${total(h.id)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn small ghost" data-act="stop-all" ${h.online ? "" : "disabled"}>Stop all</button>
+        <button class="btn small ghost" data-act="free" ${h.online ? "" : "disabled"} title="Stop all models on this host and drop the page cache">Free memory</button>
+        <button class="btn small ghost" data-act="edit">Edit</button>
+        ${h.is_local ? "" : `<button class="btn small ghost danger" data-act="delete">Remove</button>`}
+      </td></tr>`;
+  }).join("");
+}
+
+$("#hosts").addEventListener("click", async (ev) => {
+  const btn = ev.target.closest("button[data-act]");
+  if (!btn) return;
+  const h = hostById(btn.closest("tr").dataset.id);
+  const act = btn.dataset.act;
+  if (act === "stop-all") {
+    if (confirm(`Stop all models on ${h.name}?`)) await runAction(`host-${h.id}`, `/api/system/stop-all?host_id=${h.id}`);
+  } else if (act === "free") {
+    if (confirm(`Stop all models on ${h.name} and drop its page cache?`)) await runAction(`host-${h.id}`, `/api/system/free-memory?host_id=${h.id}`);
+  } else if (act === "edit") {
+    openHostEditor(h);
+    return;
+  } else if (act === "delete") {
+    if (!confirm(`Remove host ${h.name} from this dashboard? (Nothing is changed on the machine.)`)) return;
+    try { await api(`/api/hosts/${h.id}`, { method: "DELETE" }); toast("Host removed", "ok"); } catch (e) { toast(e.message, "bad"); }
+  }
+  loadHosts();
+});
+
+const hostForm = $("#form-host");
+let editingHost = null;
+
+function openHostEditor(h) {
+  editingHost = h;
+  hostForm.reset();
+  $("#host-error").textContent = "";
+  $("#host-title").textContent = h ? `Edit host – ${h.name}` : "Add host";
+  hostForm.elements.name.value = h?.name ?? "";
+  hostForm.elements.url.value = h?.url ?? "";
+  const local = h?.is_local;
+  $("#lbl-host-url").classList.toggle("hidden", !!local);
+  $("#lbl-host-token").classList.toggle("hidden", !!local);
+  $("#host-token-hint").textContent = h ? "leave empty to keep the current token" : "the agent's DGXM_AGENT_TOKEN";
+  $("#dlg-host").showModal();
+}
+
+$("#btn-new-host").addEventListener("click", () => openHostEditor(null));
+
+hostForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const body = { name: hostForm.elements.name.value, url: hostForm.elements.url.value, token: hostForm.elements.token.value };
+  try {
+    const h = editingHost
+      ? await api(`/api/hosts/${editingHost.id}`, { method: "PUT", body })
+      : await api("/api/hosts", { method: "POST", body });
+    $("#dlg-host").close();
+    toast(h.online ? `${h.name} is online` : `Saved, but ${h.name} is not reachable: ${h.error}`, h.online ? "ok" : "bad");
+    await loadHosts();
+    loadRecipes();
+  } catch (e) {
+    $("#host-error").textContent = e.message;
+  }
 });
 
 /* ---------------- recipes ---------------- */
@@ -88,12 +202,13 @@ async function loadRecipes() {
 /* ---------------- recipe list: filter, sort, group ---------------- */
 
 const VIEW_KEY = "dgxm.recipeView";
-const view = { search: "", tags: [], sort: "name", group: false };
+const view = { search: "", tags: [], sort: "name", group: "", host: "" };
 try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || "{}")); } catch { /* storage unavailable */ }
+if (typeof view.group === "boolean") view.group = view.group ? "tag" : "";  // older saved views
 const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* ignore */ } };
 
 const RUNNING = ["ready", "loading", "starting"];
-const STATUS_ORDER = { ready: 0, loading: 1, starting: 2, failed: 3, stopped: 4 };
+const STATUS_ORDER = { ready: 0, loading: 1, starting: 2, failed: 3, stopped: 4, offline: 5 };
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 const SORTS = {
   name: byName,
@@ -113,10 +228,11 @@ function visibleRecipes() {
   const q = view.search.trim().toLowerCase();
   const want = view.tags.map((t) => t.toLowerCase());
   return state.recipes.filter((r) => {
+    if (view.host && String(r.host_id) !== view.host) return false;
     const tags = (r.tags || []).map((t) => t.toLowerCase());
     if (!want.every((t) => tags.includes(t))) return false;
     if (!q) return true;
-    return [r.name, r.model, r.description, r.image, r.container_name, r.framework, ...tags]
+    return [r.name, r.model, r.description, r.image, r.container_name, r.framework, hostName(r.host_id), ...tags]
       .some((v) => String(v || "").toLowerCase().includes(q));
   }).sort(SORTS[view.sort] || byName);
 }
@@ -138,7 +254,7 @@ function cardHtml(r) {
   const busy = state.busy.has(r.id);
   const running = RUNNING.includes(r.status);
   const fw = state.meta?.frameworks[r.framework]?.label ?? r.framework;
-  const url = `http://${location.hostname}:${r.host_port}`;
+  const url = `http://${endpointHost(r.host_id)}:${r.host_port}`;
   const active = new Set(view.tags.map((t) => t.toLowerCase()));
   return `
       <article class="card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}">
@@ -146,6 +262,7 @@ function cardHtml(r) {
           <div class="card-title">${esc(r.name)}</div>
           <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
         </div>
+        ${multiHost() ? `<div class="card-host" title="Runs on this host">⌂ ${esc(hostName(r.host_id))}</div>` : ""}
         <div><span class="pill ${busy ? "busy" : r.status}">${busy ? "Working…" : STATUS_LABEL[r.status] ?? r.status}</span></div>
         ${r.tags?.length ? `<div class="card-tags">${r.tags.map((t) =>
           `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}</div>` : ""}
@@ -162,7 +279,7 @@ function cardHtml(r) {
             ? `<button class="btn small stop" data-act="stop" ${busy ? "disabled" : ""}>Stop</button>
                <button class="btn small" data-act="restart" ${busy ? "disabled" : ""}>Restart</button>`
             : `<button class="btn small go" data-act="start" ${busy ? "disabled" : ""}>Start</button>
-               <button class="btn small" data-act="switch" ${busy ? "disabled" : ""} title="Stop all other models, free memory, then start this one">Switch to</button>`}
+               <button class="btn small" data-act="switch" ${busy ? "disabled" : ""} title="Stop all other models on this host, free its memory, then start this one">Switch to</button>`}
           <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
           <button class="btn small ghost" data-act="edit">Edit</button>
           <button class="btn small ghost" data-act="duplicate">Duplicate</button>
@@ -186,12 +303,12 @@ function renderRecipes() {
     $("#recipes").innerHTML = `<div class="grid">${list.map(cardHtml).join("")}</div>`;
     return;
   }
-  // Group by each recipe's first tag (e.g. the model name), so every recipe appears once.
+  // Group by host, or by each recipe's first tag (e.g. the model name); every recipe appears once.
   const groups = new Map();
   for (const r of list) {
-    const t = r.tags?.[0] ?? "";
-    const key = t.toLowerCase();
-    if (!groups.has(key)) groups.set(key, { label: t, items: [] });
+    const label = view.group === "host" ? hostName(r.host_id) : r.tags?.[0] ?? "";
+    const key = view.group === "host" ? String(state.hosts.findIndex((h) => h.id === r.host_id)).padStart(3, "0") : label.toLowerCase();
+    if (!groups.has(key)) groups.set(key, { label, items: [] });
     groups.get(key).items.push(r);
   }
   const keys = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b, undefined, { numeric: true }));
@@ -199,7 +316,7 @@ function renderRecipes() {
     const g = groups.get(k);
     const running = g.items.filter((r) => RUNNING.includes(r.status)).length;
     return `<section class="group">
-        <h3 class="group-title">${k ? esc(g.label) : "Untagged"} <span>${g.items.length} recipe${g.items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}</span></h3>
+        <h3 class="group-title">${g.label ? esc(g.label) : "Untagged"} <span>${g.items.length} recipe${g.items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}</span></h3>
         <div class="grid">${g.items.map(cardHtml).join("")}</div>
       </section>`;
   }).join("");
@@ -219,10 +336,11 @@ $("#tag-filter").addEventListener("click", (ev) => {
 });
 $("#recipe-search").addEventListener("input", (ev) => { view.search = ev.target.value; saveView(); renderRecipes(); });
 $("#recipe-sort").addEventListener("change", (ev) => { view.sort = ev.target.value; saveView(); renderRecipes(); });
-$("#recipe-group").addEventListener("change", (ev) => { view.group = ev.target.checked; saveView(); renderRecipes(); });
+$("#recipe-group").addEventListener("change", (ev) => { view.group = ev.target.value; saveView(); renderRecipes(); });
+$("#recipe-host").addEventListener("change", (ev) => { view.host = ev.target.value; saveView(); renderRecipes(); });
 $("#recipe-search").value = view.search;
 $("#recipe-sort").value = SORTS[view.sort] ? view.sort : "name";
-$("#recipe-group").checked = !!view.group;
+$("#recipe-group").value = ["host", "tag"].includes(view.group) ? view.group : "";
 
 async function runAction(key, path, okMsg) {
   state.busy.add(key);
@@ -237,7 +355,7 @@ async function runAction(key, path, okMsg) {
   } finally {
     state.busy.delete(key);
     await loadRecipes();
-    loadSystem();
+    loadHosts();
   }
 }
 
@@ -292,6 +410,7 @@ function recipeFromForm() {
   data.host_port = Number(data.host_port) || 0;
   data.container_port = Number(data.container_port) || 0;
   data.est_memory_gb = data.est_memory_gb === "" ? null : Number(data.est_memory_gb);
+  data.host_id = data.host_id ? Number(data.host_id) : null;
   data.tags = (data.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
   return data;
 }
@@ -362,6 +481,9 @@ function nextFreePort() {
 function openRecipeEditor(r) {
   editingRecipe = r;
   recipeForm.reset();
+  $("#sel-host").innerHTML = state.hosts.map((h) =>
+    `<option value="${h.id}">${esc(h.name)}${h.info ? ` (${esc(PLATFORM[h.info.platform] ?? h.info.platform)})` : h.online ? "" : " (offline)"}</option>`).join("");
+  $("#sel-host").closest("label").classList.toggle("hidden", !multiHost());
   $("#recipe-error").textContent = "";
   showRecipeNote([]);
   recipeForm.elements.color.value = "";
@@ -370,8 +492,10 @@ function openRecipeEditor(r) {
   if (r) {
     fillRecipeForm(r);
   } else {
+    const hostId = view.host || state.hosts.find((h) => h.is_local)?.id;
+    recipeForm.elements.host_id.value = hostId ?? "";
     // On a Mac, containers have no GPU access, so native MLX is the sensible default.
-    const mac = state.meta.platform === "darwin";
+    const mac = hostPlatform(hostId) === "darwin";
     recipeForm.elements.gpus.value = mac ? "" : "all";
     recipeForm.elements.host_port.value = nextFreePort();
     applyFramework(mac ? "mlx" : "vllm", true);
@@ -382,6 +506,15 @@ function openRecipeEditor(r) {
 }
 
 $("#btn-new-recipe").addEventListener("click", () => openRecipeEditor(null));
+
+$("#sel-host").addEventListener("change", (e) => {
+  // New recipe moved to a Mac: switch to native MLX (Docker on macOS has no GPU access).
+  if (!editingRecipe && hostPlatform(e.target.value) === "darwin" && recipeForm.elements.runtime.value === "docker") {
+    recipeForm.elements.gpus.value = "";
+    applyFramework("mlx", true);
+    updatePreview();
+  }
+});
 
 $("#sel-runtime").addEventListener("change", (e) => {
   const first = Object.entries(state.meta.frameworks).find(([, v]) => v.runtime === e.target.value)[0];
@@ -643,9 +776,10 @@ function cronLabel(cron) {
 
 function actionLabel(s) {
   const a = state.meta.actions[s.action]?.label ?? s.action;
-  if (!s.recipe_id) return a;
+  if (!s.recipe_id) return multiHost() ? `${a} – ${s.host_id ? hostName(s.host_id) : "all hosts"}` : a;
   const r = state.recipes.find((x) => x.id === s.recipe_id);
-  return `${a.split(" (")[0]}: ${r ? r.name : `#${s.recipe_id}`}`;
+  const where = multiHost() && r ? ` (${hostName(r.host_id)})` : "";
+  return `${a.split(" (")[0]}: ${r ? r.name : `#${s.recipe_id}`}${where}`;
 }
 
 async function loadSchedules() {
@@ -675,7 +809,8 @@ async function loadSchedules() {
 }
 
 function scheduleBody(s, overrides = {}) {
-  return { name: s.name, action: s.action, recipe_id: s.recipe_id, cron: s.cron, run_at: s.run_at, enabled: !!s.enabled, ...overrides };
+  return { name: s.name, action: s.action, recipe_id: s.recipe_id, cron: s.cron, run_at: s.run_at, enabled: !!s.enabled,
+           host_id: s.host_id, ...overrides };
 }
 
 $("#schedules").addEventListener("click", async (ev) => {
@@ -708,6 +843,7 @@ $("#schedules").addEventListener("click", async (ev) => {
 function syncScheduleForm() {
   const needs = state.meta.actions[$("#sel-action").value]?.needs_recipe;
   $("#lbl-recipe").classList.toggle("hidden", !needs);
+  $("#lbl-host").classList.toggle("hidden", needs || !multiHost());
   const when = $("#sel-when").value;
   $$(".when", scheduleForm).forEach((el) => el.classList.toggle("hidden", el.dataset.when !== when));
 }
@@ -723,7 +859,11 @@ function openScheduleEditor(s) {
   scheduleForm.reset();
   $("#schedule-error").textContent = "";
   $("#schedule-title").textContent = s ? "Edit schedule" : "New schedule";
-  $("#sel-recipe").innerHTML = state.recipes.map((r) => `<option value="${r.id}">${esc(r.name)}</option>`).join("");
+  $("#sel-recipe").innerHTML = state.recipes.map((r) =>
+    `<option value="${r.id}">${esc(r.name)}${multiHost() ? ` – ${esc(hostName(r.host_id))}` : ""}</option>`).join("");
+  $("#sel-sched-host").innerHTML = `<option value="">All hosts</option>` +
+    state.hosts.map((h) => `<option value="${h.id}">${esc(h.name)}</option>`).join("");
+  $("#sel-sched-host").value = s?.host_id ?? "";
   $("#in-once").value = toLocalInput(s?.run_at);
   $$("#days input").forEach((c) => { c.checked = true; });
   $("#in-time").value = "22:00";
@@ -767,6 +907,7 @@ scheduleForm.addEventListener("submit", async (ev) => {
     name: f.name.value,
     action: f.action.value,
     recipe_id: state.meta.actions[f.action.value].needs_recipe ? Number(f.recipe_id.value) : null,
+    host_id: !state.meta.actions[f.action.value].needs_recipe && f.host_id.value ? Number(f.host_id.value) : null,
     enabled: f.enabled.checked,
     cron: null,
     run_at: null,
@@ -862,8 +1003,9 @@ function renderTimeline() {
   tl.lanes.forEach((lane, i) => {
     const y = top + i * laneH;
     if (i % 2 === 0) parts.push(`<rect class="tl-lane" x="${labelW}" y="${y}" width="${plotW}" height="${laneH}"/>`);
-    const name = lane.name.length > maxChars ? lane.name.slice(0, maxChars - 1) + "…" : lane.name;
-    parts.push(`<text class="tl-label" x="${labelW - 10}" y="${y + laneH / 2}" text-anchor="end" dominant-baseline="central"><title>${esc(lane.name)}</title>${esc(name)}</text>`);
+    const full = multiHost() ? `${lane.host} · ${lane.name}` : lane.name;
+    const name = full.length > maxChars ? full.slice(0, maxChars - 1) + "…" : full;
+    parts.push(`<text class="tl-label" x="${labelW - 10}" y="${y + laneH / 2}" text-anchor="end" dominant-baseline="central"><title>${esc(full)}</title>${esc(name)}</text>`);
   });
   // grid + axis labels
   for (const d of ticks) {
@@ -876,10 +1018,16 @@ function renderTimeline() {
   // global events (stop all / free memory)
   for (const e of tl.events.filter((ev) => !ev.recipe_id)) {
     const tx = x(new Date(e.time).getTime());
-    const tip = `${fmtDayClock(new Date(e.time))} · ${e.schedule}: ${ACTION_SHORT[e.action]}`;
-    parts.push(`<g class="tl-hit" data-sid="${e.schedule_id}" data-tip="${esc(tip)}">
-      <line class="tl-global" x1="${tx}" x2="${tx}" y1="${top}" y2="${height - 6}"/>
-      <rect x="${tx - 5}" y="${top}" width="10" height="${height - top - 6}" fill="transparent"/></g>`);
+    const where = multiHost() ? ` (${e.host_id ? hostName(e.host_id) : "all hosts"})` : "";
+    const tip = `${fmtDayClock(new Date(e.time))} · ${e.schedule}: ${ACTION_SHORT[e.action]}${where}`;
+    // A host-scoped stop-all only crosses that host's rows.
+    tl.lanes.forEach((lane, i) => {
+      if (e.host_id && lane.host_id !== e.host_id) return;
+      const y = top + i * laneH;
+      parts.push(`<g class="tl-hit" data-sid="${e.schedule_id}" data-tip="${esc(tip)}">
+        <line class="tl-global" x1="${tx}" x2="${tx}" y1="${y}" y2="${y + laneH}"/>
+        <rect x="${tx - 5}" y="${y}" width="10" height="${laneH}" fill="transparent"/></g>`);
+    });
   }
   // blocks
   tl.lanes.forEach((lane, i) => {
@@ -970,8 +1118,9 @@ async function boot() {
     .map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join("");
   $("#swatches").innerHTML = state.meta.colors.map((c) =>
     `<button type="button" class="swatch" data-color="${c}" title="${c || "default"}" aria-label="${c || "default"} colour"></button>`).join("");
-  await Promise.all([loadRecipes(), loadSystem()]);
-  setInterval(() => { if (!document.hidden) { loadRecipes(); loadSystem(); } }, 5000);
+  await loadHosts();
+  await loadRecipes();
+  setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); } }, 5000);
   setInterval(() => { if (!document.hidden && state.tab === "schedules") loadSchedules(); }, 15000);
 }
 

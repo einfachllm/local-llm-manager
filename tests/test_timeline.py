@@ -57,3 +57,18 @@ def test_timeline_endpoint(client):
     tl = client.get("/api/schedules/timeline?hours=24").json()
     assert len(tl["events"]) == 24
     assert tl["lanes"][0]["name"] == r["name"] and len(tl["lanes"][0]["blocks"]) == 1
+
+
+def test_switch_and_free_memory_only_affect_their_host():
+    recipes = [{"id": 1, "name": "spark-a", "host_id": 1}, {"id": 2, "name": "spark-b", "host_id": 1},
+               {"id": 3, "name": "mac-a", "host_id": 2}]
+    schedules = [
+        sched(1, "switch", 2, cron="0 2 * * *"),
+        {**sched(2, "free_memory", cron="0 3 * * *"), "host_id": 2},
+    ]
+    tl = build_timeline(schedules, recipes, running_ids={1, 3}, start=T0, end=T0 + timedelta(hours=6),
+                        hosts={1: "spark", 2: "mac"})
+    assert blocks(tl, 1) == [("00:00", "02:00", False)]   # switched away on the same host
+    assert blocks(tl, 2) == [("02:00", "06:00", True)]
+    assert blocks(tl, 3) == [("00:00", "03:00", False)]   # only mac's free_memory stops it
+    assert [(l["host"], l["name"]) for l in tl["lanes"]] == [("mac", "mac-a"), ("spark", "spark-a"), ("spark", "spark-b")]

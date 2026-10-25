@@ -1,5 +1,6 @@
 """SQLite storage for recipes, schedules and the activity log."""
 
+import socket
 import sqlite3
 import threading
 from datetime import datetime
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     tags            TEXT NOT NULL DEFAULT '',
     color           TEXT NOT NULL DEFAULT '',
     runtime         TEXT NOT NULL DEFAULT 'docker',
+    host_id         INTEGER,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
@@ -44,7 +46,16 @@ CREATE TABLE IF NOT EXISTS schedules (
     last_run      TEXT,
     last_ok       INTEGER,
     last_message  TEXT,
+    host_id       INTEGER,
     created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hosts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    url         TEXT NOT NULL DEFAULT '',   -- '' = this machine
+    token       TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -62,17 +73,21 @@ CREATE TABLE IF NOT EXISTS events (
 RECIPE_FIELDS = (
     "name", "description", "framework", "image", "model", "container_name", "host_port",
     "container_port", "command", "args", "env", "volumes", "docker_args", "gpus",
-    "health_path", "est_memory_gb", "tags", "color", "runtime",
+    "health_path", "est_memory_gb", "tags", "color", "runtime", "host_id",
 )
 
 # Columns added after the first release, created on existing databases at startup.
-RECIPE_MIGRATIONS = {
-    "tags": "ALTER TABLE recipes ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
-    "color": "ALTER TABLE recipes ADD COLUMN color TEXT NOT NULL DEFAULT ''",
-    "runtime": "ALTER TABLE recipes ADD COLUMN runtime TEXT NOT NULL DEFAULT 'docker'",
+MIGRATIONS = {
+    ("recipes", "tags"): "ALTER TABLE recipes ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
+    ("recipes", "color"): "ALTER TABLE recipes ADD COLUMN color TEXT NOT NULL DEFAULT ''",
+    ("recipes", "runtime"): "ALTER TABLE recipes ADD COLUMN runtime TEXT NOT NULL DEFAULT 'docker'",
+    # NULL = the local host (also for recipes created before hosts existed).
+    ("recipes", "host_id"): "ALTER TABLE recipes ADD COLUMN host_id INTEGER",
+    # Host for stop_all / free_memory schedules; NULL = all hosts.
+    ("schedules", "host_id"): "ALTER TABLE schedules ADD COLUMN host_id INTEGER",
 }
 
-SCHEDULE_FIELDS = ("name", "action", "recipe_id", "cron", "run_at", "enabled")
+SCHEDULE_FIELDS = ("name", "action", "recipe_id", "cron", "run_at", "enabled", "host_id")
 
 
 def now_iso() -> str:
@@ -97,8 +112,9 @@ def _recipe_values(data: dict[str, Any]) -> tuple:
     return tuple(",".join(normalize_tags(data.get(f))) if f == "tags" else data.get(f) for f in RECIPE_FIELDS)
 
 
-def _recipe_out(row: dict) -> dict:
+def _recipe_out(row: dict, local_host_id: int) -> dict:
     row["tags"] = normalize_tags(row.get("tags"))
+    row["host_id"] = row.get("host_id") or local_host_id
     return row
 
 
@@ -115,10 +131,13 @@ class Database:
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(SCHEMA)
-            existing = {r["name"] for r in self._conn.execute("PRAGMA table_info(recipes)")}
-            for column, sql in RECIPE_MIGRATIONS.items():
+            for (table, column), sql in MIGRATIONS.items():
+                existing = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
                 if column not in existing:
                     self._conn.execute(sql)
+            if not self._conn.execute("SELECT 1 FROM hosts WHERE url = ''").fetchone():
+                self._conn.execute("INSERT INTO hosts (name, url, token, created_at) VALUES (?, '', '', ?)",
+                                   (socket.gethostname().split(".")[0] or "local", now_iso()))
             self._conn.commit()
 
     def _query(self, sql: str, params: tuple = ()) -> list[dict]:
@@ -134,11 +153,12 @@ class Database:
     # ---- recipes -------------------------------------------------------
 
     def list_recipes(self) -> list[dict]:
-        return [_recipe_out(r) for r in self._query("SELECT * FROM recipes ORDER BY name COLLATE NOCASE")]
+        local = self.local_host_id()
+        return [_recipe_out(r, local) for r in self._query("SELECT * FROM recipes ORDER BY name COLLATE NOCASE")]
 
     def get_recipe(self, recipe_id: int) -> Optional[dict]:
         rows = self._query("SELECT * FROM recipes WHERE id = ?", (recipe_id,))
-        return _recipe_out(rows[0]) if rows else None
+        return _recipe_out(rows[0], self.local_host_id()) if rows else None
 
     def create_recipe(self, data: dict[str, Any]) -> int:
         ts = now_iso()
@@ -197,6 +217,34 @@ class Database:
 
     def delete_schedule(self, schedule_id: int) -> None:
         self._execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+
+    # ---- hosts ---------------------------------------------------------
+
+    def list_hosts(self) -> list[dict]:
+        # Local machine first, then by name.
+        return self._query("SELECT * FROM hosts ORDER BY url != '', name COLLATE NOCASE")
+
+    def get_host(self, host_id: int) -> Optional[dict]:
+        rows = self._query("SELECT * FROM hosts WHERE id = ?", (host_id,))
+        return rows[0] if rows else None
+
+    def local_host_id(self) -> int:
+        return self._query("SELECT id FROM hosts WHERE url = '' ORDER BY id LIMIT 1")[0]["id"]
+
+    def create_host(self, name: str, url: str, token: str) -> int:
+        return self._execute("INSERT INTO hosts (name, url, token, created_at) VALUES (?, ?, ?, ?)",
+                             (name, url, token, now_iso()))
+
+    def update_host(self, host_id: int, name: str, url: str, token: str) -> None:
+        self._execute("UPDATE hosts SET name = ?, url = ?, token = ? WHERE id = ?", (name, url, token, host_id))
+
+    def delete_host(self, host_id: int) -> None:
+        self._execute("DELETE FROM hosts WHERE id = ?", (host_id,))
+
+    def count_host_recipes(self, host_id: int) -> int:
+        local = host_id == self.local_host_id()
+        sql = "SELECT COUNT(*) AS n FROM recipes WHERE host_id = ?" + (" OR host_id IS NULL" if local else "")
+        return self._query(sql, (host_id,))[0]["n"]
 
     # ---- events --------------------------------------------------------
 
