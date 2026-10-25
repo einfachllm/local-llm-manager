@@ -201,3 +201,37 @@ label.inline select { width: auto; }
 .group-title { font-size: 15px; margin: 0 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
 .group-title span { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
 input[readonly] { opacity: .6; }
+
+/* card colours (purely visual; status keeps using the border and pill) */
+.card[data-color=green]  { --card-accent: #22c58b; }
+.card[data-color=teal]   { --card-accent: #2cc4c9; }
+.card[data-color=blue]   { --card-accent: #4f8cff; }
+.card[data-color=purple] { --card-accent: #a77bf3; }
+.card[data-color=pink]   { --card-accent: #ec6fb4; }
+.card[data-color=orange] { --card-accent: #f2884b; }
+.card[data-color=yellow] { --card-accent: #f0c93a; }
+.card[data-color=red]    { --card-accent: #ef5b5b; }
+.card[data-color]:not([data-color=""]):not([data-color=black]) {
+  background: color-mix(in srgb, var(--card-accent) 11%, var(--panel));
+  border-left: 4px solid var(--card-accent);
+}
+.card[data-color=black] { background: #05070c; border-color: #1a2133; border-left: 4px solid #000; }
+.card[data-color=black] .card-desc, .card[data-color=black] .kv dt { color: #6f7a91; }
+
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.swatch {
+  width: 28px; height: 28px; border-radius: 50%; cursor: pointer; padding: 0;
+  border: 2px solid var(--border); background: var(--panel);
+}
+.swatch[data-color=""] { background: linear-gradient(135deg, var(--panel) 45%, var(--border) 45%, var(--border) 55%, var(--panel) 55%); }
+.swatch[data-color=green]  { background: #22c58b; }
+.swatch[data-color=teal]   { background: #2cc4c9; }
+.swatch[data-color=blue]   { background: #4f8cff; }
+.swatch[data-color=purple] { background: #a77bf3; }
+.swatch[data-color=pink]   { background: #ec6fb4; }
+.swatch[data-color=orange] { background: #f2884b; }
+.swatch[data-color=yellow] { background: #f0c93a; }
+.swatch[data-color=red]    { background: #ef5b5b; }
+.swatch[data-color=black]  { background: #000; border-color: #3a4152; }
+.swatch.on { outline: 2px solid var(--text); outline-offset: 2px; }

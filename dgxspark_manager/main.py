@@ -20,7 +20,7 @@ from .db import Database, normalize_tags
 from .docker import Docker
 from .importer import ScriptImportError, import_script
 from .manager import ActionError, Manager
-from .recipes import FRAMEWORKS, build_run_argv, format_command, split_args, uses_host_network
+from .recipes import CARD_COLORS, FRAMEWORKS, build_run_argv, format_command, split_args, uses_host_network
 from .scheduler import ACTIONS, Scheduler, compute_next_run, parse_time, validate_cron
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -45,6 +45,15 @@ class RecipeIn(BaseModel):
     health_path: str = "/health"
     est_memory_gb: Optional[float] = Field(default=None, ge=0)
     tags: list[str] = []
+    color: str = ""
+
+    @field_validator("color")
+    @classmethod
+    def known_color(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in CARD_COLORS:
+            raise ValueError(f"color must be one of {', '.join(c for c in CARD_COLORS if c)} or empty")
+        return v
 
     @field_validator("tags", mode="before")
     @classmethod
@@ -203,6 +212,7 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         return {
             "version": __version__,
             "frameworks": FRAMEWORKS,
+            "colors": CARD_COLORS,
             "actions": ACTIONS,
         }
 

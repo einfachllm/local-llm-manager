@@ -83,6 +83,10 @@
         <label class="span2">Description<input name="description"></label>
         <label class="span2">Tags <small>comma-separated; the first one is used for grouping, e.g. the model name</small>
           <input name="tags" list="tag-list" placeholder="qwen3.8-flash, fp4"></label>
+        <div class="span2 field">Card colour
+          <input type="hidden" name="color">
+          <div class="swatches" id="swatches"></div>
+        </div>
         <label class="span2">Docker image<input name="image" required></label>
         <label class="span2">Model (HF id or path inside container)<input name="model" placeholder="org/model-name"></label>
         <label>Container name<input name="container_name" placeholder="derived from name"></label>
