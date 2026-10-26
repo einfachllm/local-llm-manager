@@ -49,6 +49,22 @@ nano .env              # set DGXM_PASSWORD
 
 Then open `http://<machine>:8090` and log in as `admin` with your password.
 
+## Upgrading
+
+Your recipes, schedules and settings stay where they are (`data/manager.db` and your `.env`). Running
+models keep running while the manager restarts.
+
+```bash
+cd local-llm-manager
+git pull                  # or a release: git fetch --tags && git checkout v0.2.0
+./install.sh              # Linux; on macOS: ./install-macos.sh
+```
+
+With Docker Compose: `docker compose pull && docker compose up -d`.
+
+Upgrade the hub and all agents to the same version. Read the [CHANGELOG](CHANGELOG.md) before
+upgrading, and copy `data/manager.db` first if you want to be able to go back.
+
 ## Several machines
 
 One installation is the **hub**: it serves the dashboard and stores recipes, schedules and the activity
