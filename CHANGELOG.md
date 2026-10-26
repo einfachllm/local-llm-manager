@@ -7,10 +7,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
-- **Images** tab: every Docker image used by recipes, which recipes use it, whether each of their hosts has it
-  locally (age, size, ID), and other local tags of the same image there. A newer tag can be applied to the
-  recipes on that host with one click. Agents get a `GET /agent/v1/images` endpoint (older agents are
-  reported as too old to list images). Keyboard shortcut `5`.
+- **Images** tab (shortcut `5`): a matrix of the Docker images used by recipes (rows, tags of one image grouped
+  together) and the hosts (columns): `✓ 23d` when the host has the image, `✗ missing`, and `⬆ tag` when a newer
+  tag of the same image is already on that host - one click switches that host's recipes to it. Search, host
+  filter, "Newer available" / "Missing on a host" filters and a summary; the recipes per image are collapsed
+  into a count that expands per host. Scales to ~100 recipes on 5 hosts on one screen. Agents get
+  `GET /agent/v1/images` (older agents are reported as too old to list images).
+
+### Fixed
+- On phones, the tab bar wraps instead of making the page wider than the screen.
 
 ## [0.1.0] - 2026-10-26
 
