@@ -40,6 +40,8 @@ download them.
 - [Telegram voice bot](examples/telegram-voice-bot/): talk to your own LLM from Telegram by voice or text.
   Whisper runs next to it via Docker Compose; the LLM is a recipe in this manager, so **Switch to** changes
   the bot's model.
+- [Hermes Agent](examples/hermes-agent/): a full personal agent on Telegram with local speech-to-text and
+  text-to-speech, running on a model from this manager; the Hermes gateway itself is a native-process recipe.
 
 ## Screenshots
 
