@@ -68,7 +68,8 @@ def test_recipe_runs_on_its_host(setup):
     assert client.delete(f"/api/hosts/{mac['id']}").status_code == 409
 
 
-def test_switch_and_free_memory_are_per_host(setup):
+def test_switch_and_free_memory_are_per_host(setup, monkeypatch):
+    monkeypatch.setattr(executor_mod.sys, "platform", "linux")  # macOS skips the cache drop
     client, _, hub_docker, mac_docker, mac = setup
     spark_a = client.post("/api/recipes", json=recipe_body(name="spark-a", host_port=8101, health_path="")).json()
     mac_a = client.post("/api/recipes", json=recipe_body(name="mac-a", host_port=8101, health_path="",
