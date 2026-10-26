@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from local_llm_manager import logstats
 
 VLLM_LINE = (
@@ -30,3 +32,10 @@ def test_wording_variants_and_optional_fields():
 
 def test_no_stats_line():
     assert logstats.from_logs("INFO 10-25 [api_server.py] Received POST /v1/chat/completions") == {}
+
+
+def test_age_from_docker_timestamp():
+    now = datetime(2026, 10, 25, 18, 36, 51, tzinfo=timezone.utc)
+    m = logstats.from_logs(f"2026-10-25T18:34:51.123456789Z {VLLM_LINE}", now=now)
+    assert m["age_s"] == 120 and m["gen_tps"] == 18.2
+    assert "age_s" not in logstats.from_logs(VLLM_LINE)  # process logs have no timestamp prefix

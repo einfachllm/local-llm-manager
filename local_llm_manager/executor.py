@@ -12,7 +12,7 @@ from typing import Any, AsyncIterator, Optional
 
 import httpx
 
-from . import __version__, config, logstats, system
+from . import __version__, config, logstats, servermetrics, system
 from .docker import Docker, try_drop_caches_locally
 from .processes import ProcessError, ProcessRunner
 from .recipes import build_process_argv, build_run_argv, format_command, format_process_command, process_env
@@ -31,6 +31,11 @@ RUNNING_STATES = ("ready", "loading", "starting")
 METRICS_TAIL = 80
 
 
+def _instance_key(recipe: dict, instance: dict) -> str:
+    """Counters restart with the container/process, so rates are tracked per instance."""
+    return f"{recipe['id']}:{instance.get('id', '')}"
+
+
 def host_info() -> dict[str, Any]:
     return {"hostname": socket.gethostname(), "platform": sys.platform, "machine": platform.machine(),
             "version": __version__}
@@ -40,6 +45,7 @@ class LocalExecutor:
     def __init__(self, docker: Optional[Docker] = None, procs: Optional[ProcessRunner] = None):
         self.docker = docker or Docker()
         self.procs = procs or ProcessRunner(config.PROC_DIR)
+        self.rates = servermetrics.RateTracker()
 
     async def info(self) -> dict[str, Any]:
         return host_info()
@@ -89,20 +95,29 @@ class LocalExecutor:
         if running:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 health = await asyncio.gather(*(self._healthy(client, r) for r in running))
-            for r, ok in zip(running, health):
+                stats = await asyncio.gather(*(self._metrics(client, r, instances[r["id"]]) for r in running))
+            for r, ok, m in zip(running, health, stats):
                 out[r["id"]]["status"] = "ready" if ok else "loading"
-            stats = await asyncio.gather(*(self._metrics(r) for r in running))
-            for r, m in zip(running, stats):
                 if m:
                     out[r["id"]]["metrics"] = m
+        self.rates.forget_except({_instance_key(r, instances[r["id"]]) for r in running})
         return out
 
-    async def _metrics(self, recipe: dict) -> dict:
-        """Latest engine stats the server printed to its logs; {} if it prints none."""
+    async def _metrics(self, client: httpx.AsyncClient, recipe: dict, instance: dict) -> dict:
+        """Live numbers from the server's /metrics, else the latest stats line in its logs; {} if neither."""
         try:
-            return logstats.from_logs(await self.logs(recipe, tail=METRICS_TAIL))
+            r = await client.get(f"http://{config.HEALTH_HOST}:{recipe['host_port']}/metrics")
+            if r.status_code == 200:
+                m = self.rates.update(_instance_key(recipe, instance), r.text)
+                if m:
+                    return {**m, "source": "metrics"}
+        except httpx.HTTPError:
+            pass
+        try:
+            m = logstats.from_logs(await self.logs(recipe, tail=METRICS_TAIL))
         except ActionError:
             return {}
+        return {**m, "source": "log"} if m else {}
 
     async def start(self, recipe: dict) -> str:
         """Start a recipe that is not running. Returns a message (first line) + the command used."""
