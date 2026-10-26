@@ -11,7 +11,7 @@ from . import config
 from .db import Database
 from .manager import ActionError, Manager
 
-log = logging.getLogger("dgxspark_manager.scheduler")
+log = logging.getLogger("local_llm_manager.scheduler")
 
 # Actions a schedule can run. `needs_recipe` drives validation and the UI.
 ACTIONS = {

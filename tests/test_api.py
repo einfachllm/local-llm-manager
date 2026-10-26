@@ -1,10 +1,12 @@
+import threading
 from datetime import timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from conftest import recipe_body
 
-from dgxspark_manager import executor as executor_mod
-from dgxspark_manager.recipes import build_run_argv
-from dgxspark_manager.scheduler import compute_next_run, local_now
+from local_llm_manager import executor as executor_mod
+from local_llm_manager.recipes import build_run_argv
+from local_llm_manager.scheduler import compute_next_run, local_now
 
 
 def create(client, **kw):
@@ -112,6 +114,38 @@ def test_switch_stops_others_and_drops_caches(client, fake_docker):
     assert fake_docker.dropped == 1
 
 
+def test_running_recipe_reports_live_server_metrics(client, fake_docker, monkeypatch):
+    """/metrics wins over the log line, and token rates follow the counters between polls."""
+    counters = {"gen": 1000}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = (f"vllm:num_requests_running 1\nvllm:kv_cache_usage_perc 0.25\n"
+                    f"vllm:prompt_tokens_total 0\nvllm:generation_tokens_total {counters['gen']}\n").encode()
+            self.send_response(200 if self.path == "/metrics" else 404)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    clock = [100.0]
+    try:
+        fake_docker.log_stats = "INFO Engine 000: Avg prompt throughput: 1.0 tokens/s, Avg generation throughput: 2.0 tokens/s"
+        r = create(client, host_port=server.server_address[1])
+        client.app.state.manager.local.rates.clock = lambda: clock[0]
+        assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+        first = client.get(f"/api/recipes/{r['id']}").json()["metrics"]
+        assert first == {"running": 1, "kv_cache": 25.0, "source": "metrics"}
+        counters["gen"] += 250
+        clock[0] += 5
+        assert client.get(f"/api/recipes/{r['id']}").json()["metrics"]["gen_tps"] == 50.0
+    finally:
+        server.shutdown()
+
+
 def test_running_recipe_reports_log_metrics(client, fake_docker):
     fake_docker.log_stats = (
         "(APIServer pid=1) INFO 10-25 18:34:51 [loggers.py:315] Engine 000: "
@@ -122,7 +156,7 @@ def test_running_recipe_reports_log_metrics(client, fake_docker):
     row = client.get(f"/api/recipes/{r['id']}").json()
     assert row["status"] == "ready"
     assert row["metrics"] == {"prompt_tps": 4897.8, "gen_tps": 18.2, "running": 2,
-                              "waiting": 1, "kv_cache": 11.2, "prefix_hit": 46.5}
+                              "waiting": 1, "kv_cache": 11.2, "prefix_hit": 46.5, "source": "log"}
     # Stopped recipes drop the metrics again.
     client.post(f"/api/recipes/{r['id']}/stop")
     assert "metrics" not in client.get(f"/api/recipes/{r['id']}").json()
@@ -208,7 +242,7 @@ def test_tags_roundtrip_and_duplicate(client):
 def test_tags_column_added_to_existing_db(tmp_path):
     import sqlite3
 
-    from dgxspark_manager.db import Database
+    from local_llm_manager.db import Database
 
     path = tmp_path / "old.db"
     conn = sqlite3.connect(path)

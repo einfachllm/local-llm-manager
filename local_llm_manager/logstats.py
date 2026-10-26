@@ -9,6 +9,7 @@ Only vLLM is recognised so far; add a parser and register it in PARSERS for more
 """
 
 import re
+from datetime import datetime, timezone
 from typing import Callable, Optional
 
 # vLLM engine stats, printed about every 10 seconds (idle included):
@@ -41,11 +42,23 @@ def _vllm(line: str) -> Optional[dict]:
 PARSERS: tuple[Callable[[str], Optional[dict]], ...] = (_vllm,)
 
 
-def from_logs(text: str) -> dict:
-    """The newest stats line in a log tail, or {} when the server printed none."""
+# `docker logs --timestamps` prefix, e.g. 2026-10-25T18:34:51.123456789Z
+_DOCKER_TS = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z ")
+
+
+def from_logs(text: str, now: Optional[datetime] = None) -> dict:
+    """The newest stats line in a log tail, or {} when the server printed none.
+
+    With docker's timestamp prefix, `age_s` says how old the line is: vLLM stops printing while idle,
+    so an old line no longer describes the current load.
+    """
     for line in reversed(text.splitlines()):
         for parse in PARSERS:
             metrics = parse(line)
             if metrics:
+                ts = _DOCKER_TS.match(line)
+                if ts:
+                    at = datetime.fromisoformat(ts.group(1)).replace(tzinfo=timezone.utc)
+                    metrics["age_s"] = max(0, int(((now or datetime.now(timezone.utc)) - at).total_seconds()))
                 return metrics
     return {}
