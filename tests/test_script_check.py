@@ -1,7 +1,7 @@
 import asyncio
 
-from dgxspark_manager.importer import import_script
-from dgxspark_manager.script_check import check_script
+from llm_model_manager.importer import import_script
+from llm_model_manager.script_check import check_script
 
 
 def risks(text):

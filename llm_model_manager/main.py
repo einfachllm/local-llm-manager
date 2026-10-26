@@ -234,7 +234,7 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         yield
         await scheduler.stop()
 
-    app = FastAPI(title="DGX Spark Manager", version=__version__, lifespan=lifespan)
+    app = FastAPI(title="LLM Model Manager", version=__version__, lifespan=lifespan)
     app.state.db, app.state.manager, app.state.scheduler = db, manager, scheduler
 
     @app.middleware("http")
@@ -249,7 +249,7 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
                 except (ValueError, UnicodeDecodeError):
                     ok = False
             if not ok:
-                return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="DGX Spark Manager"'})
+                return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="LLM Model Manager"'})
         return await call_next(request)
 
     @app.exception_handler(ActionError)
