@@ -1,16 +1,19 @@
 """FastAPI application: REST API + static web UI."""
 
 import base64
+import ipaddress
 import logging
 import os
 import re
 import secrets
 import sqlite3
 import sys
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -230,6 +233,114 @@ def hub_timezone() -> str:
     return f"{now.tzname()} (UTC{offset[:3]}:{offset[3:]})"
 
 
+SECURITY_HEADERS = {
+    # The dashboard must not be framed by other sites (clickjacking with the browser's saved login).
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+}
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+MIN_PASSWORD_LENGTH = 12
+MIN_AGENT_TOKEN_LENGTH = 32
+COMMON_PASSWORDS = {"change-me", "changeme", "password", "passwort", "admin", "administrator", "letmein",
+                    "qwerty", "secret", "123456", "12345678", "123456789", "1234567890", "dgxspark", "nvidia"}
+# Brute-force protection: after this many wrong logins from one address within the window, it gets 429.
+LOGIN_MAX_FAILURES = 10
+LOGIN_WINDOW_SECONDS = 600
+
+
+def password_problem(password: str, user: str = "") -> Optional[str]:
+    """Why a dashboard password is too weak, or None if it is acceptable."""
+    if password.lower() in COMMON_PASSWORDS or (user and password.lower() == user.lower()):
+        return "is a well-known example/default password"
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"is shorter than {MIN_PASSWORD_LENGTH} characters"
+    if len(set(password)) < 4:
+        return "uses fewer than 4 different characters"
+    return None
+
+
+class LoginThrottle:
+    """Counts failed logins per client address in a sliding window (in memory, per process)."""
+
+    def __init__(self, max_failures: int = LOGIN_MAX_FAILURES, window: float = LOGIN_WINDOW_SECONDS):
+        self.max_failures, self.window = max_failures, window
+        self._failures: dict[str, list[float]] = {}
+
+    def _recent(self, key: str, now: float) -> list[float]:
+        recent = [t for t in self._failures.get(key, []) if now - t < self.window]
+        if recent:
+            self._failures[key] = recent
+        else:
+            self._failures.pop(key, None)
+        return recent
+
+    def retry_after(self, key: str) -> int:
+        """Seconds until this address may try again (0 = not locked)."""
+        now = time.monotonic()
+        recent = self._recent(key, now)
+        return int(self.window - (now - recent[0])) + 1 if len(recent) >= self.max_failures else 0
+
+    def failed(self, key: str) -> None:
+        now = time.monotonic()
+        self._failures[key] = [*self._recent(key, now), now]
+        if len(self._failures) > 10_000:  # bound memory under a flood of distinct addresses
+            self._failures.pop(next(iter(self._failures)))
+
+    def succeeded(self, key: str) -> None:
+        self._failures.pop(key, None)
+
+
+def _hostname(netloc: str) -> str:
+    """Host part of a Host header / URL netloc, without port or IPv6 brackets."""
+    netloc = netloc.strip().lower()
+    if netloc.startswith("["):
+        return netloc[1:netloc.find("]")] if "]" in netloc else netloc
+    return netloc.rsplit(":", 1)[0] if netloc.count(":") == 1 else netloc
+
+
+def _is_private_name(host: str) -> bool:
+    """IP addresses, localhost, and names that only resolve inside your own network: single-label names
+    (MagicDNS `spark`), mDNS `*.local` and Tailscale `*.ts.net`. A DNS-rebinding attacker needs a public
+    domain of their own, which never looks like these."""
+    if host in ("localhost",) or host.endswith((".localhost", ".local", ".ts.net")) or "." not in host:
+        return bool(host)
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def request_guard(request: Request) -> Optional[Response]:
+    """Reject requests a browser could be tricked into sending on the user's behalf.
+
+    - Cross-site requests that change something (CSRF): browsers send the saved Basic-auth login with
+      a form POST from any website, so state-changing requests must come from the dashboard's own origin.
+      Clients without an Origin header (curl, scripts, the hub's agent calls) are not affected.
+    - DNS rebinding when no password is set: an attacker's domain that resolves to this machine. Without
+      a password only IP addresses, localhost and local names (MagicDNS, *.local, *.ts.net) are accepted.
+    """
+    host = request.headers.get("host", "")
+    if not config.AUTH_PASSWORD and host and not _is_private_name(_hostname(host)):
+        return PlainTextResponse("Open the dashboard by IP address or local/Tailscale name, or set "
+                                 "DGXM_PASSWORD to use other host names.", status_code=403)
+    if request.method not in SAFE_METHODS:
+        origin = request.headers.get("origin")
+        if origin is not None:
+            parsed = urlsplit(origin)
+            # Behind a reverse proxy the browser's host may only be in X-Forwarded-Host.
+            forwarded = request.headers.get("x-forwarded-host", "").split(",")
+            allowed = {h.strip().lower() for h in (host, *forwarded)} - {""}
+            if parsed.netloc.lower() not in allowed:
+                return PlainTextResponse("Cross-site request blocked", status_code=403)
+        elif request.headers.get("sec-fetch-site") in ("cross-site", "same-site"):
+            return PlainTextResponse("Cross-site request blocked", status_code=403)
+    return None
+
+
 def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
                run_scheduler: bool = True, procs: Optional[ProcessRunner] = None,
                remote_transport: Optional[httpx.AsyncBaseTransport] = None) -> FastAPI:
@@ -249,20 +360,36 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     app = FastAPI(title="Local LLM Manager", version=__version__, lifespan=lifespan)
     app.state.db, app.state.manager, app.state.scheduler = db, manager, scheduler
 
+    throttle = LoginThrottle()
+    app.state.login_throttle = throttle
+
     @app.middleware("http")
     async def basic_auth(request: Request, call_next):
+        if blocked := request_guard(request):
+            return blocked
         if config.AUTH_PASSWORD:
+            client = request.client.host if request.client else "unknown"
+            if wait := throttle.retry_after(client):
+                return PlainTextResponse(f"Too many failed logins - try again in {wait} s", status_code=429,
+                                         headers={"Retry-After": str(wait)})
             ok = False
             header = request.headers.get("authorization", "")
             if header.lower().startswith("basic "):
                 try:
                     user, _, pw = base64.b64decode(header[6:]).decode().partition(":")
-                    ok = secrets.compare_digest(user, config.AUTH_USER) and secrets.compare_digest(pw, config.AUTH_PASSWORD)
+                    ok = (secrets.compare_digest(user.encode(), config.AUTH_USER.encode())
+                          & secrets.compare_digest(pw.encode(), config.AUTH_PASSWORD.encode()))
                 except (ValueError, UnicodeDecodeError):
                     ok = False
             if not ok:
+                if header:  # a wrong login, not just the browser's first request without credentials
+                    throttle.failed(client)
+                    logging.warning("Failed dashboard login from %s", client)
                 return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Local LLM Manager"'})
-        return await call_next(request)
+            throttle.succeeded(client)
+        response = await call_next(request)
+        response.headers.update(SECURITY_HEADERS)
+        return response
 
     @app.exception_handler(ActionError)
     async def action_error(_: Request, exc: ActionError):
@@ -587,13 +714,22 @@ def run() -> None:
     import uvicorn
 
     logging.basicConfig(level=logging.INFO)
+    os.umask(0o077)  # database, WAL and process logs: owner only
+    config.resolve_network()
     if config.MODE == "agent":
         if not config.AGENT_TOKEN:
             raise SystemExit("DGXM_MODE=agent needs DGXM_AGENT_TOKEN (a long random secret shared with the hub)")
+        if len(config.AGENT_TOKEN) < MIN_AGENT_TOKEN_LENGTH:
+            raise SystemExit(f"DGXM_AGENT_TOKEN is shorter than {MIN_AGENT_TOKEN_LENGTH} characters; "
+                             "generate one with: openssl rand -hex 32")
         uvicorn.run(create_agent_app(), host=config.HOST, port=config.PORT, log_level="info")
         return
+    if config.AUTH_PASSWORD and (problem := password_problem(config.AUTH_PASSWORD, config.AUTH_USER)):
+        raise SystemExit(f"DGXM_PASSWORD {problem}. Set a stronger one (at least {MIN_PASSWORD_LENGTH} characters, "
+                         "e.g. from: openssl rand -base64 18) in .env or ~/.config/local-llm-manager.env")
     if not config.AUTH_PASSWORD:
-        logging.warning("DGXM_PASSWORD is not set - the dashboard is open to anyone who can reach port %s", config.PORT)
+        logging.warning("DGXM_PASSWORD is not set - the dashboard is open to anyone who can reach port %s "
+                        "(only by IP address or local/Tailscale name)", config.PORT)
     uvicorn.run(create_app(), host=config.HOST, port=config.PORT, log_level="info")
 
 
