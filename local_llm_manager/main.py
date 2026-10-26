@@ -12,7 +12,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import NoReturn, Optional
 from urllib.parse import urlsplit
 
 import httpx
@@ -253,8 +253,10 @@ LOGIN_WINDOW_SECONDS = 600
 
 def password_problem(password: str, user: str = "") -> Optional[str]:
     """Why a dashboard password is too weak, or None if it is acceptable."""
-    if password.lower() in COMMON_PASSWORDS or (user and password.lower() == user.lower()):
+    if password.lower() in COMMON_PASSWORDS:
         return "is a well-known example/default password"
+    if user and len(user) >= 3 and user.lower() in password.lower():
+        return "contains the user name"
     if len(password) < MIN_PASSWORD_LENGTH:
         return f"is shorter than {MIN_PASSWORD_LENGTH} characters"
     if len(set(password)) < 4:
@@ -710,6 +712,16 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     return app
 
 
+# Exit status for configuration errors (sysexits EX_CONFIG). The systemd unit does not restart on it,
+# since retrying cannot fix a weak password; a missing Tailscale address (exit 1) is retried.
+EX_CONFIG = 78
+
+
+def config_error(message: str) -> NoReturn:
+    print(message, file=sys.stderr)
+    raise SystemExit(EX_CONFIG)
+
+
 def run() -> None:
     import uvicorn
 
@@ -718,15 +730,15 @@ def run() -> None:
     config.resolve_network()
     if config.MODE == "agent":
         if not config.AGENT_TOKEN:
-            raise SystemExit("DGXM_MODE=agent needs DGXM_AGENT_TOKEN (a long random secret shared with the hub)")
+            config_error("DGXM_MODE=agent needs DGXM_AGENT_TOKEN (a long random secret shared with the hub)")
         if len(config.AGENT_TOKEN) < MIN_AGENT_TOKEN_LENGTH:
-            raise SystemExit(f"DGXM_AGENT_TOKEN is shorter than {MIN_AGENT_TOKEN_LENGTH} characters; "
-                             "generate one with: openssl rand -hex 32")
+            config_error(f"DGXM_AGENT_TOKEN is shorter than {MIN_AGENT_TOKEN_LENGTH} characters; "
+                         "generate one with: openssl rand -hex 32")
         uvicorn.run(create_agent_app(), host=config.HOST, port=config.PORT, log_level="info")
         return
     if config.AUTH_PASSWORD and (problem := password_problem(config.AUTH_PASSWORD, config.AUTH_USER)):
-        raise SystemExit(f"DGXM_PASSWORD {problem}. Set a stronger one (at least {MIN_PASSWORD_LENGTH} characters, "
-                         "e.g. from: openssl rand -base64 18) in .env or ~/.config/local-llm-manager.env")
+        config_error(f"DGXM_PASSWORD {problem}. Set a stronger one (at least {MIN_PASSWORD_LENGTH} characters, "
+                     "e.g. from: openssl rand -base64 18) in .env, then restart the service")
     if not config.AUTH_PASSWORD:
         logging.warning("DGXM_PASSWORD is not set - the dashboard is open to anyone who can reach port %s "
                         "(only by IP address or local/Tailscale name)", config.PORT)
