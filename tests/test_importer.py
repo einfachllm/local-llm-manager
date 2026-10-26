@@ -2,8 +2,8 @@ import asyncio
 import os
 from pathlib import Path
 
-from dgxspark_manager.importer import import_script, recipe_from_argv
-from dgxspark_manager.recipes import build_run_argv
+from local_llm_manager.importer import import_script, recipe_from_argv
+from local_llm_manager.recipes import build_run_argv
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -40,7 +40,7 @@ def test_starter_script_round_trip():
     assert rebuilt[rebuilt.index(img) + 1:] == original[original.index(img) + 1:]
     assert "-p" not in rebuilt
     opts = lambda argv: sorted(a for a in argv[:argv.index(img)] if a not in ("--rm", "-d", "-p"))
-    extra = {"docker", "run", "--label", "dgxspark-manager=1", "dgxspark-manager.recipe=1"}
+    extra = {"docker", "run", "--label", "local-llm-manager=1", "local-llm-manager.recipe=1"}
     assert [a for a in opts(rebuilt) if a not in extra] == [os.path.expanduser(a) for a in opts(original)]
 
 

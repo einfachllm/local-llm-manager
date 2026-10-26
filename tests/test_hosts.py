@@ -3,13 +3,13 @@ import pytest
 from conftest import FakeDocker, recipe_body
 from fastapi.testclient import TestClient
 
-from dgxspark_manager import config
-from dgxspark_manager import executor as executor_mod
-from dgxspark_manager.agent import create_agent_app
-from dgxspark_manager.db import Database
-from dgxspark_manager.executor import LocalExecutor
-from dgxspark_manager.main import create_app
-from dgxspark_manager.processes import ProcessRunner
+from local_llm_manager import config
+from local_llm_manager import executor as executor_mod
+from local_llm_manager.agent import create_agent_app
+from local_llm_manager.db import Database
+from local_llm_manager.executor import LocalExecutor
+from local_llm_manager.main import create_app
+from local_llm_manager.processes import ProcessRunner
 
 TOKEN = "s3cret-agent-token"
 

@@ -7,4 +7,4 @@ if [ ! -d .venv ]; then
   .venv/bin/pip install -q -r requirements.txt
 fi
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
-exec .venv/bin/python -m dgxspark_manager.main
+exec .venv/bin/python -m local_llm_manager.main
