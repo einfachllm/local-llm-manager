@@ -1198,6 +1198,7 @@ $("#btn-refresh-events").addEventListener("click", loadEvents);
 
 async function boot() {
   state.meta = await api("/api/meta");
+  $("#hub-tz").textContent = state.meta.timezone ? `: ${state.meta.timezone}` : "";
   $("#sel-runtime").innerHTML = Object.entries(state.meta.runtimes)
     .map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
   renderFrameworkOptions("docker");

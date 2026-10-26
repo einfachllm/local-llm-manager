@@ -8,7 +8,7 @@ import secrets
 import sqlite3
 import sys
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -218,6 +218,13 @@ def seed_mac_examples(db: Database) -> None:
     })
 
 
+def hub_timezone() -> str:
+    """Zone the scheduler uses, e.g. "CET (UTC+01:00)". In Docker this is UTC unless the host's is mounted."""
+    now = datetime.now().astimezone()
+    offset = now.strftime("%z")
+    return f"{now.tzname()} (UTC{offset[:3]}:{offset[3:]})"
+
+
 def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
                run_scheduler: bool = True, procs: Optional[ProcessRunner] = None,
                remote_transport: Optional[httpx.AsyncBaseTransport] = None) -> FastAPI:
@@ -284,6 +291,7 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             "runtimes": RUNTIMES,
             "platform": sys.platform,
             "actions": ACTIONS,
+            "timezone": hub_timezone(),
         }
 
     @app.get("/api/system")
