@@ -29,7 +29,7 @@ def setup(monkeypatch, tmp_path):
     agent = create_agent_app(LocalExecutor(mac_docker, ProcessRunner(tmp_path / "agent-procs")))
     hub = create_app(Database(":memory:"), hub_docker, run_scheduler=False,
                      procs=ProcessRunner(tmp_path / "hub-procs"), remote_transport=httpx.ASGITransport(app=agent))
-    with TestClient(hub) as client:
+    with TestClient(hub, base_url="http://127.0.0.1") as client:
         mac = client.post("/api/hosts", json={"name": "mac", "url": "http://mac.local:8090", "token": TOKEN})
         assert mac.status_code == 201, mac.text
         yield client, agent, hub_docker, mac_docker, mac.json()

@@ -8,7 +8,8 @@ from . import config
 
 # Defaults offered by the UI when a framework is picked. Every value stays editable per recipe.
 # In `command`, these placeholders are substituted: {model}, {port} (container port; for native
-# processes the same as the host port), {host_port}, {name} (container / process name).
+# processes the same as the host port), {host_port}, {name} (container / process name) and
+# {bind_host} (listen address, see bind_host()).
 # `runtime` is "docker" (run in a container) or "process" (run directly on the host, e.g. MLX on a Mac).
 SPARK_DOCKER_ARGS = "--ipc=host --ulimit memlock=-1 --ulimit stack=67108864"
 HF_CACHE_VOLUME = "~/.cache/huggingface:/root/.cache/huggingface"
@@ -19,7 +20,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "label": "vLLM",
         "image": "nvcr.io/nvidia/vllm:25.11-py3",
         "container_port": 8000,
-        "command": "vllm serve {model} --host 0.0.0.0 --port {port}",
+        "command": "vllm serve {model} --host {bind_host} --port {port}",
         "args": "--gpu-memory-utilization 0.4\n--max-model-len 32768\n--max-num-seqs 8",
         "health_path": "/health",
         "docker_args": SPARK_DOCKER_ARGS,
@@ -31,7 +32,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "label": "SGLang",
         "image": "lmsysorg/sglang:spark",
         "container_port": 30000,
-        "command": "python3 -m sglang.launch_server --model-path {model} --host 0.0.0.0 --port {port}",
+        "command": "python3 -m sglang.launch_server --model-path {model} --host {bind_host} --port {port}",
         "args": "--mem-fraction-static 0.4\n--context-length 32768",
         "health_path": "/health",
         "docker_args": SPARK_DOCKER_ARGS,
@@ -43,7 +44,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "label": "TensorRT-LLM",
         "image": "nvcr.io/nvidia/tensorrt-llm/release:latest",
         "container_port": 8000,
-        "command": "trtllm-serve {model} --host 0.0.0.0 --port {port}",
+        "command": "trtllm-serve {model} --host {bind_host} --port {port}",
         "args": "",
         "health_path": "/health",
         "docker_args": SPARK_DOCKER_ARGS,
@@ -55,7 +56,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "label": "llama.cpp server",
         "image": "ghcr.io/ggml-org/llama.cpp:server-cuda",
         "container_port": 8080,
-        "command": "-m {model} --host 0.0.0.0 --port {port}",
+        "command": "-m {model} --host {bind_host} --port {port}",
         "args": "-ngl 999\n-c 32768",
         "health_path": "/health",
         "docker_args": "",
@@ -79,7 +80,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "label": "MLX LM server",
         "image": "",
         "container_port": 8080,
-        "command": "mlx_lm.server --model {model} --host 0.0.0.0 --port {port}",
+        "command": "mlx_lm.server --model {model} --host {bind_host} --port {port}",
         "args": "",
         "health_path": "/v1/models",
         "docker_args": "",
@@ -91,7 +92,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "label": "llama.cpp server (native)",
         "image": "",
         "container_port": 8080,
-        "command": "llama-server -m {model} --host 0.0.0.0 --port {port}",
+        "command": "llama-server -m {model} --host {bind_host} --port {port}",
         "args": "-ngl 999\n-c 32768",
         "health_path": "/health",
         "docker_args": "",
@@ -134,10 +135,18 @@ def _expand_home(path: str) -> str:
     return os.path.expandvars(os.path.expanduser(path))
 
 
+def bind_host(recipe: dict[str, Any]) -> str:
+    """Address the server should listen on: inside its own container network 0.0.0.0 (the published port
+    decides who can reach it); on the host itself (native process, --network host) DGXM_PUBLISH_IP if set."""
+    on_host = recipe.get("runtime") == "process" or uses_host_network(split_args(recipe.get("docker_args", "")))
+    return (config.PUBLISH_IP or "0.0.0.0") if on_host else "0.0.0.0"
+
+
 def substitute(template: str, recipe: dict[str, Any]) -> str:
     # Plain replacement instead of str.format so JSON arguments with braces stay intact.
     return (
         template.replace("{model}", shlex.quote(recipe.get("model") or ""))
+        .replace("{bind_host}", bind_host(recipe))
         .replace("{port}", str(recipe.get("container_port") or ""))
         .replace("{host_port}", str(recipe.get("host_port") or ""))
         .replace("{name}", recipe.get("container_name") or "")
@@ -172,7 +181,8 @@ def build_run_argv(recipe: dict[str, Any]) -> list[str]:
         argv += ["--gpus", recipe["gpus"]]
     docker_args = split_args(recipe.get("docker_args", ""))
     if not uses_host_network(docker_args):
-        argv += ["-p", f"{recipe['host_port']}:{recipe['container_port']}"]
+        bind = f"{config.PUBLISH_IP}:" if config.PUBLISH_IP else ""
+        argv += ["-p", f"{bind}{recipe['host_port']}:{recipe['container_port']}"]
     for vol in _lines(recipe.get("volumes", "")):
         argv += ["-v", _expand_home(vol)]
     for env in _lines(recipe.get("env", "")):
