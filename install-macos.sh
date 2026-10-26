@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Install DGX Spark Manager on macOS (e.g. a Mac Studio) as a launchd agent of the current user.
+# Install LLM Model Manager on macOS (e.g. a Mac Studio) as a launchd agent of the current user.
 # Models run as native processes (MLX, llama.cpp, ...); Docker is optional.
 set -euo pipefail
 cd "$(dirname "$0")"
 APP_DIR="$(pwd)"
-LABEL="com.dgxspark-manager"
+LABEL="com.llm-model-manager"
 PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
-LOG="${HOME}/Library/Logs/dgxspark-manager.log"
+LOG="${HOME}/Library/Logs/llm-model-manager.log"
 
 # Python 3.10+ is required (the Xcode python3 is 3.9). Homebrew: brew install python@3.12
 PYTHON="${PYTHON:-}"
@@ -66,6 +66,12 @@ cat > "$PLIST" <<PLIST
 </plist>
 PLIST
 
+# Upgrade from the old name (DGX Spark Manager): retire its launchd agent.
+OLD_PLIST="${HOME}/Library/LaunchAgents/com.dgxspark-manager.plist"
+if [ -f "$OLD_PLIST" ]; then
+  launchctl bootout "gui/$(id -u)" "$OLD_PLIST" 2>/dev/null || true
+  rm -f "$OLD_PLIST"
+fi
 launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
