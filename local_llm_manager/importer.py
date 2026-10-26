@@ -12,7 +12,9 @@ import re
 import shlex
 import shutil
 import signal
+import subprocess
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
@@ -128,12 +130,30 @@ class ScriptImportError(Exception):
     pass
 
 
+@lru_cache(maxsize=1)
+def find_bash() -> Optional[str]:
+    """A bash >= 4: command_not_found_handle, which records the skipped calls, is missing in 3.2 (macOS)."""
+    candidates = [shutil.which("bash"), "/opt/homebrew/bin/bash", "/usr/local/bin/bash", "/bin/bash"]
+    for bash in dict.fromkeys(c for c in candidates if c):
+        try:
+            out = subprocess.run([bash, "-c", "echo ${BASH_VERSINFO[0]}"], capture_output=True, text=True,
+                                 timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if out.stdout.strip().isdigit() and int(out.stdout) >= 4:
+            return bash
+    return None
+
+
 async def capture_docker_run(script: str, lenient: bool = False) -> tuple[Optional[list[str]], str, list[list[str]]]:
     """Run the script with only ALLOWED_TOOLS available (lenient: ignore `exit` and `set -e`).
 
     Returns (argv after `docker run` or None, script output, argv of each skipped call).
     """
-    bash = shutil.which("bash") or "/bin/bash"
+    bash = find_bash()
+    if bash is None:
+        raise ScriptImportError("Script import needs bash 4 or newer (macOS ships 3.2): run `brew install bash`, "
+                                "then restart the manager.")
     with tempfile.TemporaryDirectory(prefix="dgxm-import-") as tmp:
         tmpdir = Path(tmp)
         bindir = tmpdir / "bin"
