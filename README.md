@@ -175,8 +175,6 @@ Everything in the UI is also available as a JSON API; see `http://<machine>:8090
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, tests and
 release process, and please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-Inspired by the dashboard in [dataforgex/dgx_spark](https://github.com/dataforgex/dgx_spark).
-
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE) and [NOTICE](NOTICE).
