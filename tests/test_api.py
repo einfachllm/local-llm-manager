@@ -296,3 +296,8 @@ def test_start_refuses_port_used_by_foreign_program(client, fake_docker):
     # Once the other program is gone, it starts.
     fake_docker.ports_in_use.discard(port)
     assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+
+
+def test_meta_reports_hub_timezone(client):
+    tz = client.get("/api/meta").json()["timezone"]
+    assert "(UTC" in tz and tz.endswith(")")

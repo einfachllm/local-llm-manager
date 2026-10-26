@@ -16,6 +16,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/data
+      # Schedules run in the host's time zone (the container would otherwise use UTC).
+      - /etc/localtime:/etc/localtime:ro
       # The script importer runs starter scripts with the host HOME so their preflight checks
       # (model dir, drafters under ~/models) see the real files. Read-only; nothing is written here.
       - ${HOME}:${HOME}:ro

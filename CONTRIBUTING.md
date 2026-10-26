@@ -29,8 +29,28 @@ ruff check .                                   # lint
 DGXM_DB=/tmp/dev.db python -m local_llm_manager.main   # run locally on http://localhost:8090
 ```
 
-The web UI in `local_llm_manager/static/` is plain HTML/CSS/JS with no build step - edit and reload.
-See the *Development* section of the [README](README.md#development) for a map of the modules.
+### Code map
+
+| Module | What it does |
+|---|---|
+| `main.py` | FastAPI app: REST API, auth, serves the UI |
+| `recipes.py` | Recipe → `docker run` / process command, framework presets |
+| `manager.py` | Lifecycle rules: start/stop/switch, port and memory checks |
+| `executor.py` | Where things run: this machine or a remote agent (`agent.py` is the agent API) |
+| `docker.py`, `processes.py` | Docker CLI wrapper, native processes |
+| `importer.py`, `script_check.py` | Script import and its static safety check |
+| `scheduler.py`, `timeline.py` | Schedules and the planned-runs timeline |
+| `servermetrics.py`, `logstats.py` | Live stats from `/metrics` or the vLLM log line |
+| `db.py` | SQLite storage |
+| `static/` | The web UI: plain HTML/CSS/JS with no build step - edit and reload |
+
+Tests use a fake docker client (`tests/conftest.py`), so they run anywhere.
+
+### CI
+
+[`ci.yml`](.github/workflows/ci.yml) runs on pushes to `main` and on pull requests: Ruff, ShellCheck,
+the tests on Python 3.10-3.13 (and macOS) and a Python package build. It does not build the Docker image;
+[`docker.yml`](.github/workflows/docker.yml) does that only when started by hand and publishes `:latest`.
 
 ## Pull requests
 
