@@ -50,6 +50,7 @@ $$(".tab").forEach((btn) => btn.addEventListener("click", () => {
   if (state.tab === "schedules") loadSchedules();
   if (state.tab === "activity") loadEvents();
   if (state.tab === "hosts") renderHosts();
+  if (state.tab === "images") loadImages();
 }));
 
 $$("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
@@ -174,6 +175,7 @@ $("#btn-blur").addEventListener("click", () => {
   if (state.tab === "hosts") renderHosts();
   if (state.tab === "schedules") loadSchedules();
   if (state.tab === "activity") loadEvents();
+  if (state.tab === "images") renderImages();
 });
 renderBlurToggle();
 
@@ -1429,9 +1431,95 @@ async function loadEvents() {
 }
 $("#btn-refresh-events").addEventListener("click", loadEvents);
 
+/* ---------------- images tab ---------------- */
+
+let imagesData = null;
+
+function imageAge(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "age unknown";
+  const days = Math.floor((Date.now() - d) / 86400e3);
+  return days < 1 ? "built today" : days === 1 ? "1 day old" : `${days} days old`;
+}
+
+async function loadImages() {
+  const tbody = $("#images");
+  if (!imagesData) tbody.innerHTML = `<tr><td colspan="3" class="empty">Asking the hosts…</td></tr>`;
+  try {
+    imagesData = await api("/api/images");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  renderImages();
+}
+
+function imageHostHtml(img, h) {
+  const name = multiHost() ? `<b>${esc(maskAddr(hostName(h.host_id)))}</b> ` : "";
+  if (h.state === "unknown") return `<div class="img-host">${name}<span class="muted">${esc(blurHostText(h.error || "not reachable", hostById(h.host_id)?.url))}</span></div>`;
+  const current = h.state === "present"
+    ? `<span class="ok">✓ available</span> <span class="muted">· ${esc(imageAge(h.local.created))} · ${esc(h.local.size)} · ${esc(h.local.id)}</span>`
+    : `<span class="bad">✗ not on this host</span> <span class="muted">· pulled on the first start</span>`;
+  const tags = h.other_tags.map((t, i) => {
+    const title = `${t.repository}:${t.tag} · ${t.size} · created ${fmtTime(t.created)}`;
+    return t.newer
+      ? `<button class="chip small newer-chip" data-img="${esc(img.repository)}:${esc(img.tag)}" data-host="${h.host_id}" data-tag="${i}" title="${esc(title)} – click to switch the recipes to it">⬆ ${esc(t.tag)} · ${esc(imageAge(t.created))}</button>`
+      : `<span class="chip small" title="${esc(title)}">${esc(t.tag)} · ${esc(imageAge(t.created))}</span>`;
+  }).join(" ");
+  return `<div class="img-host">${name}${current}${tags ? `<div class="img-tags"><span class="muted">Other tags here:</span> ${tags}</div>` : ""}</div>`;
+}
+
+function renderImages() {
+  if (!imagesData) return;
+  const n = imagesData.native_recipes;
+  $("#images-native").textContent = n ? `${n} native-process recipe${n === 1 ? "" : "s"} run without an image and ${n === 1 ? "is" : "are"} not listed.` : "";
+  const tbody = $("#images");
+  if (!imagesData.images.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty">No Docker recipes yet.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = imagesData.images.map((img) => {
+    const recipes = img.recipes.map((r) => `<button class="chip small" data-recipe="${r.id}" title="Edit this recipe">${esc(r.name)}${multiHost() ? ` <span>⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}</button>`).join(" ");
+    return `<tr>
+      <td class="mono img-ref">${esc(img.repository)}<br><b>:${esc(img.tag)}</b></td>
+      <td>${recipes}</td>
+      <td>${img.hosts.map((h) => imageHostHtml(img, h)).join("")}</td>
+    </tr>`;
+  }).join("");
+}
+
+$("#btn-refresh-images").addEventListener("click", loadImages);
+
+$("#images").addEventListener("click", async (ev) => {
+  const recipeBtn = ev.target.closest("[data-recipe]");
+  if (recipeBtn) {
+    const r = state.recipes.find((x) => x.id === Number(recipeBtn.dataset.recipe));
+    if (r) openRecipeEditor(r);
+    return;
+  }
+  const tagBtn = ev.target.closest(".newer-chip");
+  if (!tagBtn) return;
+  const img = imagesData.images.find((i) => `${i.repository}:${i.tag}` === tagBtn.dataset.img);
+  const hostId = Number(tagBtn.dataset.host);
+  const tag = img?.hosts.find((h) => h.host_id === hostId)?.other_tags[Number(tagBtn.dataset.tag)];
+  if (!img || !tag) return;
+  const newRef = `${tag.repository}:${tag.tag}`;
+  const targets = state.recipes.filter((r) => r.host_id === hostId && img.recipes.some((x) => x.id === r.id));
+  if (!targets.length) return;
+  if (!confirm(`Switch ${targets.map((r) => `"${r.name}"`).join(", ")} to\n${newRef}?\n\nA running model keeps the old image until you restart it.`)) return;
+  try {
+    for (const r of targets) await api(`/api/recipes/${r.id}`, { method: "PUT", body: recipeBodyFrom(r, { image: newRef }) });
+    toast(targets.length === 1 ? `"${targets[0].name}" now uses ${newRef}` : `${targets.length} recipes now use ${newRef}`, "ok");
+  } catch (e) {
+    toast(e.message, "bad");
+  }
+  await loadRecipes();
+  loadImages();
+});
+
 /* ---------------- keyboard shortcuts ---------------- */
 
-const TAB_KEYS = { "1": "recipes", "2": "schedules", "3": "activity", "4": "hosts" };
+const TAB_KEYS = { "1": "recipes", "2": "schedules", "3": "activity", "4": "hosts", "5": "images" };
 const CARD_KEYS = { s: "start", x: "stop", r: "restart", l: "logs", e: "edit" };
 
 document.addEventListener("keydown", (ev) => {
@@ -1458,7 +1546,7 @@ document.addEventListener("keydown", (ev) => {
   if (k === "n" && state.tab === "recipes") { $("#btn-new-recipe").click(); ev.preventDefault(); return; }
   if (k === "t") { $("#btn-theme").click(); return; }
   if (k === "b") { $("#btn-blur").click(); return; }
-  if (k === "?") { toast("Shortcuts: 1–4 tabs · / search · n new recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
+  if (k === "?") { toast("Shortcuts: 1–5 tabs · / search · n new recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
 });
 
 /* ---------------- boot ---------------- */

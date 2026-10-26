@@ -428,6 +428,10 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             "timezone": hub_timezone(),
         }
 
+    @app.get("/api/images")
+    async def images():
+        return await manager.images_overview()
+
     @app.get("/api/system")
     async def system_info():
         return await system.snapshot()

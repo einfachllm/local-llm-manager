@@ -15,6 +15,8 @@ silicon, or any Linux box - from any browser on your network:
 - **Live status, logs and stats:** loading/ready/failed, tokens/s with a throughput sparkline, running
   requests, KV cache usage - and an estimate of how long a start typically takes (measured trigger → ready).
 - **Schedules:** start, stop or switch models at set times, with a timeline of what will run when.
+- **Images:** see which Docker images your recipes use, whether each host has them, and switch recipes to a
+  newer local tag (e.g. a fresh vLLM nightly) with one click.
 - **Several machines, one dashboard:** e.g. a DGX Spark and a Mac Studio side by side.
 - **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
   ⭐ pinned recipes, collapsible groups and keyboard shortcuts (`?` shows them).
