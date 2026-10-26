@@ -169,6 +169,12 @@ class LocalExecutor:
             return self.procs.follow_logs(recipe["container_name"], tail)
         return self.docker.follow_logs(recipe["container_name"], tail)
 
+    async def images(self) -> list[dict[str, Any]]:
+        try:
+            return await self.docker.list_images()
+        except RuntimeError as e:
+            raise ActionError(f"Cannot list Docker images: {e}", 502)
+
     async def drop_caches(self) -> tuple[bool, str]:
         if sys.platform == "darwin":
             # macOS has no drop_caches, and a privileged container would only touch Docker's VM.
@@ -244,6 +250,14 @@ class RemoteExecutor:
                         yield line
         except httpx.HTTPError as e:
             yield f"[manager] lost connection to host '{self.host['name']}': {e}"
+
+    async def images(self) -> list[dict[str, Any]]:
+        try:
+            return await self._call("GET", "/images", timeout=30.0)
+        except ActionError as e:
+            if e.status_code == 404:  # agents before this endpoint existed
+                raise ActionError(f"The agent on '{self.host['name']}' is too old to list images - update it", 502)
+            raise
 
     async def drop_caches(self) -> tuple[bool, str]:
         data = await self._call("POST", "/drop-caches", timeout=300.0)

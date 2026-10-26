@@ -15,6 +15,7 @@
       <button class="tab" data-tab="schedules">Schedules</button>
       <button class="tab" data-tab="activity">Activity</button>
       <button class="tab" data-tab="hosts">Hosts</button>
+      <button class="tab" data-tab="images">Images</button>
     </nav>
     <button id="btn-blur" class="blur-toggle" title="Blur IP addresses and host names" aria-pressed="true">🙈 Blur</button>
     <button id="btn-theme" class="blur-toggle" title="Switch between dark and light theme">🌙 Dark</button>
@@ -107,6 +108,21 @@
       <div class="table-wrap"><table class="table">
         <thead><tr><th>Host</th><th>Port</th><th>Recipe</th><th>Status</th><th>Endpoint</th></tr></thead>
         <tbody id="ports"></tbody>
+      </table></div>
+    </section>
+
+    <section id="tab-images" class="panel hidden">
+      <div class="panel-head">
+        <h2>Images</h2>
+        <button class="btn ghost" id="btn-refresh-images">Refresh</button>
+      </div>
+      <p class="hint">The Docker images your recipes use, whether each host already has them, and other tags of the
+        same image on that host. A <b>newer</b> tag was created after the one in use – click it to switch the recipes
+        to it (a running model keeps the old image until you restart it). Click a recipe to edit it.
+        <span id="images-native"></span></p>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Image</th><th>Used by</th><th>On the hosts</th></tr></thead>
+        <tbody id="images"></tbody>
       </table></div>
     </section>
 

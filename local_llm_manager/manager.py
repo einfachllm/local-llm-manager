@@ -5,13 +5,13 @@ executors (executor.py) do the actual work on this machine or on a remote agent.
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional
 
 import httpx
 
 from .db import Database
-from .docker import Docker
+from .docker import Docker, split_image
 from .executor import RUNNING_STATES, ActionError, LocalExecutor, RemoteExecutor, agent_payload_recipe
 from .processes import ProcessRunner
 
@@ -56,6 +56,47 @@ class Manager:
             return out
 
         return list(await asyncio.gather(*(one(h) for h in self.db.list_hosts())))
+
+    async def images_overview(self) -> dict[str, Any]:
+        """Docker images used by recipes: which recipes use each, whether each of their hosts has it locally
+        (age, size), and other local tags of the same repository there - e.g. a newer nightly to switch to."""
+        recipes = [r for r in self.db.list_recipes() if r.get("runtime", "docker") == "docker" and r.get("image")]
+
+        async def fetch(host: dict) -> tuple[int, Optional[list[dict]], Optional[str]]:
+            try:
+                return host["id"], await self.executor_for(host["id"]).images(), None
+            except ActionError as e:
+                return host["id"], None, e.message
+
+        needed = {r["host_id"] for r in recipes}
+        results = await asyncio.gather(*(fetch(h) for h in self.db.list_hosts() if h["id"] in needed))
+        local = {hid: imgs for hid, imgs, _ in results if imgs is not None}
+        errors = {hid: err for hid, _, err in results if err}
+
+        groups: dict[tuple[str, str], dict[str, Any]] = {}
+        for r in recipes:
+            repo, tag = split_image(r["image"])
+            g = groups.setdefault((repo, tag), {"image": r["image"].strip(), "repository": repo, "tag": tag,
+                                                "recipes": [], "host_ids": set()})
+            g["recipes"].append({"id": r["id"], "name": r["name"], "host_id": r["host_id"]})
+            g["host_ids"].add(r["host_id"])
+
+        images = []
+        for (repo, tag), g in sorted(groups.items()):
+            hosts = []
+            for hid in sorted(g.pop("host_ids")):
+                if hid not in local:
+                    hosts.append({"host_id": hid, "state": "unknown", "error": errors.get(hid), "other_tags": []})
+                    continue
+                same_repo = [i for i in local[hid] if i["repository"] == repo]
+                mine = next((i for i in same_repo if i["tag"] == tag), None)
+                others = sorted((i for i in same_repo if i["tag"] != tag), key=lambda i: _created(i), reverse=True)
+                hosts.append({"host_id": hid, "state": "present" if mine else "missing", "local": mine,
+                              "other_tags": [{**i, "newer": bool(mine) and _created(i) > _created(mine)}
+                                             for i in others]})
+            images.append({**g, "hosts": hosts})
+        native = sum(1 for r in self.db.list_recipes() if r.get("runtime") == "process")
+        return {"images": images, "native_recipes": native}
 
     # ---- status --------------------------------------------------------
 
@@ -256,3 +297,12 @@ class Manager:
             msg = f"{name}: {msg}"
         self.db.add_event(source, "drop_caches", ok, msg, target=name)
         return msg
+
+
+def _created(image: dict) -> datetime:
+    """Creation time of a local image for comparisons; unknown values sort as oldest."""
+    try:
+        value = datetime.fromisoformat(image.get("created") or "")
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
