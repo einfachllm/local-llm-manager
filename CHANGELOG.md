@@ -6,17 +6,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-- The Linux installer now keeps the settings in `.env` in the install folder, like the macOS installer,
-  `run.sh` and Docker Compose. An existing `~/.config/local-llm-manager.env` is moved there if there is no
-  `.env` yet.
-- Rerunning an installer replaces a leftover `change-me` password with a random one.
-- After installing, `install.sh` checks that the service started (and shows its log if not) and prints the
-  real address, including the Tailscale name/IP with `DGXM_HOST=tailscale`.
-- Passwords that contain the user name are refused.
-- Configuration errors (weak password, short agent token) exit with status 78, which the systemd unit does
-  not restart on, instead of restarting every 5 seconds.
-
 ## [0.1.0] - 2026-10-26
 
 First public release.
@@ -38,10 +27,13 @@ First public release.
   the agent API and the model ports inside your tailnet - also for use from a phone.
 - Blur toggle for screenshots and screen shares, dark/light/auto themes, keyboard shortcuts.
 - Installers for Linux (systemd) and macOS (launchd), Docker Compose, multi-arch image
-  `ghcr.io/einfachllm/local-llm-manager` (amd64 + arm64), `pip install .`.
+  `ghcr.io/einfachllm/local-llm-manager` (amd64 + arm64), `pip install .`. All of them read the settings
+  from `.env` in the install folder; the installers create it with a random password, check that the
+  service started and print its address (also over Tailscale).
 
 ### Security
-- HTTP Basic auth with a password policy (at least 12 characters, no well-known passwords) and
+- HTTP Basic auth with a password policy (at least 12 characters, no well-known passwords, not
+  containing the user name) and
   lockout after 10 failed logins in 10 minutes; the installers generate a random password and agent token.
 - Agents require a token of at least 32 characters.
 - Cross-site requests that change something are rejected (CSRF), host names are checked against DNS
