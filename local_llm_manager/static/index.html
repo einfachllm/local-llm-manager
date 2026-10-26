@@ -151,7 +151,7 @@
         <label class="docker-only">Container port<input name="container_port" type="number" min="1" max="65535"></label>
         <label>Health path<input name="health_path" placeholder="/health"></label>
         <label>Est. memory (GB)<input name="est_memory_gb" type="number" step="0.1" min="0"></label>
-        <label class="span2">Command <small>placeholders: {model} {port} {host_port} {name}</small>
+        <label class="span2">Command <small>placeholders: {model} {port} {host_port} {name} {bind_host}</small>
           <input name="command" class="mono"></label>
         <label class="span2">Framework arguments <small>one or more per line, # for comments</small>
           <textarea name="args" rows="6" class="mono"></textarea></label>

@@ -17,9 +17,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `pyproject.toml`, so the manager can be installed with `pip install .` (command `local-llm-manager`).
 
 ### Security
+- `DGXM_HOST=tailscale` / `DGXM_PUBLISH_IP=tailscale`: the manager and the model ports listen only on the
+  machine's Tailscale IP (docker `-p <ip>:port`, `{bind_host}` placeholder for native and host-network
+  recipes; presets use it). README recommends Tailscale, also for phone access.
 - Cross-site request forgery: another website could make a logged-in browser start, stop, switch or
   free memory (bodyless `POST`s). State-changing requests from a foreign `Origin` are now rejected.
-- Without a password, only IP addresses and `localhost` are accepted as `Host` (DNS rebinding).
+- Without a password, only IP addresses, `localhost` and local/Tailscale names are accepted as `Host`
+  (DNS rebinding).
 - Security headers against clickjacking (`X-Frame-Options`, `frame-ancestors`) and MIME sniffing.
 - The hub refuses to start with the example password `change-me`.
 - A non-ASCII username or password in Basic auth caused a 500 error instead of 401.

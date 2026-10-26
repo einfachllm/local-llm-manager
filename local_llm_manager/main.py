@@ -250,9 +250,12 @@ def _hostname(netloc: str) -> str:
     return netloc.rsplit(":", 1)[0] if netloc.count(":") == 1 else netloc
 
 
-def _is_ip_or_localhost(host: str) -> bool:
-    if host == "localhost" or host.endswith(".localhost"):
-        return True
+def _is_private_name(host: str) -> bool:
+    """IP addresses, localhost, and names that only resolve inside your own network: single-label names
+    (MagicDNS `spark`), mDNS `*.local` and Tailscale `*.ts.net`. A DNS-rebinding attacker needs a public
+    domain of their own, which never looks like these."""
+    if host in ("localhost",) or host.endswith((".localhost", ".local", ".ts.net")) or "." not in host:
+        return bool(host)
     try:
         ipaddress.ip_address(host)
         return True
@@ -267,12 +270,12 @@ def request_guard(request: Request) -> Optional[Response]:
       a form POST from any website, so state-changing requests must come from the dashboard's own origin.
       Clients without an Origin header (curl, scripts, the hub's agent calls) are not affected.
     - DNS rebinding when no password is set: an attacker's domain that resolves to this machine. Without
-      a password only IP addresses and localhost are accepted as Host.
+      a password only IP addresses, localhost and local names (MagicDNS, *.local, *.ts.net) are accepted.
     """
     host = request.headers.get("host", "")
-    if not config.AUTH_PASSWORD and host and not _is_ip_or_localhost(_hostname(host)):
-        return PlainTextResponse("Open the dashboard by IP address, or set DGXM_PASSWORD to use host names.",
-                                 status_code=403)
+    if not config.AUTH_PASSWORD and host and not _is_private_name(_hostname(host)):
+        return PlainTextResponse("Open the dashboard by IP address or local/Tailscale name, or set "
+                                 "DGXM_PASSWORD to use other host names.", status_code=403)
     if request.method not in SAFE_METHODS:
         origin = request.headers.get("origin")
         if origin is not None:
@@ -649,6 +652,7 @@ def run() -> None:
     import uvicorn
 
     logging.basicConfig(level=logging.INFO)
+    config.resolve_network()
     if config.MODE == "agent":
         if not config.AGENT_TOKEN:
             raise SystemExit("DGXM_MODE=agent needs DGXM_AGENT_TOKEN (a long random secret shared with the hub)")
@@ -659,7 +663,7 @@ def run() -> None:
                          "(or ~/.config/local-llm-manager.env) and start again")
     if not config.AUTH_PASSWORD:
         logging.warning("DGXM_PASSWORD is not set - the dashboard is open to anyone who can reach port %s "
-                        "(only by IP address or localhost)", config.PORT)
+                        "(only by IP address or local/Tailscale name)", config.PORT)
     uvicorn.run(create_app(), host=config.HOST, port=config.PORT, log_level="info")
 
 

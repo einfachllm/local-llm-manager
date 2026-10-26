@@ -26,7 +26,7 @@ Local LLM Manager is built to **run arbitrary containers and processes** on the 
 - Anyone who can log in to the dashboard can start any Docker container on the hub and its agents,
   which is effectively **root** on those machines.
 - The agent token grants the same level of control over an agent machine.
-- Hub ↔ agent traffic is plain HTTP.
+- Hub ↔ agent traffic is plain HTTP (run it over Tailscale/WireGuard, which encrypts it).
 - *Import script* runs user-supplied shell scripts in a restricted, but **not sandboxed**, environment.
 - Agents are trusted by the hub: a compromised agent can send misleading status data to the dashboard.
 
@@ -38,8 +38,10 @@ What the hub does to protect the dashboard:
   browser's `Origin` (or `Sec-Fetch-Site`) shows they come from another site, so a malicious web page
   cannot use your browser's saved login to start or stop models. API clients without `Origin` (curl,
   scripts) are unaffected.
-- **DNS rebinding:** without a password, only requests addressed to an IP address or `localhost` are
-  answered.
+- **DNS rebinding:** without a password, only requests addressed to an IP address, `localhost` or a
+  local name (single-label MagicDNS name, `*.local`, `*.ts.net`) are answered.
+- **Network exposure:** `DGXM_HOST=tailscale` and `DGXM_PUBLISH_IP=tailscale` limit the manager and the
+  model ports to the machine's Tailscale address (see the README).
 - **Framing:** `X-Frame-Options: DENY` and `frame-ancestors 'none'` against clickjacking, plus
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`.
 - Host names, URLs and agent error messages are HTML-escaped in the UI.

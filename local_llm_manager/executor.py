@@ -251,8 +251,11 @@ class RemoteExecutor:
 
 
 def port_in_use(port: int) -> bool:
-    """True if something accepts connections on this port (IPv4 or IPv6 loopback)."""
-    for family, addr in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+    """True if something accepts connections on this port (loopback, or the DGXM_PUBLISH_IP address)."""
+    targets = [(socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")]
+    if config.PUBLISH_IP:
+        targets.append((socket.AF_INET6 if ":" in config.PUBLISH_IP else socket.AF_INET, config.PUBLISH_IP))
+    for family, addr in targets:
         try:
             with socket.socket(family, socket.SOCK_STREAM) as s:
                 s.settimeout(0.3)
