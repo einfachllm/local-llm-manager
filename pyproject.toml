@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-llm-manager"
+dynamic = ["version", "dependencies"]
+description = "Web dashboard to run, schedule and monitor local LLM serving recipes (vLLM, SGLang, MLX, llama.cpp, ...)"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Framework :: FastAPI",
+]
+
+[project.urls]
+Homepage = "https://github.com/einfachllm/local-llm-manager"
+Issues = "https://github.com/einfachllm/local-llm-manager/issues"
+Changelog = "https://github.com/einfachllm/local-llm-manager/blob/main/CHANGELOG.md"
+
+[project.scripts]
+local-llm-manager = "local_llm_manager.main:run"
+
+[tool.setuptools]
+packages = ["local_llm_manager"]
+
+[tool.setuptools.package-data]
+local_llm_manager = ["static/*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "local_llm_manager.__version__" }
+dependencies = { file = ["requirements.txt"] }
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+# Short lambdas and single-letter names are used deliberately in a few places.
+ignore = ["E731", "E741"]
