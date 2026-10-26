@@ -1,9 +1,10 @@
-# DGX Spark Manager
+# LLM Model Manager
 
 [![CI](https://github.com/olekslev69/dgxspark-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/olekslev69/dgxspark-manager/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-A small web dashboard that runs on your DGX Spark (or a Mac) and lets you, from any browser on your network:
+A small web dashboard for running local LLMs on your own machines - an NVIDIA DGX Spark, a Mac (Apple
+silicon), or any Linux box with Docker - that lets you, from any browser on your network:
 
 - **Keep model recipes**: a recipe is everything needed to `docker run` an inference server
   (vLLM, SGLang, TensorRT-LLM, llama.cpp or any custom image): image, model, ports, framework arguments,
@@ -15,13 +16,13 @@ A small web dashboard that runs on your DGX Spark (or a Mac) and lets you, from 
 - **Schedule** actions with cron or one-shot times: start, stop, restart, switch, stop all, free memory.
 - See an **activity log** of everything that was done, by you or by the scheduler.
 
-Recipes, schedules and the activity log live in a SQLite file on the Spark (`data/manager.db`).
+Recipes, schedules and the activity log live in a SQLite file on the hub machine (`data/manager.db`).
 Model weights and framework images are assumed to already be on the machine.
 
 It is inspired by the dashboard in [dataforgex/dgx_spark](https://github.com/dataforgex/dgx_spark),
 but only covers the recipe/model-control part, and recipes are edited in the browser instead of in YAML.
 
-## Install on the Spark
+## Install on Linux (DGX Spark, any GPU box)
 
 Requirements: Python 3.10+, Docker with the NVIDIA runtime, and your user in the `docker` group.
 
@@ -29,11 +30,11 @@ Requirements: Python 3.10+, Docker with the NVIDIA runtime, and your user in the
 git clone https://github.com/olekslev69/dgxspark-manager.git
 cd dgxspark-manager
 ./install.sh                                 # venv + systemd service, runs as your user
-nano ~/.config/dgxspark-manager.env          # set DGXM_PASSWORD (and HF_TOKEN if needed)
-sudo systemctl restart dgxspark-manager
+nano ~/.config/llm-model-manager.env         # set DGXM_PASSWORD (and HF_TOKEN if needed)
+sudo systemctl restart llm-model-manager
 ```
 
-Then open `http://<spark-ip>:8090` and log in with `admin` / your password.
+Then open `http://<host-ip>:8090` and log in with `admin` / your password.
 
 Other ways to run it:
 
@@ -44,7 +45,7 @@ Other ways to run it:
   in recipe volumes points at your home on the host. In a container, use Docker recipes: native-process
   recipes would run inside the manager's container, not on the host.
 
-> **Security:** anyone who can open the dashboard can run arbitrary containers on the Spark, which is
+> **Security:** anyone who can open the dashboard can run arbitrary containers on that machine, which is
 > effectively root. Always set `DGXM_PASSWORD`, and only expose the port on a trusted network
 > (or behind a VPN / Tailscale / an HTTPS reverse proxy).
 
@@ -52,9 +53,9 @@ Other ways to run it:
 
 One installation is the **hub**: it has the dashboard, the database (recipes, schedules, activity) and
 the scheduler. Every other machine runs the same app in **agent mode**: no dashboard, just a small API
-that runs what the hub sends. A typical setup is the Spark as hub and a Mac Studio as agent.
+that runs what the hub sends. A typical setup is a DGX Spark or Linux GPU box as hub and a Mac Studio as agent.
 
-1. On the agent machine, in its `.env` (`~/.config/dgxspark-manager.env` with `install.sh`):
+1. On the agent machine, in its `.env` (`~/.config/llm-model-manager.env` with `install.sh`):
    ```bash
    DGXM_MODE=agent
    DGXM_AGENT_TOKEN=<output of: openssl rand -hex 32>
@@ -116,7 +117,7 @@ page-cache drop).
 | Tags / Card colour | Organisation only: tags for filtering and grouping, a colour (green, black, …) to tell cards apart at a glance. |
 
 The editor shows a live preview of the exact `docker run` command. Every container the manager starts is
-named after the recipe's container name and labelled `dgxspark-manager=1`.
+named after the recipe's container name and labelled `llm-model-manager=1`.
 
 Status values: **Stopped**, **Starting**, **Loading model** (container up, health check not passing yet),
 **Ready**, **Failed** (container exited with an error; check its logs).
@@ -259,10 +260,10 @@ curl -u admin:$PW "http://spark:8090/api/recipes/1/logs?tail=200"
 ```bash
 pip install -r requirements-dev.txt
 pytest
-DGXM_DB=/tmp/dev.db python -m dgxspark_manager.main
+DGXM_DB=/tmp/dev.db python -m llm_model_manager.main
 ```
 
-Layout: `dgxspark_manager/` holds the FastAPI app (`main.py`), recipe → `docker run` translation
+Layout: `llm_model_manager/` holds the FastAPI app (`main.py`), recipe → `docker run` translation
 (`recipes.py`), script import and its safety check (`importer.py`, `script_check.py`), lifecycle rules (`manager.py`), where things run (`executor.py`: this machine or a remote agent; agent API in
 `agent.py`; native processes in `processes.py`), the scheduler (`scheduler.py`) and its timeline projection (`timeline.py`), SQLite storage (`db.py`)
 and the static UI (`static/`, plain HTML/JS with no build step). Tests use a fake docker client.

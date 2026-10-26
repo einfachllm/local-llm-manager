@@ -2,9 +2,9 @@ from datetime import timedelta
 
 from conftest import recipe_body
 
-from dgxspark_manager import executor as executor_mod
-from dgxspark_manager.recipes import build_run_argv
-from dgxspark_manager.scheduler import compute_next_run, local_now
+from llm_model_manager import executor as executor_mod
+from llm_model_manager.recipes import build_run_argv
+from llm_model_manager.scheduler import compute_next_run, local_now
 
 
 def create(client, **kw):
@@ -208,7 +208,7 @@ def test_tags_roundtrip_and_duplicate(client):
 def test_tags_column_added_to_existing_db(tmp_path):
     import sqlite3
 
-    from dgxspark_manager.db import Database
+    from llm_model_manager.db import Database
 
     path = tmp_path / "old.db"
     conn = sqlite3.connect(path)

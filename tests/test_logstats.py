@@ -1,4 +1,4 @@
-from dgxspark_manager import logstats
+from llm_model_manager import logstats
 
 VLLM_LINE = (
     "(APIServer pid=1) INFO 10-25 18:34:51 [loggers.py:315] Engine 000: "
