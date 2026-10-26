@@ -54,7 +54,9 @@ WantedBy=multi-user.target
 UNIT
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now local-llm-manager
+sudo systemctl enable local-llm-manager
+# restart, not start: rerunning the script after `git pull` must load the new code.
+sudo systemctl restart local-llm-manager
 
 PORT="$(grep -E '^DGXM_PORT=' "$ENV_FILE" | cut -d= -f2)"
 if grep -qE '^DGXM_MODE=agent' "$ENV_FILE"; then

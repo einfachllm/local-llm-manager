@@ -17,6 +17,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `pyproject.toml`, so the manager can be installed with `pip install .` (command `local-llm-manager`).
 
 ### Changed
+- `install.sh` restarts the service, so rerunning it after `git pull` upgrades a running install.
 - Shorter README focused on setup, networking between machines, schedules and security; developer
   details moved to CONTRIBUTING.md.
 - CI (pushes and pull requests) no longer builds the Docker image. `:latest` is published only by a
