@@ -15,7 +15,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `pyproject.toml`, so the manager can be installed with `pip install .` (command `local-llm-manager`).
 
 ### Changed
-- Pushes to `main` publish the Docker image as `:edge`; `:latest` now points to the latest release.
+- Docker images are published only by the release workflow (`:latest` = latest release); pushes to
+  `main` no longer build or publish an image, pull requests only check that it builds.
 
 ## [0.1.0]
 
