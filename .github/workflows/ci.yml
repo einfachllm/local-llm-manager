@@ -47,6 +47,9 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: requirements*.txt
+      - name: bash 4+ for script import (macOS ships 3.2)
+        if: runner.os == 'macOS'
+        run: brew install bash
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q
 
