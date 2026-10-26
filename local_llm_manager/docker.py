@@ -3,6 +3,7 @@
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import AsyncIterator, Optional
 
 from . import config
@@ -39,6 +40,33 @@ async def run(argv: list[str], timeout: float = 60.0) -> CommandResult:
     return CommandResult(proc.returncode, out.decode(errors="replace"), err.decode(errors="replace"))
 
 
+def split_image(ref: str) -> tuple[str, str]:
+    """`vllm/vllm-openai:v0.11.0` -> ("vllm/vllm-openai", "v0.11.0"). Docker Hub prefixes are dropped, as in
+    `docker image ls`; a missing tag is "latest"; a digest reference keeps "@sha256:..." as its tag."""
+    ref = ref.strip()
+    if "@" in ref:
+        repo, digest = ref.split("@", 1)
+        repo, tag = repo, "@" + digest
+    else:
+        colon, slash = ref.rfind(":"), ref.rfind("/")
+        repo, tag = (ref[:colon], ref[colon + 1:]) if colon > slash else (ref, "latest")
+    for prefix in ("docker.io/library/", "docker.io/", "index.docker.io/library/", "index.docker.io/"):
+        if repo.startswith(prefix):
+            repo = repo[len(prefix):]
+            break
+    if repo.startswith("library/"):
+        repo = repo[len("library/"):]
+    return repo, tag
+
+
+def _created_iso(created_at: str) -> str:
+    """`2026-10-20 14:03:11 +0200 CEST` (docker image ls) -> ISO 8601; unparseable values are kept."""
+    try:
+        return datetime.strptime(" ".join(created_at.split()[:3]), "%Y-%m-%d %H:%M:%S %z").isoformat()
+    except ValueError:
+        return created_at
+
+
 class Docker:
     """Container operations. Swappable in tests."""
 
@@ -68,6 +96,23 @@ class Docker:
                     "image": c.get("Image", ""),
                 }
         return containers
+
+    async def list_images(self) -> list[dict]:
+        """Local images: {repository, tag, id, created (ISO), size}. Dangling `<none>` images are skipped."""
+        res = await run([self.binary, "image", "ls", "--format", "{{json .}}"], timeout=30)
+        if not res.ok:
+            raise RuntimeError(res.error or "docker image ls failed")
+        images = []
+        for line in res.stdout.splitlines():
+            try:
+                i = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if i.get("Repository", "<none>") == "<none>" or i.get("Tag", "<none>") == "<none>":
+                continue
+            images.append({"repository": i["Repository"], "tag": i["Tag"], "id": i.get("ID", "")[-12:],
+                           "created": _created_iso(i.get("CreatedAt", "")), "size": i.get("Size", "")})
+        return images
 
     async def stop(self, name: str, timeout: int = config.STOP_TIMEOUT) -> CommandResult:
         return await run([self.binary, "stop", "-t", str(timeout), name], timeout=timeout + 30)

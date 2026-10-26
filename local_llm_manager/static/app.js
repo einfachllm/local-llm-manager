@@ -50,6 +50,7 @@ $$(".tab").forEach((btn) => btn.addEventListener("click", () => {
   if (state.tab === "schedules") loadSchedules();
   if (state.tab === "activity") loadEvents();
   if (state.tab === "hosts") renderHosts();
+  if (state.tab === "images") loadImages();
 }));
 
 $$("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
@@ -174,6 +175,7 @@ $("#btn-blur").addEventListener("click", () => {
   if (state.tab === "hosts") renderHosts();
   if (state.tab === "schedules") loadSchedules();
   if (state.tab === "activity") loadEvents();
+  if (state.tab === "images") renderImages();
 });
 renderBlurToggle();
 
@@ -1429,9 +1431,166 @@ async function loadEvents() {
 }
 $("#btn-refresh-events").addEventListener("click", loadEvents);
 
+/* ---------------- images tab ---------------- */
+
+let imagesData = null;
+const imagesView = { search: "", host: "", onlyNewer: false, onlyMissing: false, open: new Set() };
+
+function imageAge(iso, short = false) {
+  const d = new Date(iso);
+  if (isNaN(d)) return short ? "?" : "age unknown";
+  const days = Math.floor((Date.now() - d) / 86400e3);
+  if (short) return days < 1 ? "today" : `${days}d`;
+  return days < 1 ? "built today" : days === 1 ? "1 day old" : `${days} days old`;
+}
+
+async function loadImages() {
+  const tbody = $("#images");
+  if (!imagesData) tbody.innerHTML = `<tr><td colspan="3" class="empty">Asking the hosts…</td></tr>`;
+  try {
+    imagesData = await api("/api/images");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  renderImages();
+}
+
+const imgKey = (img) => `${img.repository}:${img.tag}`;
+const imgHasNewer = (img) => img.hosts.some((h) => h.other_tags.some((t) => t.newer));
+const imgHasMissing = (img) => img.hosts.some((h) => h.state === "missing");
+
+// Hosts that run at least one Docker recipe, in host order: the matrix columns.
+function imageHosts() {
+  const used = new Set(imagesData.images.flatMap((img) => img.hosts.map((h) => h.host_id)));
+  return state.hosts.filter((h) => used.has(h.id));
+}
+
+function imageCellHtml(img, h) {
+  if (!h) return `<span class="muted" title="No recipe on this host uses this image">–</span>`;
+  if (h.state === "unknown") {
+    return `<span class="muted" title="${esc(blurHostText(h.error || "not reachable", hostById(h.host_id)?.url))}">? unknown</span>`;
+  }
+  const others = h.other_tags.map((t) => `${t.tag} (${imageAge(t.created)}, ${t.size})`).join("\n");
+  const base = h.state === "present"
+    ? `<span class="ok" title="${esc(`${imageAge(h.local.created)} · ${h.local.size} · ${h.local.id}${others ? `\nOther tags here:\n${others}` : ""}`)}">✓ ${esc(imageAge(h.local.created, true))}</span>`
+    : `<span class="bad" title="Not on this host yet – pulled on the first start${others ? `\nOther tags here:\n${esc(others)}` : ""}">✗ missing</span>`;
+  const newer = h.other_tags.map((t, i) => [t, i]).filter(([t]) => t.newer);
+  const chip = newer.length
+    ? ` <button class="chip small newer-chip" data-img="${esc(imgKey(img))}" data-host="${h.host_id}" data-tag="${newer[0][1]}"
+          title="${esc(`${newer[0][0].repository}:${newer[0][0].tag} · ${newer[0][0].size} · created ${fmtTime(newer[0][0].created)}`)} – click to switch this host's recipes to it">⬆ ${esc(newer[0][0].tag)} · ${esc(imageAge(newer[0][0].created, true))}</button>${newer.length > 1 ? ` <span class="muted" title="${esc(newer.slice(1).map(([t]) => t.tag).join(", "))}">+${newer.length - 1}</span>` : ""}`
+    : "";
+  return base + chip;
+}
+
+function renderImages() {
+  if (!imagesData) return;
+  const n = imagesData.native_recipes;
+  $("#images-native").textContent = n ? `${n} native-process recipe${n === 1 ? "" : "s"} run without an image and ${n === 1 ? "is" : "are"} not listed.` : "";
+  const hostSel = $("#images-host");
+  const hosts = imageHosts();
+  hostSel.innerHTML = `<option value="">All hosts</option>` + hosts.map((h) => `<option value="${h.id}">${esc(maskAddr(h.name))}</option>`).join("");
+  hostSel.value = hosts.some((h) => String(h.id) === imagesView.host) ? imagesView.host : "";
+  hostSel.closest("label").classList.toggle("hidden", hosts.length < 2);
+
+  const all = imagesData.images;
+  const nNewer = all.filter(imgHasNewer).length, nMissing = all.filter(imgHasMissing).length;
+  $("#images-only-newer").textContent = `⬆ Newer available (${nNewer})`;
+  $("#images-only-missing").textContent = `✗ Missing on a host (${nMissing})`;
+  $("#images-only-newer").classList.toggle("on", imagesView.onlyNewer);
+  $("#images-only-missing").classList.toggle("on", imagesView.onlyMissing);
+  const nRecipes = new Set(all.flatMap((img) => img.recipes.map((r) => r.id))).size;
+  const nRepos = new Set(all.map((img) => img.repository)).size;
+  $("#images-summary").textContent = `${all.length} image${all.length === 1 ? "" : "s"} (${nRepos} name${nRepos === 1 ? "" : "s"}) · ${nRecipes} recipe${nRecipes === 1 ? "" : "s"}`;
+
+  const cols = imagesView.host ? hosts.filter((h) => String(h.id) === imagesView.host) : hosts;
+  const q = imagesView.search.trim().toLowerCase();
+  const shown = all.filter((img) => {
+    const hs = imagesView.host ? img.hosts.filter((h) => String(h.host_id) === imagesView.host) : img.hosts;
+    if (imagesView.host && !hs.length) return false;
+    if (imagesView.onlyNewer && !hs.some((h) => h.other_tags.some((t) => t.newer))) return false;
+    if (imagesView.onlyMissing && !hs.some((h) => h.state === "missing")) return false;
+    return !q || imgKey(img).toLowerCase().includes(q) || img.recipes.some((r) => r.name.toLowerCase().includes(q));
+  });
+
+  $("#images-head").innerHTML = `<tr><th>Image</th><th>Recipes</th>${cols.map((h) => `<th>${esc(maskAddr(h.name))}</th>`).join("")}</tr>`;
+  const span = 2 + cols.length;
+  const tbody = $("#images");
+  if (!all.length) { tbody.innerHTML = `<tr><td colspan="${span}" class="empty">No Docker recipes yet.</td></tr>`; return; }
+  if (!shown.length) { tbody.innerHTML = `<tr><td colspan="${span}" class="empty">No image matches the filters.</td></tr>`; return; }
+
+  // Group the tags of one image name (e.g. three vLLM versions in use) under a header row.
+  const byRepo = new Map();
+  for (const img of shown) (byRepo.get(img.repository) ?? byRepo.set(img.repository, []).get(img.repository)).push(img);
+  const rows = [];
+  for (const [repo, imgs] of byRepo) {
+    const tagsInUse = all.filter((i) => i.repository === repo).length;
+    if (tagsInUse > 1) rows.push(`<tr class="img-repo"><td colspan="${span}"><span class="mono">${esc(repo)}</span> <span class="muted">· ${tagsInUse} tags in use</span></td></tr>`);
+    for (const img of imgs) {
+      const key = imgKey(img);
+      const open = imagesView.open.has(key);
+      const recipes = imagesView.host ? img.recipes.filter((r) => String(r.host_id) === imagesView.host) : img.recipes;
+      rows.push(`<tr>
+        <td class="mono img-ref">${tagsInUse > 1 ? "" : `${esc(repo)}<br>`}<b>:${esc(img.tag)}</b></td>
+        <td><button class="chip small" data-toggle="${esc(key)}" aria-expanded="${open}">${recipes.length} recipe${recipes.length === 1 ? "" : "s"} ${open ? "▾" : "▸"}</button></td>
+        ${cols.map((h) => `<td class="img-cell">${imageCellHtml(img, img.hosts.find((x) => x.host_id === h.id))}</td>`).join("")}
+      </tr>`);
+      if (open) {
+        const groups = new Map();
+        for (const r of recipes) (groups.get(r.host_id) ?? groups.set(r.host_id, []).get(r.host_id)).push(r);
+        const order = (hid) => state.hosts.findIndex((h) => h.id === hid);
+        rows.push(`<tr class="img-recipes"><td></td><td colspan="${span - 1}">${[...groups].sort((a, b) => order(a[0]) - order(b[0])).map(([hid, rs]) =>
+          `<div>${multiHost() ? `<b>${esc(maskAddr(hostName(hid)))}</b> ` : ""}${rs.map((r) => `<button class="chip small" data-recipe="${r.id}" title="Edit this recipe">${esc(r.name)}</button>`).join(" ")}</div>`).join("")}</td></tr>`);
+      }
+    }
+  }
+  tbody.innerHTML = rows.join("");
+}
+
+$("#btn-refresh-images").addEventListener("click", loadImages);
+$("#images-search").addEventListener("input", (e) => { imagesView.search = e.target.value; renderImages(); });
+$("#images-host").addEventListener("change", (e) => { imagesView.host = e.target.value; renderImages(); });
+$("#images-only-newer").addEventListener("click", () => { imagesView.onlyNewer = !imagesView.onlyNewer; renderImages(); });
+$("#images-only-missing").addEventListener("click", () => { imagesView.onlyMissing = !imagesView.onlyMissing; renderImages(); });
+
+$("#images").addEventListener("click", async (ev) => {
+  const toggle = ev.target.closest("[data-toggle]");
+  if (toggle) {
+    const k = toggle.dataset.toggle;
+    imagesView.open.has(k) ? imagesView.open.delete(k) : imagesView.open.add(k);
+    renderImages();
+    return;
+  }
+  const recipeBtn = ev.target.closest("[data-recipe]");
+  if (recipeBtn) {
+    const r = state.recipes.find((x) => x.id === Number(recipeBtn.dataset.recipe));
+    if (r) openRecipeEditor(r);
+    return;
+  }
+  const tagBtn = ev.target.closest(".newer-chip");
+  if (!tagBtn) return;
+  const img = imagesData.images.find((i) => imgKey(i) === tagBtn.dataset.img);
+  const hostId = Number(tagBtn.dataset.host);
+  const tag = img?.hosts.find((h) => h.host_id === hostId)?.other_tags[Number(tagBtn.dataset.tag)];
+  if (!img || !tag) return;
+  const newRef = `${tag.repository}:${tag.tag}`;
+  const targets = state.recipes.filter((r) => r.host_id === hostId && img.recipes.some((x) => x.id === r.id));
+  if (!targets.length) return;
+  const names = targets.length > 8 ? `${targets.slice(0, 8).map((r) => `"${r.name}"`).join(", ")} and ${targets.length - 8} more` : targets.map((r) => `"${r.name}"`).join(", ");
+  if (!confirm(`Switch ${targets.length} recipe${targets.length === 1 ? "" : "s"} on ${maskAddr(hostName(hostId))} (${names}) to\n${newRef}?\n\nA running model keeps the old image until you restart it.`)) return;
+  try {
+    for (const r of targets) await api(`/api/recipes/${r.id}`, { method: "PUT", body: recipeBodyFrom(r, { image: newRef }) });
+    toast(targets.length === 1 ? `"${targets[0].name}" now uses ${newRef}` : `${targets.length} recipes now use ${newRef}`, "ok");
+  } catch (e) {
+    toast(e.message, "bad");
+  }
+  await loadRecipes();
+  loadImages();
+});
+
 /* ---------------- keyboard shortcuts ---------------- */
 
-const TAB_KEYS = { "1": "recipes", "2": "schedules", "3": "activity", "4": "hosts" };
+const TAB_KEYS = { "1": "recipes", "2": "schedules", "3": "activity", "4": "hosts", "5": "images" };
 const CARD_KEYS = { s: "start", x: "stop", r: "restart", l: "logs", e: "edit" };
 
 document.addEventListener("keydown", (ev) => {
@@ -1458,7 +1617,7 @@ document.addEventListener("keydown", (ev) => {
   if (k === "n" && state.tab === "recipes") { $("#btn-new-recipe").click(); ev.preventDefault(); return; }
   if (k === "t") { $("#btn-theme").click(); return; }
   if (k === "b") { $("#btn-blur").click(); return; }
-  if (k === "?") { toast("Shortcuts: 1–4 tabs · / search · n new recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
+  if (k === "?") { toast("Shortcuts: 1–5 tabs · / search · n new recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
 });
 
 /* ---------------- boot ---------------- */
