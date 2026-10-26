@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -14,17 +13,33 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  IMAGE: ghcr.io/${{ github.repository }}
-
 jobs:
-  test:
-    name: Tests (Python ${{ matrix.python }})
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - name: Ruff
+        run: ruff check --output-format=github .
+      - name: ShellCheck
+        run: shellcheck --severity=warning install.sh install-macos.sh run.sh
+
+  test:
+    name: Tests (Python ${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.12", "3.13"]
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          # Native-process recipes are the main use case on a Mac.
+          - os: macos-latest
+            python: "3.12"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,52 +49,17 @@ jobs:
           cache-dependency-path: requirements*.txt
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q
-      - name: Shell scripts parse
-        run: bash -n install.sh install-macos.sh run.sh
 
-  docker:
-    name: Docker image (amd64 + arm64)
-    needs: test
+  package:
+    name: Build Python package
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+      - uses: actions/setup-python@v5
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Image tags
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=short
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-      # DGX Spark is arm64, most laptops/servers amd64. Pull requests only build, they don't push.
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Smoke test the image
-        run: |
-          docker buildx build --load -t dgxm-smoke .
-          docker run -d --name dgxm-smoke -p 18090:8090 -e DGXM_SEED=0 dgxm-smoke
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:18090/api/meta >/dev/null && break; sleep 1; done
-          curl -sf http://127.0.0.1:18090/api/meta | grep -q '"frameworks"'
-          docker exec dgxm-smoke docker --version
-          docker rm -f dgxm-smoke
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      - name: Wheel ships the web UI
+        run: unzip -l dist/*.whl | grep -q 'local_llm_manager/static/index.html'
+
