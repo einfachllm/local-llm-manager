@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `examples/hermes-agent`: guide to run Hermes Agent (Telegram, local faster-whisper STT and Piper TTS) on an
+  LLM recipe, with the Hermes gateway as a native-process recipe, tool-calling flags and security notes.
 - `examples/telegram-voice-bot`: a Telegram bot (voice and text) with a local Whisper server via Docker
   Compose, using an LLM recipe of this manager. User allow-list, conversation memory, outbound-only.
 - **Images** tab (shortcut `5`): a matrix of the Docker images used by recipes (rows, tags of one image grouped
