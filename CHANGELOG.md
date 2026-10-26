@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Images** tab: every Docker image used by recipes, which recipes use it, whether each of their hosts has it
+  locally (age, size, ID), and other local tags of the same image there. A newer tag can be applied to the
+  recipes on that host with one click. Agents get a `GET /agent/v1/images` endpoint (older agents are
+  reported as too old to list images). Keyboard shortcut `5`.
+
 ## [0.1.0] - 2026-10-26
 
 First public release.

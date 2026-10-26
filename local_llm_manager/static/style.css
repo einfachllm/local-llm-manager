@@ -394,3 +394,9 @@ input[readonly] { opacity: .6; }
 .muted { color: var(--muted); }
 .warn-chip { color: var(--yellow); border-color: rgba(240,180,41,.5); cursor: default; }
 td .copy { margin-left: 6px; padding: 1px 8px; }
+
+/* Images tab */
+.img-ref { word-break: break-all; min-width: 220px; }
+.img-host + .img-host { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.img-tags { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.newer-chip { color: var(--green); border-color: rgba(52,199,123,.55); cursor: pointer; }
