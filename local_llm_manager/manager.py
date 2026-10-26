@@ -5,6 +5,7 @@ executors (executor.py) do the actual work on this machine or on a remote agent.
 """
 
 import asyncio
+from datetime import datetime
 from typing import Any, AsyncIterator, Optional
 
 import httpx
@@ -78,9 +79,26 @@ class Manager:
     async def recipes_with_status(self) -> list[dict[str, Any]]:
         recipes = self.db.list_recipes()
         statuses = await self._statuses(recipes)
+        self._check_start_times(statuses)
         for r in recipes:
             r.update(statuses.get(r["id"], {"status": "offline", "container": None}))
         return recipes
+
+    def _check_start_times(self, statuses: dict[int, dict[str, Any]]) -> None:
+        """Close pending start measurements once the model is ready (or note that it never was)."""
+        for rid, (ts, source) in self.db.pending_starts().items():
+            status = statuses.get(rid, {}).get("status")
+            if status == "ready":
+                try:
+                    seconds = (datetime.now().astimezone() - datetime.fromisoformat(ts)).total_seconds()
+                except ValueError:
+                    seconds = -1
+                if 0 < seconds < 24 * 3600:
+                    self.db.add_start_time(rid, seconds, source)
+                self.db.clear_pending_start(rid)
+            elif status in ("stopped", "failed", "offline"):
+                # Stopped or crashed before becoming ready: drop the measurement.
+                self.db.clear_pending_start(rid)
 
     async def recipe_status(self, recipe_id: int) -> dict[str, Any]:
         recipe = self._get(recipe_id)
@@ -194,6 +212,7 @@ class Manager:
             text = await ex.start(agent_payload_recipe(recipe))
         except ActionError as e:
             fail(e.message, e.status_code)
+        self.db.set_pending_start(recipe["id"], datetime.now().astimezone().isoformat(timespec="seconds"), source)
         self.db.add_event(source, action, True, text, recipe["id"], target)
         return text.split("\n", 1)[0]
 
