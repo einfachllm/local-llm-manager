@@ -100,16 +100,22 @@ class Scheduler:
         return ok, msg
 
     async def tick(self) -> None:
-        now = local_now()
-        for s in self.db.list_schedules():
-            if not s["enabled"] or not s["next_run"] or parse_time(s["next_run"]) > now:
-                continue
-            # Advance first so a slow action can't fire twice.
-            if s["cron"]:
-                self.db.set_schedule_next_run(s["id"], compute_next_run(s, now), True)
-            else:
-                self.db.set_schedule_next_run(s["id"], None, False)
-            await self.run_schedule(s, source=f"schedule:{s['name']}")
+        if self.db.get_setting("schedules_paused") != "1":
+            now = local_now()
+            for s in self.db.list_schedules():
+                if not s["enabled"] or not s["next_run"] or parse_time(s["next_run"]) > now:
+                    continue
+                # Advance first so a slow action can't fire twice.
+                if s["cron"]:
+                    self.db.set_schedule_next_run(s["id"], compute_next_run(s, now), True)
+                else:
+                    self.db.set_schedule_next_run(s["id"], None, False)
+                await self.run_schedule(s, source=f"schedule:{s['name']}")
+        # Close start-time measurements even when no browser has the dashboard open.
+        if self.db.pending_starts():
+            recipes = [r for rid in self.db.pending_starts() if (r := self.db.get_recipe(rid))]
+            if recipes:
+                self.manager._check_start_times(await self.manager._statuses(recipes))
 
     async def _loop(self) -> None:
         while True:

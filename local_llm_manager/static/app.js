@@ -4,7 +4,8 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const state = { meta: null, recipes: [], schedules: [], hosts: [], busy: new Set(), tab: "recipes" };
+const state = { meta: null, recipes: [], schedules: [], hosts: [], busy: new Set(), tab: "recipes", blur: true, schedPaused: false };
+try { state.blur = localStorage.getItem("llm.blur") !== "0"; } catch { /* storage unavailable */ }
 const STATUS_LABEL = { ready: "Ready", loading: "Loading model", starting: "Starting", stopped: "Stopped", failed: "Failed", offline: "Host offline" };
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -62,6 +63,50 @@ const hostPlatform = (id) => hostById(id)?.info?.platform ?? "";
 const PLATFORM = { darwin: "macOS", linux: "Linux" };
 
 function memText(m) { return `${m.used_gb} / ${m.total_gb} GB`; }
+
+/* Blur a host name / IP when the "Blur" toggle in the top bar is on; the hosts strip must not
+ * expose the machine identity. Underlying values stay untouched; only display strings are masked. */
+function maskAddr(name) {
+  const s = String(name ?? "").trim();
+  if (!s) return "–";
+  if (!state.blur) return s;
+  // IPv4 192.0.2.114 -> 192…114
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(s)) {
+    const parts = s.split(".");
+    return `${parts[0]}…${parts[parts.length - 1]}`;
+  }
+  // hostname thinkstationpgx-a688 -> thinkstationpg…988
+  if (s.length > 6) return `${s.slice(0, 6)}…${s.slice(-2)}`;
+  if (s.length > 1) return `${s[0]}…${s[s.length - 1]}`;
+  return "••••";
+}
+function maskUrl(url) {
+  if (!url) return "–";
+  if (!state.blur) return url;
+  try {
+    const u = new URL(url);
+    const host = maskAddr(u.hostname);
+    return u.port ? `${host}:${u.port}` : host;
+  } catch {
+    return maskAddr(url);
+  }
+}
+// Full endpoint URL (http://host:port/v1) with only the host part masked, so it stays recognisable.
+function maskEndpoint(urlStr) {
+  if (!state.blur) return urlStr;
+  try {
+    const u = new URL(urlStr);
+    return urlStr.replace(`//${u.hostname}`, `//${maskAddr(u.hostname)}`);
+  } catch {
+    return maskAddr(urlStr);
+  }
+}
+// Mask bare IPv4 addresses inside free text (e.g. activity log messages).
+function blurText(s) {
+  const str = String(s ?? "");
+  if (!state.blur) return str;
+  return str.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, (m) => maskAddr(m));
+}
 function memPct(m) { return m.total_gb ? (m.used_gb / m.total_gb) * 100 : 0; }
 function barClass(pct) { return "bar-fill" + (pct > 90 ? " crit" : pct > 75 ? " warn" : ""); }
 
@@ -85,14 +130,14 @@ function renderHostsStrip() {
   $("#hosts-strip").innerHTML = state.hosts.map((h) => {
     if (!h.online) {
       return `<button class="host-chip offline" data-host="${h.id}" title="${esc(h.error || "offline")}">
-        <span class="host-name">${esc(h.name)}</span><span class="host-mem">offline</span></button>`;
+        <span class="host-name">${maskAddr(h.name)}</span><span class="host-mem">offline</span></button>`;
     }
     const m = h.system.memory;
     const pct = memPct(m);
     const gpu = h.system.gpus[0];
-    const title = `${h.name}: ${memText(m)} used, ${m.available_gb} GB free` + (gpu ? `\nGPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C · ${gpu.power_w ?? "?"} W` : "");
+    const title = `${maskAddr(h.name)}: ${memText(m)} used, ${m.available_gb} GB free` + (gpu ? `\nGPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C · ${gpu.power_w ?? "?"} W` : "");
     return `<button class="host-chip" data-host="${h.id}" title="${esc(title)}">
-        <span class="host-name">${esc(h.name)}</span>
+        <span class="host-name">${maskAddr(h.name)} ${h.is_local ? '<span class="host-note">this machine</span>' : '<span class="host-note">remote</span>'}</span>
         <span class="bar"><span class="${barClass(pct)}" style="width:${pct.toFixed(1)}%"></span></span>
         <span class="host-mem">${esc(memText(m))}${gpu ? ` · GPU ${gpu.utilization ?? "?"}%` : ""}</span>
       </button>`;
@@ -101,8 +146,58 @@ function renderHostsStrip() {
 
 $("#hosts-strip").addEventListener("click", () => $('.tab[data-tab="hosts"]').click());
 
+/* ---------------- blur toggle (top bar) ---------------- */
+
+function renderBlurToggle() {
+  const b = $("#btn-blur");
+  b.classList.toggle("on", state.blur);
+  b.setAttribute("aria-pressed", String(state.blur));
+  b.textContent = state.blur ? "🙈 Blur" : "👁 Show";
+  b.title = state.blur ? "IP addresses and host names are blurred – click to show them"
+    : "IP addresses and host names are visible – click to blur them";
+}
+
+$("#btn-blur").addEventListener("click", () => {
+  state.blur = !state.blur;
+  try { localStorage.setItem("llm.blur", state.blur ? "1" : "0"); } catch { /* ignore */ }
+  renderBlurToggle();
+  renderHostsStrip();
+  renderHostOptions();
+  renderRecipes();
+  if (state.tab === "hosts") renderHosts();
+  if (state.tab === "schedules") loadSchedules();
+  if (state.tab === "activity") loadEvents();
+});
+renderBlurToggle();
+
+/* ---------------- theme toggle (top bar) ---------------- */
+
+try { state.theme = ["light", "auto"].includes(localStorage.getItem("llm.theme")) ? localStorage.getItem("llm.theme") : "dark"; } catch { state.theme = "dark"; }
+
+function effectiveTheme() {
+  return state.theme === "auto" ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : state.theme;
+}
+function applyTheme() {
+  document.documentElement.dataset.theme = effectiveTheme();
+}
+matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => { if (state.theme === "auto") applyTheme(); });
+
+function renderThemeToggle() {
+  const b = $("#btn-theme");
+  b.textContent = { dark: "🌙 Dark", light: "☀️ Light", auto: "🌗 Auto" }[state.theme];
+  b.title = { dark: "Dark theme – click for light", light: "Light theme – click to follow the system", auto: `Following the system (currently ${effectiveTheme()}) – click for dark` }[state.theme];
+}
+
+$("#btn-theme").addEventListener("click", () => {
+  state.theme = { dark: "light", light: "auto", auto: "dark" }[state.theme];
+  try { localStorage.setItem("llm.theme", state.theme); } catch { /* ignore */ }
+  applyTheme();
+  renderThemeToggle();
+});
+renderThemeToggle();
+
 function renderHostOptions() {
-  const opts = state.hosts.map((h) => `<option value="${h.id}">${esc(h.name)}${h.is_local ? " (this machine)" : ""}</option>`).join("");
+  const opts = state.hosts.map((h) => `<option value="${h.id}">${esc(maskAddr(h.name))}${h.is_local ? " (this machine)" : ""}</option>`).join("");
   const filter = $("#recipe-host");
   const cur = filter.value;
   filter.innerHTML = `<option value="">All hosts</option>` + opts;
@@ -119,9 +214,9 @@ function renderHosts() {
     const m = h.system?.memory;
     const gpu = h.system?.gpus?.[0];
     return `<tr data-id="${h.id}">
-      <td><b>${esc(h.name)}</b>${h.is_local ? ` <span class="chip small on">this machine</span>` : `<br><small>${esc(h.url)}</small>`}</td>
+      <td><b>${maskAddr(h.name)}</b>${h.is_local ? ` <span class="chip small on">this machine</span>` : `<br><small class="host-url">${maskUrl(h.url)}</small>`}</td>
       <td>${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span><br><small>${esc(h.error || "")}</small>`}</td>
-      <td>${h.info ? `${esc(PLATFORM[h.info.platform] ?? h.info.platform)} · ${esc(h.info.machine)}<br><small>${esc(h.info.hostname)} · v${esc(h.info.version)}</small>` : "–"}</td>
+      <td>${h.info ? `${esc(PLATFORM[h.info.platform] ?? h.info.platform)} · ${esc(h.info.machine)}<br><small>${esc(maskAddr(h.info.hostname))} · v${esc(h.info.version)}</small>` : "–"}</td>
       <td style="min-width:160px">${m ? `<div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
         <small>${esc(memText(m))} · ${m.available_gb} GB free</small>` : "–"}</td>
       <td>${gpu ? `${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C` : "–"}</td>
@@ -194,6 +289,8 @@ hostForm.addEventListener("submit", async (ev) => {
 async function loadRecipes() {
   try {
     state.recipes = await api("/api/recipes");
+    recordMetrics(state.recipes);
+    if (watchStarts(state.recipes)) await loadStartTimes();  // a boot just finished
     renderRecipes();
   } catch (e) {
     $("#recipes").innerHTML = `<div class="empty">Failed to load recipes: ${esc(e.message)}</div>`;
@@ -203,13 +300,33 @@ async function loadRecipes() {
 /* ---------------- recipe list: filter, sort, group ---------------- */
 
 const VIEW_KEY = "dgxm.recipeView";
-const view = { search: "", tags: [], sort: "name", group: "", host: "" };
+const view = { search: "", tags: [], sort: "name", group: "", host: "", collapsed: {} };
 try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || "{}")); } catch { /* storage unavailable */ }
 if (typeof view.group === "boolean") view.group = view.group ? "tag" : "";  // older saved views
 const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* ignore */ } };
 
 const RUNNING = ["ready", "loading", "starting"];
 const STATUS_ORDER = { ready: 0, loading: 1, starting: 2, failed: 3, stopped: 4, offline: 5 };
+
+/* Start-duration history (server-measured trigger→ready) and a live timer while a model boots. */
+state.startTimes = {};                       // recipe id -> [seconds, newest first]
+const startWatch = new Map();                // recipe id -> ts of first "starting" observation
+async function loadStartTimes() { try { state.startTimes = await api("/api/start-times"); } catch { /* keep last */ } }
+function watchStarts(recipes) {
+  const now = Date.now();
+  let finished = false;
+  for (const r of recipes) {
+    const booting = r.status === "starting" || r.status === "loading";
+    if (booting && !startWatch.has(r.id)) startWatch.set(r.id, now);
+    if (!booting && startWatch.has(r.id)) { startWatch.delete(r.id); finished = true; }
+  }
+  return finished;
+}
+const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+function fmtDur(s) {
+  s = Math.round(s);
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s` : `${Math.floor(s / 3600)}h ${Math.round(s % 3600 / 60)}m`;
+}
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 const SORTS = {
   name: byName,
@@ -235,7 +352,7 @@ function visibleRecipes() {
     if (!q) return true;
     return [r.name, r.model, r.description, r.image, r.container_name, r.framework, hostName(r.host_id), ...tags]
       .some((v) => String(v || "").toLowerCase().includes(q));
-  }).sort(SORTS[view.sort] || byName);
+  }).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (SORTS[view.sort] || byName)(a, b));
 }
 
 function renderToolbar() {
@@ -256,6 +373,36 @@ function fmtTps(v) { return v >= 100 ? Math.round(v).toLocaleString() : +v.toFix
 // Live numbers from the server's /metrics (rates since the previous poll), or else from its last
 // stats line in the logs (see servermetrics.py / logstats.py); refreshed with the status poll.
 const STALE_LOG_S = 30;  // vLLM prints a stats line every ~10 s while busy and none while idle
+
+/* Per-recipe generation-throughput history (client side, sampled at the status poll). */
+const sparkHist = new Map();
+const SPARK_MAX = 40;   // ~3–4 min at the 5 s poll
+function recordMetrics(recipes) {
+  const now = Date.now();
+  for (const r of recipes) {
+    const v = r.metrics?.gen_tps;
+    if (!RUNNING.includes(r.status) || v == null) continue;
+    let a = sparkHist.get(r.id);
+    if (!a) sparkHist.set(r.id, a = []);
+    const last = a[a.length - 1];
+    if (last && now - last.t < 3000) { last.v = v; last.t = now; }  // coalesce re-renders
+    else a.push({ t: now, v });
+    if (a.length > SPARK_MAX) a.shift();
+  }
+}
+function sparkline(id, idle) {
+  const a = sparkHist.get(id);
+  if (!a || a.length < 3) return "";
+  const w = 72, h = 16;
+  const vs = a.map((p) => p.v);
+  const max = Math.max(...vs), min = Math.min(...vs), range = max - min || 1;
+  const pts = a.map((p, i) =>
+    `${((i / (a.length - 1)) * (w - 2) + 1).toFixed(1)},${(h - 1.5 - ((p.v - min) / range) * (h - 3)).toFixed(1)}`).join(" ");
+  const secs = Math.round((a[a.length - 1].t - a[0].t) / 1000);
+  const tip = `Output tok/s over the last ~${fmtAge(secs)}\nnow ${fmtTps(a[a.length - 1].v)} · peak ${fmtTps(max)}`;
+  return `<svg class="spark${idle ? " flat" : ""}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${esc(tip)}</title><polyline points="${pts}"/></svg>`;
+}
+
 function metricsHtml(r) {
   const m = r.metrics;
   if (!m || !RUNNING.includes(r.status)) return "";
@@ -266,14 +413,20 @@ function metricsHtml(r) {
     parts.push(`<span title="Generation (output) throughput">${fmtTps(m.gen_tps)} tok/s out${per}</span>`);
   }
   if (m.running != null) parts.push(`<span title="Requests running / waiting">${m.running} req${m.waiting ? ` · +${m.waiting} queued` : ""}</span>`);
-  if (m.kv_cache != null) parts.push(`<span title="KV cache usage">${m.kv_cache}% KV</span>`);
+  const kvCls = m.kv_cache > 85 ? " hot" : m.kv_cache > 60 ? " warm" : "";
+  if (m.kv_cache != null) parts.push(`<span class="kv${kvCls}" title="KV cache usage">${m.kv_cache}% KV</span>`);
   if (m.prefix_hit != null) parts.push(`<span title="Prefix cache hit rate">${m.prefix_hit}% hit</span>`);
   if (!parts.length) return "";
   const stale = m.source === "log" && m.age_s != null && m.age_s > STALE_LOG_S;
   if (stale) parts.push(`<span>${fmtAge(m.age_s)} ago</span>`);
   const title = m.source === "metrics" ? "Live from the server's /metrics, over the last poll interval"
     : `From the server's last stats line in the log${m.age_s != null ? ` (${fmtAge(m.age_s)} ago)` : ""}`;
-  return `<div class="card-metrics mono${stale ? " stale" : ""}" title="${title}">📈 ${parts.join(" · ")}</div>`;
+  const idle = !(m.running > 0) && !(m.waiting > 0) && !(m.prompt_tps > 0) && !(m.gen_tps > 0) && !(m.kv_cache > 0);
+  // While idle the zeros are noise: show one calm line; the sparkline still reveals the last activity.
+  const body = idle
+    ? `<span class="idle-word">idle</span>${m.kv_cache != null ? ` · <span class="kv${kvCls}">${m.kv_cache}% KV</span>` : ""}`
+    : parts.join(" · ");
+  return `<div class="card-metrics mono${stale ? " stale" : ""}${idle ? " idle" : ""}" title="${title}">${idle ? "💤" : "📈"} ${body}${sparkline(r.id, idle)}</div>`;
 }
 
 function fmtAge(s) { return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`; }
@@ -284,20 +437,36 @@ function cardHtml(r) {
   const fw = state.meta?.frameworks[r.framework]?.label ?? r.framework;
   const url = `http://${endpointHost(r.host_id)}:${r.host_port}`;
   const active = new Set(view.tags.map((t) => t.toLowerCase()));
+  // Optional startup estimate: median of the recent measured trigger→ready times.
+  const hist = state.startTimes[r.id] || [];
+  const med = hist.length ? median(hist.slice(0, 8)) : null;
+  const booting = !busy && (r.status === "starting" || r.status === "loading");
+  let startInfo = "";
+  if (booting) {
+    const elapsed = (Date.now() - (startWatch.get(r.id) ?? Date.now())) / 1000;
+    startInfo = `<span class="start-live mono" title="Time since the start was triggered">⏳ ${fmtDur(elapsed)}</span>`
+      + (med ? `<span class="start-hint mono" title="Median time to ready over the last ${Math.min(hist.length, 8)} start${hist.length > 1 ? "s" : ""}">/ ~${fmtDur(med)}</span>`
+        + `<span class="bar eta-bar" title="Elapsed vs. typical startup time"><span class="${elapsed > med * 1.5 ? "bar-fill warn" : "bar-fill"}" style="width:${Math.min(100, Math.round(elapsed / med * 100))}%"></span></span>` : "");
+  } else if (med && !running) {
+    startInfo = `<span class="start-hint mono" title="Median time from Start to ready (last ${Math.min(hist.length, 8)} start${hist.length > 1 ? "s" : ""})">⏱ ~${fmtDur(med)}</span>`;
+  }
   return `
-      <article class="card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}">
+      <article class="card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
         <div class="card-head">
           <div class="card-title">${esc(r.name)}</div>
-          <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
+          <div class="card-head-right">
+            <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
+            <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
+          </div>
         </div>
-        ${multiHost() ? `<div class="card-host" title="Runs on this host">⌂ ${esc(hostName(r.host_id))}</div>` : ""}
-        <div><span class="pill ${busy ? "busy" : r.status}">${busy ? "Working…" : STATUS_LABEL[r.status] ?? r.status}</span></div>
+        ${multiHost() ? `<div class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</div>` : ""}
+        <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? "Working…" : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}</div>
         ${r.tags?.length ? `<div class="card-tags">${r.tags.map((t) =>
           `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}</div>` : ""}
         ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
         <dl class="kv">
           <dt>Model</dt><dd>${esc(r.model || "–")}</dd>
-          <dt>Endpoint</dt><dd>${running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(url)}/v1</a>` : `<span class="muted">${esc(url)}/v1</span>`}</dd>
+          <dt>Endpoint</dt><dd>${running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(maskEndpoint(url))}/v1</a>` : `<span class="muted">${esc(maskEndpoint(url))}/v1</span>`}</dd>
           <dt>${r.runtime === "process" ? "Name" : "Container"}</dt><dd>${esc(r.container_name)}</dd>
           ${r.est_memory_gb ? `<dt>Est. memory</dt><dd>${r.est_memory_gb} GB</dd>` : ""}
           ${r.container ? `<dt>${r.runtime === "process" ? "Process" : "Docker"}</dt><dd>${esc(r.container.status)}</dd>` : ""}
@@ -335,7 +504,7 @@ function renderRecipes() {
   // Group by host, or by each recipe's first tag (e.g. the model name); every recipe appears once.
   const groups = new Map();
   for (const r of list) {
-    const label = view.group === "host" ? hostName(r.host_id) : r.tags?.[0] ?? "";
+    const label = view.group === "host" ? maskAddr(hostName(r.host_id)) : r.tags?.[0] ?? "";
     const key = view.group === "host" ? String(state.hosts.findIndex((h) => h.id === r.host_id)).padStart(3, "0") : label.toLowerCase();
     if (!groups.has(key)) groups.set(key, { label, items: [] });
     groups.get(key).items.push(r);
@@ -344,8 +513,9 @@ function renderRecipes() {
   $("#recipes").innerHTML = keys.map((k) => {
     const g = groups.get(k);
     const running = g.items.filter((r) => RUNNING.includes(r.status)).length;
-    return `<section class="group">
-        <h3 class="group-title">${g.label ? esc(g.label) : "Untagged"} <span>${g.items.length} recipe${g.items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}</span></h3>
+    const collapsed = !!view.collapsed[`${view.group}:${k}`];
+    return `<section class="group${collapsed ? " is-collapsed" : ""}" data-gkey="${esc(k)}">
+        <h3 class="group-title" title="Click to ${collapsed ? "expand" : "collapse"}"><span class="group-caret">${collapsed ? "▸" : "▾"}</span>${g.label ? esc(g.label) : "Untagged"} <span>${g.items.length} recipe${g.items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}</span></h3>
         <div class="grid">${g.items.map(cardHtml).join("")}</div>
       </section>`;
   }).join("");
@@ -388,7 +558,33 @@ async function runAction(key, path, okMsg) {
   }
 }
 
+const RECIPE_BODY_FIELDS = ["name", "description", "host_id", "runtime", "framework", "image", "model",
+  "container_name", "host_port", "container_port", "command", "args", "env", "volumes", "docker_args",
+  "gpus", "health_path", "est_memory_gb", "tags", "color"];
+function recipeBodyFrom(r, overrides = {}) {
+  const body = { pinned: !!r.pinned };
+  for (const f of RECIPE_BODY_FIELDS) body[f] = r[f];
+  return { ...body, ...overrides };
+}
+
 $("#recipes").addEventListener("click", async (ev) => {
+  const head = ev.target.closest(".group-title");
+  if (head) {
+    const key = head.closest(".group").dataset.gkey;
+    if (ev.shiftKey) {
+      // Shift+click: collapse every group, or expand them all when this one is collapsed.
+      const anyOpen = $$(".group", $("#recipes")).some((s) => !s.classList.contains("is-collapsed"));
+      for (const s of $$(".group", $("#recipes"))) {
+        view.collapsed[`${view.group}:${s.dataset.gkey}`] = anyOpen;
+      }
+    } else {
+      const id = `${view.group}:${key}`;
+      view.collapsed[id] = !view.collapsed[id];
+    }
+    saveView();
+    renderRecipes();
+    return;
+  }
   const chip = ev.target.closest(".card [data-tag]");
   if (chip) { toggleTagFilter(chip.dataset.tag); return; }
   const btn = ev.target.closest("button[data-act]");
@@ -416,6 +612,11 @@ $("#recipes").addEventListener("click", async (ev) => {
       const copy = await api(`/api/recipes/${id}/duplicate`, { method: "POST" });
       await loadRecipes();
       openRecipeEditor(copy);
+    } catch (e) { toast(e.message, "bad"); }
+  } else if (act === "pin") {
+    try {
+      await api(`/api/recipes/${id}`, { method: "PUT", body: recipeBodyFrom(r, { pinned: !r.pinned }) });
+      await loadRecipes();
     } catch (e) { toast(e.message, "bad"); }
   } else if (act === "delete") {
     if (!confirm(`Delete recipe “${r.name}”? Schedules using it are deleted too.`)) return;
@@ -545,11 +746,11 @@ function renderPorts() {
     const shared = recipesOnPort(r.host_id, r.host_port, r.id);
     const running = RUNNING.includes(r.status);
     return `<tr>
-      <td>${esc(hostName(r.host_id))}</td>
+      <td>${esc(maskAddr(hostName(r.host_id)))}</td>
       <td class="mono">${r.host_port}${shared.length ? ` <span class="chip small warn-chip" title="Also used by: ${esc(shared.map((x) => x.name).join(", "))}">shared</span>` : ""}</td>
       <td>${esc(r.name)}</td>
       <td><span class="pill ${r.status}">${STATUS_LABEL[r.status] ?? r.status}</span></td>
-      <td class="mono">${running ? `<a href="${esc(endpointUrl(r))}/models" target="_blank" rel="noopener">${esc(endpointUrl(r))}</a>` : `<span class="muted">${esc(endpointUrl(r))}</span>`}
+      <td class="mono">${running ? `<a href="${esc(endpointUrl(r))}/models" target="_blank" rel="noopener">${esc(maskEndpoint(endpointUrl(r)))}</a>` : `<span class="muted">${esc(maskEndpoint(endpointUrl(r)))}</span>`}
         <button class="btn small ghost copy" data-copy="${esc(endpointUrl(r))}" title="Copy endpoint">Copy</button></td>
     </tr>`;
   }).join("") : `<tr><td colspan="5" class="empty">No recipes yet.</td></tr>`;
@@ -863,9 +1064,9 @@ function cronLabel(cron) {
 
 function actionLabel(s) {
   const a = state.meta.actions[s.action]?.label ?? s.action;
-  if (!s.recipe_id) return multiHost() ? `${a} – ${s.host_id ? hostName(s.host_id) : "all hosts"}` : a;
+  if (!s.recipe_id) return multiHost() ? `${a} – ${s.host_id ? maskAddr(hostName(s.host_id)) : "all hosts"}` : a;
   const r = state.recipes.find((x) => x.id === s.recipe_id);
-  const where = multiHost() && r ? ` (${hostName(r.host_id)})` : "";
+  const where = multiHost() && r ? ` (${maskAddr(hostName(r.host_id))})` : "";
   return `${a.split(" (")[0]}: ${r ? r.name : `#${s.recipe_id}`}${where}`;
 }
 
@@ -873,6 +1074,8 @@ async function loadSchedules() {
   try {
     state.schedules = await api("/api/schedules");
   } catch (e) { toast(e.message, "bad"); return; }
+  try { state.schedPaused = (await api("/api/settings")).schedules_paused; } catch { /* keep last */ }
+  renderSchedPause();
   loadTimeline();
   const tbody = $("#schedules");
   if (!state.schedules.length) {
@@ -889,6 +1092,7 @@ async function loadSchedules() {
       <td class="msg">${s.last_run ? `<span class="${s.last_ok ? "ok" : "bad"}">${s.last_ok ? "✓" : "✗"}</span> ${esc(fmtTime(s.last_run))}<br><small>${esc(s.last_message || "")}</small>` : "–"}</td>
       <td style="white-space:nowrap">
         <button class="btn small ghost" data-act="run">Run now</button>
+        <button class="btn small ghost" data-act="duplicate">Duplicate</button>
         <button class="btn small ghost" data-act="edit">Edit</button>
         <button class="btn small ghost danger" data-act="delete">Delete</button>
       </td>
@@ -914,6 +1118,12 @@ $("#schedules").addEventListener("click", async (ev) => {
       const res = await api(`/api/schedules/${id}/run`, { method: "POST" });
       toast(res.message, "ok");
       loadRecipes();
+    } else if (el.dataset.act === "duplicate") {
+      let i = 1;
+      const names = new Set(state.schedules.map((x) => x.name));
+      while (names.has(`${s.name} (copy ${i})`)) i += 1;
+      await api("/api/schedules", { method: "POST", body: scheduleBody(s, { name: `${s.name} (copy ${i})` }) });
+      toast("Schedule duplicated — adjust and save, or just use it as is", "ok");
     } else if (el.dataset.act === "edit") {
       openScheduleEditor(s);
       return;
@@ -925,6 +1135,24 @@ $("#schedules").addEventListener("click", async (ev) => {
     toast(e.message, "bad");
   }
   loadSchedules();
+});
+
+/* Master pause for all schedules. */
+function renderSchedPause() {
+  const b = $("#btn-sched-pause");
+  b.textContent = state.schedPaused ? "▶ Resume all" : "⏸ Pause all";
+  b.classList.toggle("paused-on", !!state.schedPaused);
+  b.title = state.schedPaused ? "Schedules are paused – click to let them fire again" : "Stop all schedules from firing (manual actions keep working)";
+  $("#sched-paused-hint").classList.toggle("hidden", !state.schedPaused);
+}
+$("#btn-sched-pause").addEventListener("click", async () => {
+  try {
+    const res = await api("/api/settings", { method: "PUT", body: { schedules_paused: !state.schedPaused } });
+    state.schedPaused = res.schedules_paused;
+    toast(state.schedPaused ? "All schedules paused" : "All schedules resumed", "ok");
+    renderSchedPause();
+    loadSchedules();
+  } catch (e) { toast(e.message, "bad"); }
 });
 
 function syncScheduleForm() {
@@ -1090,7 +1318,7 @@ function renderTimeline() {
   tl.lanes.forEach((lane, i) => {
     const y = top + i * laneH;
     if (i % 2 === 0) parts.push(`<rect class="tl-lane" x="${labelW}" y="${y}" width="${plotW}" height="${laneH}"/>`);
-    const full = multiHost() ? `${lane.host} · ${lane.name}` : lane.name;
+    const full = multiHost() ? `${maskAddr(lane.host)} · ${lane.name}` : lane.name;
     const name = full.length > maxChars ? full.slice(0, maxChars - 1) + "…" : full;
     parts.push(`<text class="tl-label" x="${labelW - 10}" y="${y + laneH / 2}" text-anchor="end" dominant-baseline="central"><title>${esc(full)}</title>${esc(name)}</text>`);
   });
@@ -1105,7 +1333,7 @@ function renderTimeline() {
   // global events (stop all / free memory)
   for (const e of tl.events.filter((ev) => !ev.recipe_id)) {
     const tx = x(new Date(e.time).getTime());
-    const where = multiHost() ? ` (${e.host_id ? hostName(e.host_id) : "all hosts"})` : "";
+    const where = multiHost() ? ` (${e.host_id ? maskAddr(hostName(e.host_id)) : "all hosts"})` : "";
     const tip = `${fmtDayClock(new Date(e.time))} · ${e.schedule}: ${ACTION_SHORT[e.action]}${where}`;
     // A host-scoped stop-all only crosses that host's rows.
     tl.lanes.forEach((lane, i) => {
@@ -1187,12 +1415,44 @@ async function loadEvents() {
         <td style="white-space:nowrap">${esc(fmtTime(e.ts))}</td>
         <td>${esc(e.source)}</td>
         <td>${esc(e.action)}</td>
-        <td>${esc(e.target || "")}</td>
-        <td class="msg"><span class="${e.ok ? "ok" : "bad"}">${e.ok ? "✓" : "✗"}</span> ${esc(e.message)}</td>
+        <td>${esc(blurText(e.target || ""))}</td>
+        <td class="msg"><span class="${e.ok ? "ok" : "bad"}">${e.ok ? "✓" : "✗"}</span> ${esc(blurText(e.message))}</td>
       </tr>`).join("") : `<tr><td colspan="5" class="empty">Nothing yet.</td></tr>`;
   } catch (e) { toast(e.message, "bad"); }
 }
 $("#btn-refresh-events").addEventListener("click", loadEvents);
+
+/* ---------------- keyboard shortcuts ---------------- */
+
+const TAB_KEYS = { "1": "recipes", "2": "schedules", "3": "activity", "4": "hosts" };
+const CARD_KEYS = { s: "start", x: "stop", r: "restart", l: "logs", e: "edit" };
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  const t = ev.target;
+  if (t instanceof HTMLElement && (t.isContentEditable || /^(input|textarea|select|button)$/i.test(t.tagName))) return;
+  if (document.querySelector("dialog[open]")) return;
+  const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+  const card = document.activeElement instanceof Element ? document.activeElement.closest(".card") : null;
+  if (card && k.startsWith("Arrow")) {  // move focus between cards
+    const cards = $$("#recipes .card");
+    const i = cards.indexOf(card);
+    const next = (k === "ArrowRight" || k === "ArrowDown") ? cards[i + 1] : cards[i - 1];
+    if (next) { next.focus(); ev.preventDefault(); }
+    return;
+  }
+  if (card && CARD_KEYS[k]) {
+    const btn = card.querySelector(`button[data-act="${CARD_KEYS[k]}"]:not([disabled])`);
+    if (btn) { btn.click(); ev.preventDefault(); }
+    return;
+  }
+  if (TAB_KEYS[k]) { $(`.tab[data-tab="${TAB_KEYS[k]}"]`).click(); ev.preventDefault(); return; }
+  if (k === "/") { $('.tab[data-tab="recipes"]').click(); $("#recipe-search").focus(); ev.preventDefault(); return; }
+  if (k === "n" && state.tab === "recipes") { $("#btn-new-recipe").click(); ev.preventDefault(); return; }
+  if (k === "t") { $("#btn-theme").click(); return; }
+  if (k === "b") { $("#btn-blur").click(); return; }
+  if (k === "?") { toast("Shortcuts: 1–4 tabs · / search · n new recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
+});
 
 /* ---------------- boot ---------------- */
 
@@ -1207,8 +1467,11 @@ async function boot() {
   $("#swatches").innerHTML = state.meta.colors.map((c) =>
     `<button type="button" class="swatch" data-color="${c}" title="${c || "default"}" aria-label="${c || "default"} colour"></button>`).join("");
   await loadHosts();
+  await loadStartTimes();
   await loadRecipes();
   setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); } }, 5000);
+  // Keep the ⏳ elapsed counter ticking between the 5 s polls.
+  setInterval(() => { if (!document.hidden && startWatch.size) renderRecipes(); }, 1000);
   setInterval(() => { if (!document.hidden && state.tab === "schedules") loadSchedules(); }, 15000);
 }
 

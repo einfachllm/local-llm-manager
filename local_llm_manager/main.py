@@ -56,6 +56,7 @@ class RecipeIn(BaseModel):
     est_memory_gb: Optional[float] = Field(default=None, ge=0)
     tags: list[str] = []
     color: str = ""
+    pinned: bool = False
 
     @field_validator("color")
     @classmethod
@@ -119,6 +120,10 @@ class ImportIn(BaseModel):
     text: str = Field(min_length=1, max_length=200_000)
     # Required when the static check finds risky calls.
     trust: bool = False
+
+
+class SettingsIn(BaseModel):
+    schedules_paused: bool
 
 
 class ScheduleIn(BaseModel):
@@ -537,6 +542,29 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         if not ok:
             raise HTTPException(409, msg)
         return {"message": msg}
+
+    # ---- settings ------------------------------------------------------
+
+    @app.get("/api/settings")
+    async def get_settings():
+        return {"schedules_paused": db.get_setting("schedules_paused") == "1"}
+
+    @app.put("/api/settings")
+    async def put_settings(body: SettingsIn):
+        db.set_setting("schedules_paused", "1" if body.schedules_paused else "0")
+        # On resume, realign next runs so a long pause does not fire every missed run at once.
+        scheduler.resync()
+        return {"schedules_paused": body.schedules_paused}
+
+    # ---- start times ----------------------------------------------------
+
+    @app.get("/api/start-times")
+    async def start_times():
+        """Seconds from start trigger to ready, newest first, grouped per recipe."""
+        out: dict[str, list[float]] = {}
+        for row in db.list_start_times():
+            out.setdefault(str(row["recipe_id"]), []).append(row["seconds"])
+        return out
 
     # ---- activity ------------------------------------------------------
 
