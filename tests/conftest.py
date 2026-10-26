@@ -78,7 +78,7 @@ def client(fake_docker, monkeypatch, tmp_path):
     monkeypatch.setattr(executor_mod, "port_in_use", lambda port: port in fake_docker.ports_in_use)
     app = create_app(Database(":memory:"), fake_docker, run_scheduler=False,
                      procs=ProcessRunner(tmp_path / "processes"))
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         yield c
 
 
