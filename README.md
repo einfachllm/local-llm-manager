@@ -32,7 +32,8 @@ download them.
 |---|---|
 | ![Hosts](docs/screenshots/hosts-dark.png) | ![Recipe editor](docs/screenshots/recipe-editor-dark.png) |
 
-Host names and IPs are shown blurred via the top-bar **🙈 Blur** toggle - handy for screenshots and screen shares.
+The screenshots show a demo setup. The top-bar **🙈 Blur** toggle replaces host names and IPs with aliases such as
+`host-3f2a` (as in the Hosts screenshot) - handy for screenshots and screen shares.
 
 ## Quick start
 
@@ -144,13 +145,18 @@ on those machines - effectively root. So: always set `DGXM_PASSWORD`, use a long
 keep everything on a trusted network or VPN (or behind an HTTPS reverse proxy). Report vulnerabilities
 as described in [SECURITY.md](SECURITY.md).
 
+Built-in protections: the hub refuses to start with the example password `change-me`; requests that change
+something are only accepted from the dashboard itself (other websites cannot use your browser's saved
+login), and the dashboard cannot be embedded in other sites. Without a password it only answers when
+opened by IP address or `localhost`. Behind a reverse proxy, pass the original host (`X-Forwarded-Host`).
+
 ## Configuration
 
 Set in `.env` (or `~/.config/local-llm-manager.env` with `install.sh`):
 
 | Variable | Default | |
 |---|---|---|
-| `DGXM_PASSWORD` / `DGXM_USER` | *(empty = no login!)* / `admin` | Dashboard login |
+| `DGXM_PASSWORD` / `DGXM_USER` | *(empty = no login, IP access only)* / `admin` | Dashboard login |
 | `DGXM_PORT` / `DGXM_HOST` | `8090` / `0.0.0.0` | Listen address |
 | `DGXM_MODE` | `hub` | `agent`: no dashboard, controlled by a hub |
 | `DGXM_AGENT_TOKEN` | | Token the hub must send (required in agent mode) |

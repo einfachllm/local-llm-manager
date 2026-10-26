@@ -28,6 +28,21 @@ Local LLM Manager is built to **run arbitrary containers and processes** on the 
 - The agent token grants the same level of control over an agent machine.
 - Hub ↔ agent traffic is plain HTTP.
 - *Import script* runs user-supplied shell scripts in a restricted, but **not sandboxed**, environment.
+- Agents are trusted by the hub: a compromised agent can send misleading status data to the dashboard.
+
+What the hub does to protect the dashboard:
+
+- HTTP Basic auth with constant-time comparison; the hub refuses to start with the example password
+  `change-me`.
+- **Cross-site requests:** requests that change something (`POST`/`PUT`/`DELETE`) are rejected when the
+  browser's `Origin` (or `Sec-Fetch-Site`) shows they come from another site, so a malicious web page
+  cannot use your browser's saved login to start or stop models. API clients without `Origin` (curl,
+  scripts) are unaffected.
+- **DNS rebinding:** without a password, only requests addressed to an IP address or `localhost` are
+  answered.
+- **Framing:** `X-Frame-Options: DENY` and `frame-ancestors 'none'` against clickjacking, plus
+  `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`.
+- Host names, URLs and agent error messages are HTML-escaped in the UI.
 
 Therefore: always set `DGXM_PASSWORD`, use a long random `DGXM_AGENT_TOKEN`, and only expose the
 dashboard and agents on a trusted network, a VPN (e.g. Tailscale/WireGuard) or behind an HTTPS reverse
