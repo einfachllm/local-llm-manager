@@ -104,7 +104,8 @@ def test_docker_failure_reported(client, fake_docker):
     assert events[0]["ok"] == 0 and "boom" in events[0]["message"]
 
 
-def test_switch_stops_others_and_drops_caches(client, fake_docker):
+def test_switch_stops_others_and_drops_caches(client, fake_docker, monkeypatch):
+    monkeypatch.setattr(executor_mod.sys, "platform", "linux")  # macOS skips the cache drop
     a = create(client, name="A", host_port=8101)
     b = create(client, name="B", host_port=8102)
     client.post(f"/api/recipes/{a['id']}/start")

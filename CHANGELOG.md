@@ -16,6 +16,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   mounts the host's `/etc/localtime` so schedules no longer run in UTC inside the container.
 - `pyproject.toml`, so the manager can be installed with `pip install .` (command `local-llm-manager`).
 
+### Fixed
+- Script import looks for bash 4 or newer (also in `/opt/homebrew/bin`, `/usr/local/bin`) and says
+  "run `brew install bash`" if there is none, instead of failing with "command not found" on macOS.
+
 ### Changed
 - `install.sh` restarts the service, so rerunning it after `git pull` upgrades a running install.
 - Shorter README focused on setup, networking between machines, schedules and security; developer
