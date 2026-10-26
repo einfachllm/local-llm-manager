@@ -1,9 +1,10 @@
 name: Release
 
 # Push a tag like v1.2.3 (matching __version__ in local_llm_manager/__init__.py) to publish:
-#   - Docker images ghcr.io/<owner>/<repo>:1.2.3, :1.2 and :latest (amd64 + arm64)
+#   - Docker images ghcr.io/<owner>/<repo>:1.2.3 and :1.2 (amd64 + arm64)
 #   - a GitHub Release with the wheel, sdist and the CHANGELOG.md section of that version
-# Tags with a suffix (v1.2.3-rc.1) become pre-releases and do not move :latest.
+# Tags with a suffix (v1.2.3-rc.1) become pre-releases and do not move :1.2.
+# :latest is only published by a manual run of docker.yml.
 
 on:
   push:
@@ -83,7 +84,6 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}},enable=${{ needs.verify.outputs.prerelease == 'false' }}
-            type=raw,value=latest,enable=${{ needs.verify.outputs.prerelease == 'false' }}
       - uses: docker/build-push-action@v6
         with:
           context: .

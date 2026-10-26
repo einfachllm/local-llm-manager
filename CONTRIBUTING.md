@@ -41,7 +41,7 @@ See the *Development* section of the [README](README.md#development) for a map o
 4. Update `README.md` when you change user-visible behaviour, configuration or the API, and add a line
    under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
 5. Make sure `pytest` and `ruff check .` pass. CI runs them on Python 3.10-3.13 and macOS, runs
-   ShellCheck on the install scripts and builds the Docker image for amd64 and arm64.
+   ShellCheck on the install scripts and checks that the Python package builds.
 6. Fill in the pull request template. A maintainer will review; please respond to feedback by pushing
    new commits (no need to force-push).
 
@@ -78,6 +78,7 @@ as described in section 5 of the license.
 3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 The [release workflow](.github/workflows/release.yml) checks that the tag matches `__version__`, runs
-the tests, publishes `ghcr.io/einfachllm/local-llm-manager:X.Y.Z`, `:X.Y` and `:latest`, and creates a
+the tests, publishes `ghcr.io/einfachllm/local-llm-manager:X.Y.Z` and `:X.Y`, and creates a
 GitHub Release with the wheel, the sdist and the changelog section. Tags like `vX.Y.Z-rc.1` become
-pre-releases and do not move `:latest`.
+pre-releases and do not move `:X.Y`. To update `:latest`, run the *Docker latest* workflow on `main`
+by hand (*Actions → Docker latest → Run workflow*).
