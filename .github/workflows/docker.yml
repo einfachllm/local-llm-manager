@@ -1,0 +1,66 @@
+name: Docker latest
+
+# Manual only (Actions -> Docker latest -> Run workflow): builds the image from main for
+# linux/amd64 + linux/arm64, smoke-tests it and publishes ghcr.io/<owner>/<repo>:latest (plus a sha-… tag).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-latest
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  docker:
+    name: Build and publish :latest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Only from the default branch
+        if: github.ref_name != github.event.repository.default_branch
+        run: |
+          echo "::error::Run this workflow on ${{ github.event.repository.default_branch }}, not ${{ github.ref_name }}"
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Smoke test the image
+        run: |
+          docker buildx build --load -t llm-manager-smoke .
+          docker run -d --name llm-manager-smoke -p 18090:8090 -e DGXM_SEED=0 llm-manager-smoke
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:18090/api/meta >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:18090/api/meta | grep -q '"frameworks"'
+          docker exec llm-manager-smoke docker --version
+          docker rm -f llm-manager-smoke
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+      # DGX Spark is arm64, most laptops/servers amd64.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
