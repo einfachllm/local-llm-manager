@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `examples/telegram-voice-bot`: a Telegram bot (voice and text) with a local Whisper server via Docker
+  Compose, using an LLM recipe of this manager. User allow-list, conversation memory, outbound-only.
 - **Images** tab (shortcut `5`): a matrix of the Docker images used by recipes (rows, tags of one image grouped
   together) and the hosts (columns): `✓ 23d` when the host has the image, `✗ missing`, and `⬆ tag` when a newer
   tag of the same image is already on that host - one click switches that host's recipes to it. Search, host
