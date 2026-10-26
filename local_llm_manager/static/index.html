@@ -116,12 +116,18 @@
         <h2>Images</h2>
         <button class="btn ghost" id="btn-refresh-images">Refresh</button>
       </div>
-      <p class="hint">The Docker images your recipes use, whether each host already has them, and other tags of the
-        same image on that host. A <b>newer</b> tag was created after the one in use – click it to switch the recipes
-        to it (a running model keeps the old image until you restart it). Click a recipe to edit it.
-        <span id="images-native"></span></p>
-      <div class="table-wrap"><table class="table">
-        <thead><tr><th>Image</th><th>Used by</th><th>On the hosts</th></tr></thead>
+      <p class="hint">The Docker images your recipes use and whether each host has them. <b>⬆</b> marks a newer tag
+        of the same image that is already on that host – click it to switch that host's recipes to it (a running
+        model keeps the old image until you restart it). <span id="images-native"></span></p>
+      <div class="toolbar images-toolbar">
+        <input id="images-search" type="search" placeholder="Search image or recipe…">
+        <label class="inline">Host <select id="images-host"><option value="">All hosts</option></select></label>
+        <button type="button" class="chip" id="images-only-newer" aria-pressed="false">⬆ Newer available</button>
+        <button type="button" class="chip" id="images-only-missing" aria-pressed="false">✗ Missing on a host</button>
+        <span class="images-summary muted" id="images-summary"></span>
+      </div>
+      <div class="table-wrap"><table class="table images-matrix">
+        <thead id="images-head"></thead>
         <tbody id="images"></tbody>
       </table></div>
     </section>
