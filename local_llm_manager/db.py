@@ -1,5 +1,6 @@
 """SQLite storage for recipes, schedules and the activity log."""
 
+import os
 import socket
 import sqlite3
 import threading
@@ -158,7 +159,10 @@ class Database:
     def __init__(self, path: Path | str):
         self.path = str(path)
         if self.path != ":memory:":
-            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+            Path(self.path).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # The database holds agent tokens: readable by the owner only.
+            Path(self.path).touch(mode=0o600, exist_ok=True)
+            os.chmod(self.path, 0o600)
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")

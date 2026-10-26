@@ -8,6 +8,7 @@ import re
 import secrets
 import sqlite3
 import sys
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -241,6 +242,56 @@ SECURITY_HEADERS = {
 }
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
+MIN_PASSWORD_LENGTH = 12
+MIN_AGENT_TOKEN_LENGTH = 32
+COMMON_PASSWORDS = {"change-me", "changeme", "password", "passwort", "admin", "administrator", "letmein",
+                    "qwerty", "secret", "123456", "12345678", "123456789", "1234567890", "dgxspark", "nvidia"}
+# Brute-force protection: after this many wrong logins from one address within the window, it gets 429.
+LOGIN_MAX_FAILURES = 10
+LOGIN_WINDOW_SECONDS = 600
+
+
+def password_problem(password: str, user: str = "") -> Optional[str]:
+    """Why a dashboard password is too weak, or None if it is acceptable."""
+    if password.lower() in COMMON_PASSWORDS or (user and password.lower() == user.lower()):
+        return "is a well-known example/default password"
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"is shorter than {MIN_PASSWORD_LENGTH} characters"
+    if len(set(password)) < 4:
+        return "uses fewer than 4 different characters"
+    return None
+
+
+class LoginThrottle:
+    """Counts failed logins per client address in a sliding window (in memory, per process)."""
+
+    def __init__(self, max_failures: int = LOGIN_MAX_FAILURES, window: float = LOGIN_WINDOW_SECONDS):
+        self.max_failures, self.window = max_failures, window
+        self._failures: dict[str, list[float]] = {}
+
+    def _recent(self, key: str, now: float) -> list[float]:
+        recent = [t for t in self._failures.get(key, []) if now - t < self.window]
+        if recent:
+            self._failures[key] = recent
+        else:
+            self._failures.pop(key, None)
+        return recent
+
+    def retry_after(self, key: str) -> int:
+        """Seconds until this address may try again (0 = not locked)."""
+        now = time.monotonic()
+        recent = self._recent(key, now)
+        return int(self.window - (now - recent[0])) + 1 if len(recent) >= self.max_failures else 0
+
+    def failed(self, key: str) -> None:
+        now = time.monotonic()
+        self._failures[key] = [*self._recent(key, now), now]
+        if len(self._failures) > 10_000:  # bound memory under a flood of distinct addresses
+            self._failures.pop(next(iter(self._failures)))
+
+    def succeeded(self, key: str) -> None:
+        self._failures.pop(key, None)
+
 
 def _hostname(netloc: str) -> str:
     """Host part of a Host header / URL netloc, without port or IPv6 brackets."""
@@ -309,11 +360,18 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     app = FastAPI(title="Local LLM Manager", version=__version__, lifespan=lifespan)
     app.state.db, app.state.manager, app.state.scheduler = db, manager, scheduler
 
+    throttle = LoginThrottle()
+    app.state.login_throttle = throttle
+
     @app.middleware("http")
     async def basic_auth(request: Request, call_next):
         if blocked := request_guard(request):
             return blocked
         if config.AUTH_PASSWORD:
+            client = request.client.host if request.client else "unknown"
+            if wait := throttle.retry_after(client):
+                return PlainTextResponse(f"Too many failed logins - try again in {wait} s", status_code=429,
+                                         headers={"Retry-After": str(wait)})
             ok = False
             header = request.headers.get("authorization", "")
             if header.lower().startswith("basic "):
@@ -324,7 +382,11 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
                 except (ValueError, UnicodeDecodeError):
                     ok = False
             if not ok:
+                if header:  # a wrong login, not just the browser's first request without credentials
+                    throttle.failed(client)
+                    logging.warning("Failed dashboard login from %s", client)
                 return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Local LLM Manager"'})
+            throttle.succeeded(client)
         response = await call_next(request)
         response.headers.update(SECURITY_HEADERS)
         return response
@@ -652,15 +714,19 @@ def run() -> None:
     import uvicorn
 
     logging.basicConfig(level=logging.INFO)
+    os.umask(0o077)  # database, WAL and process logs: owner only
     config.resolve_network()
     if config.MODE == "agent":
         if not config.AGENT_TOKEN:
             raise SystemExit("DGXM_MODE=agent needs DGXM_AGENT_TOKEN (a long random secret shared with the hub)")
+        if len(config.AGENT_TOKEN) < MIN_AGENT_TOKEN_LENGTH:
+            raise SystemExit(f"DGXM_AGENT_TOKEN is shorter than {MIN_AGENT_TOKEN_LENGTH} characters; "
+                             "generate one with: openssl rand -hex 32")
         uvicorn.run(create_agent_app(), host=config.HOST, port=config.PORT, log_level="info")
         return
-    if config.AUTH_PASSWORD == "change-me":
-        raise SystemExit("DGXM_PASSWORD is still the example value 'change-me': set your own password in .env "
-                         "(or ~/.config/local-llm-manager.env) and start again")
+    if config.AUTH_PASSWORD and (problem := password_problem(config.AUTH_PASSWORD, config.AUTH_USER)):
+        raise SystemExit(f"DGXM_PASSWORD {problem}. Set a stronger one (at least {MIN_PASSWORD_LENGTH} characters, "
+                         "e.g. from: openssl rand -base64 18) in .env or ~/.config/local-llm-manager.env")
     if not config.AUTH_PASSWORD:
         logging.warning("DGXM_PASSWORD is not set - the dashboard is open to anyone who can reach port %s "
                         "(only by IP address or local/Tailscale name)", config.PORT)

@@ -25,7 +25,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Without a password, only IP addresses, `localhost` and local/Tailscale names are accepted as `Host`
   (DNS rebinding).
 - Security headers against clickjacking (`X-Frame-Options`, `frame-ancestors`) and MIME sniffing.
-- The hub refuses to start with the example password `change-me`.
+- Password policy: the hub refuses passwords under 12 characters, with fewer than 4 different characters
+  or well-known ones (`change-me`, `admin`, …); agents refuse tokens under 32 characters.
+- Failed logins are rate-limited per address (10 per 10 minutes, then 429) and logged.
+- The installers generate a random dashboard password and agent token instead of `change-me`.
+- The database (agent tokens) is created owner-only (`600`, folder `700`); the manager runs with umask `077`.
 - A non-ASCII username or password in Basic auth caused a 500 error instead of 401.
 - Host names and agent URLs were inserted into the page as HTML without escaping (XSS).
 - The Blur toggle showed the first and last characters of host names; it now shows aliases like

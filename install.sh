@@ -27,8 +27,8 @@ if [ -f /etc/systemd/system/dgxspark-manager.service ]; then
 fi
 if [ ! -f "$ENV_FILE" ]; then
   cp .env.example "$ENV_FILE"
-  chmod 600 "$ENV_FILE"
-  echo "Created ${ENV_FILE} - edit it to set DGXM_PASSWORD, then: sudo systemctl restart local-llm-manager"
+  .venv/bin/python -m local_llm_manager.envfile "$ENV_FILE"
+  echo "Created ${ENV_FILE} with a random password and agent token."
 fi
 
 sudo tee /etc/systemd/system/local-llm-manager.service >/dev/null <<UNIT
