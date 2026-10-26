@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     color           TEXT NOT NULL DEFAULT '',
     runtime         TEXT NOT NULL DEFAULT 'docker',
     host_id         INTEGER,
+    pinned          INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
@@ -68,12 +69,25 @@ CREATE TABLE IF NOT EXISTS events (
     ok         INTEGER NOT NULL,
     message    TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS start_times (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipe_id  INTEGER NOT NULL,
+    seconds    REAL NOT NULL,
+    source     TEXT NOT NULL DEFAULT '',
+    ts         TEXT NOT NULL
+);
 """
 
 RECIPE_FIELDS = (
     "name", "description", "framework", "image", "model", "container_name", "host_port",
     "container_port", "command", "args", "env", "volumes", "docker_args", "gpus",
-    "health_path", "est_memory_gb", "tags", "color", "runtime", "host_id",
+    "health_path", "est_memory_gb", "tags", "color", "runtime", "host_id", "pinned",
 )
 
 # Columns added after the first release, created on existing databases at startup.
@@ -85,6 +99,7 @@ MIGRATIONS = {
     ("recipes", "host_id"): "ALTER TABLE recipes ADD COLUMN host_id INTEGER",
     # Host for stop_all / free_memory schedules; NULL = all hosts.
     ("schedules", "host_id"): "ALTER TABLE schedules ADD COLUMN host_id INTEGER",
+    ("recipes", "pinned"): "ALTER TABLE recipes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
 }
 
 SCHEDULE_FIELDS = ("name", "action", "recipe_id", "cron", "run_at", "enabled", "host_id")
@@ -113,7 +128,7 @@ def normalize_tags(tags: Any) -> list[str]:
 RECIPE_DEFAULTS = {
     "description": "", "framework": "", "image": "", "model": "",
     "command": "", "args": "", "env": "", "volumes": "", "docker_args": "",
-    "gpus": "all", "health_path": "/health", "color": "", "runtime": "docker",
+    "gpus": "all", "health_path": "/health", "color": "", "runtime": "docker", "pinned": 0,
 }
 
 
@@ -125,7 +140,12 @@ def _recipe_values(data: dict[str, Any]) -> tuple:
             return RECIPE_DEFAULTS[field]
         return v
 
-    return tuple(",".join(normalize_tags(value(f))) if f == "tags" else value(f) for f in RECIPE_FIELDS)
+    return tuple(
+        (1 if value("pinned") else 0) if f == "pinned"
+        else ",".join(normalize_tags(value(f))) if f == "tags"
+        else value(f)
+        for f in RECIPE_FIELDS
+    )
 
 
 def _recipe_out(row: dict, local_host_id: int) -> dict:
@@ -233,6 +253,47 @@ class Database:
 
     def delete_schedule(self, schedule_id: int) -> None:
         self._execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+
+    # ---- settings ------------------------------------------------------
+
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        rows = self._query("SELECT value FROM settings WHERE key = ?", (key,))
+        return rows[0]["value"] if rows else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        self._execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, str(value)),
+        )
+
+    def clear_setting(self, key: str) -> None:
+        self._execute("DELETE FROM settings WHERE key = ?", (key,))
+
+    # ---- start-time tracking -------------------------------------------
+
+    def set_pending_start(self, recipe_id: int, ts: str, source: str) -> None:
+        self.set_setting(f"pending_start:{recipe_id}", f"{ts}|{source}")
+
+    def clear_pending_start(self, recipe_id: int) -> None:
+        self.clear_setting(f"pending_start:{recipe_id}")
+
+    def pending_starts(self) -> dict[int, tuple[str, str]]:
+        """recipe id -> (start timestamp, source) for starts waiting to become ready."""
+        out: dict[int, tuple[str, str]] = {}
+        for r in self._query("SELECT key, value FROM settings WHERE key LIKE 'pending_start:%'"):
+            _, _, rid = r["key"].partition(":")
+            ts, _, source = r["value"].partition("|")
+            out[int(rid)] = (ts, source)
+        return out
+
+    def add_start_time(self, recipe_id: int, seconds: float, source: str) -> None:
+        self._execute(
+            "INSERT INTO start_times (recipe_id, seconds, source, ts) VALUES (?, ?, ?, ?)",
+            (recipe_id, round(seconds, 1), source, now_iso()),
+        )
+
+    def list_start_times(self, limit: int = 200) -> list[dict]:
+        return self._query("SELECT recipe_id, seconds, source, ts FROM start_times ORDER BY id DESC LIMIT ?", (limit,))
 
     # ---- hosts ---------------------------------------------------------
 
