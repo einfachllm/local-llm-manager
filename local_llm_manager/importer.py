@@ -482,7 +482,7 @@ async def import_script(script: str) -> dict[str, Any]:
             raise ScriptImportError(
                 "The script neither ran `docker run` nor a known model server (mlx_lm.server, "
                 "llama-server, vllm serve, python -m sglang.launch_server, ...)."
-                + (f"\n\nSkipped commands:\n" + "\n".join(lines[:20]) if lines else "")
+                + ("\n\nSkipped commands:\n" + "\n".join(lines[:20]) if lines else "")
                 + (f"\n\nScript output:\n{output.strip()}" if output.strip() else ""))
         recipe, warnings = recipe_from_process_argv(server, description)
     if stopped_early or argv is not None and output and "[import] ignored: exit" in output:

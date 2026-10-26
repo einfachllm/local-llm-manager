@@ -1,0 +1,130 @@
+name: Release
+
+# Push a tag like v1.2.3 (matching __version__ in local_llm_manager/__init__.py) to publish:
+#   - Docker images ghcr.io/<owner>/<repo>:1.2.3, :1.2 and :latest (amd64 + arm64)
+#   - a GitHub Release with the wheel, sdist and the CHANGELOG.md section of that version
+# Tags with a suffix (v1.2.3-rc.1) become pre-releases and do not move :latest.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  verify:
+    name: Verify tag, lint and tests
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tag matches __version__
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          code="$(python -c 'import local_llm_manager as m; print(m.__version__)')"
+          if [ "$tag" != "$code" ]; then
+            echo "::error::Tag v$tag does not match __version__ = $code in local_llm_manager/__init__.py"
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          case "$tag" in *-*) echo "prerelease=true" ;; *) echo "prerelease=false" ;; esac >> "$GITHUB_OUTPUT"
+      - run: pip install -r requirements-dev.txt ruff
+      - run: ruff check .
+      - run: python -m pytest -q
+
+  package:
+    name: Build Python package
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  docker:
+    name: Publish Docker image
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.verify.outputs.prerelease == 'false' }}
+            type=raw,value=latest,enable=${{ needs.verify.outputs.prerelease == 'false' }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  github-release:
+    name: GitHub Release
+    needs: [verify, package, docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          # The lines between "## [VERSION]" and the next "## [" heading.
+          awk -v v="$VERSION" '
+            /^## \[/ { if (found) exit; if (index($0, "## [" v "]") == 1) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::warning::No CHANGELOG.md section for $VERSION; using generated notes only"
+          fi
+          printf '\n**Docker:** `docker pull %s:%s`\n' "$IMAGE" "$VERSION" >> notes.md
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          flags=()
+          [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes --verify-tag "${flags[@]}"
