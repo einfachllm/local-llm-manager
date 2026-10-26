@@ -42,9 +42,10 @@ Other ways to run it:
 - **Foreground:** `cp .env.example .env && ./run.sh`
 - **Docker Compose:** `cp .env.example .env && docker compose up -d` uses the prebuilt image
   `ghcr.io/einfachllm/local-llm-manager:latest` (the latest release, amd64 + arm64); pin a version with
-  e.g. `:0.1.0`, use `:edge` for the current `main`, or add `--build` to build it locally instead. It mounts the docker socket and uses host networking; `HOME` is passed through so `~`
-  in recipe volumes points at your home on the host. In a container, use Docker recipes: native-process
-  recipes would run inside the manager's container, not on the host.
+  e.g. `:0.1.0`, or add `--build` to build it locally (e.g. from the current `main`) instead. It mounts
+  the docker socket and uses host networking; `HOME` is passed through so `~` in recipe volumes points
+  at your home on the host. In a container, use Docker recipes: native-process recipes would run inside
+  the manager's container, not on the host.
 
 > **Security:** anyone who can open the dashboard can run arbitrary containers on that machine, which is
 > effectively root. Always set `DGXM_PASSWORD`, and only expose the port on a trusted network
@@ -281,10 +282,10 @@ and the static UI (`static/`, plain HTML/JS with no build step). Tests use a fak
 
 ### CI and releases
 
-- [`ci.yml`](.github/workflows/ci.yml) runs on every push and pull request: Ruff and ShellCheck, the
+- [`ci.yml`](.github/workflows/ci.yml) runs on pushes to `main` and on pull requests: Ruff and ShellCheck, the
   tests on Python 3.10-3.13 (Linux) and 3.12 (macOS), a Python package build, and a Docker build for
-  `linux/amd64` and `linux/arm64` with a smoke test. Pushes to `main` publish
-  `ghcr.io/einfachllm/local-llm-manager:edge` (plus a `sha-…` tag); pull requests only build.
+  `linux/amd64` and `linux/arm64` with a smoke test. The Docker build runs for pull requests only, not
+  for pushes to `main`, and never publishes an image.
 - [`release.yml`](.github/workflows/release.yml) runs on a tag `vX.Y.Z`: it checks the tag against
   `__version__`, runs the tests, publishes the images `X.Y.Z`, `X.Y` and `latest`, and creates a GitHub
   Release with the wheel, the sdist and the matching [CHANGELOG](CHANGELOG.md) section. See
