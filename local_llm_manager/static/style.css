@@ -223,6 +223,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   .form-grid .span2 { grid-column: span 1; }
   .grid { grid-template-columns: 1fr; }
   .logs-tools input { width: 120px; }
+  /* Five tabs do not fit next to each other on a phone: wrap them instead of widening the page. */
+  .tabs { flex-wrap: wrap; }
+  .tab { padding: 6px 10px; }
 }
 
 /* import */
@@ -394,3 +397,15 @@ input[readonly] { opacity: .6; }
 .muted { color: var(--muted); }
 .warn-chip { color: var(--yellow); border-color: rgba(240,180,41,.5); cursor: default; }
 td .copy { margin-left: 6px; padding: 1px 8px; }
+
+/* Images tab */
+.images-toolbar { flex-wrap: wrap; align-items: center; gap: 8px; }
+.images-toolbar input[type=search] { flex: 1 1 220px; }
+.images-summary { margin-left: auto; font-size: 13px; }
+.images-matrix th, .images-matrix td { vertical-align: top; }
+.img-ref { word-break: break-all; min-width: 180px; }
+.img-cell, .images-matrix [data-toggle] { white-space: nowrap; }
+.img-repo td { background: var(--panel-2); font-weight: 600; padding-top: 6px; padding-bottom: 6px; }
+.img-recipes td { padding-top: 0; }
+.img-recipes div { margin: 2px 0 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.newer-chip { color: var(--green); border-color: rgba(52,199,123,.55); cursor: pointer; }
