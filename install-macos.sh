@@ -36,9 +36,10 @@ rm -rf .venv
 
 if [ ! -f .env ]; then
   cp .env.example .env
-  .venv/bin/python -m local_llm_manager.envfile .env
-  echo "Created ${APP_DIR}/.env with a random password and agent token."
+  echo "Created ${APP_DIR}/.env"
 fi
+# Replaces the example password change-me with a random one (printed), fills an empty agent token, chmod 600.
+.venv/bin/python -m local_llm_manager.envfile .env
 
 mkdir -p "$(dirname "$PLIST")" "$(dirname "$LOG")"
 cat > "$PLIST" <<PLIST
@@ -75,9 +76,15 @@ fi
 launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
-PORT="$(grep -E '^DGXM_PORT=' .env | cut -d= -f2)"
-IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo localhost)"
-if grep -qE '^DGXM_MODE=agent' .env; then
+setting() { grep -E "^$1=" .env | tail -n 1 | cut -d= -f2- || true; }
+PORT="$(setting DGXM_PORT)"
+TS_CLI="$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)"
+case "$(setting DGXM_HOST)" in
+  ""|0.0.0.0) IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo localhost)" ;;
+  tailscale)  IP="$("$TS_CLI" ip -4 2>/dev/null | head -n 1 || true)"; IP="${IP:-$(hostname -s)}" ;;
+  *)          IP="$(setting DGXM_HOST)" ;;
+esac
+if [ "$(setting DGXM_MODE)" = "agent" ]; then
   echo "Installed as agent. In the hub dashboard, Hosts -> Add host:"
   echo "  URL:   http://${IP}:${PORT:-8090}"
   echo "  Token: the DGXM_AGENT_TOKEN from ${APP_DIR}/.env"

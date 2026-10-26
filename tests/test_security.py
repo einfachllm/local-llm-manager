@@ -68,7 +68,7 @@ def test_basic_auth_with_password(password, fake_docker, tmp_path):
 
 @pytest.mark.parametrize("pw,ok", [
     ("change-me", False), ("Password", False), ("admin", False), ("short-pw", False), ("aaaaaaaaaaaaaa", False),
-    ("correct-horse-battery", True), ("Xk3_9vQ-2mPz", True),
+    ("correct-horse-battery", True), ("Xk3_9vQ-2mPz", True), ("my-admin-pass-2026", False),
 ])
 def test_password_policy(pw, ok):
     from local_llm_manager.main import password_problem
@@ -79,13 +79,15 @@ def test_password_policy(pw, ok):
     ("hub", "AUTH_PASSWORD", "change-me"), ("hub", "AUTH_PASSWORD", "too-short"),
     ("agent", "AGENT_TOKEN", "abc123"),
 ])
-def test_weak_secrets_refuse_to_start(monkeypatch, mode, setting, value):
+def test_weak_secrets_refuse_to_start(monkeypatch, capsys, mode, setting, value):
     from local_llm_manager import main
     monkeypatch.setattr(main.os, "umask", lambda mask: 0)  # keep the test process's umask
     monkeypatch.setattr(config, "MODE", mode)
     monkeypatch.setattr(config, setting, value)
-    with pytest.raises(SystemExit, match="characters|well-known"):
+    with pytest.raises(SystemExit) as exc:
         main.run()
+    assert exc.value.code == main.EX_CONFIG  # the systemd unit does not restart on this
+    assert setting.replace("AUTH_", "DGXM_").replace("AGENT_TOKEN", "DGXM_AGENT_TOKEN") in capsys.readouterr().err
 
 
 def test_failed_logins_are_throttled(password, fake_docker, tmp_path):
