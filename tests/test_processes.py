@@ -4,7 +4,7 @@ import time
 
 from conftest import recipe_body
 
-from dgxspark_manager.processes import ProcessRunner
+from local_llm_manager.processes import ProcessRunner
 
 
 def free_port():
