@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Install LLM Model Manager on macOS (e.g. a Mac Studio) as a launchd agent of the current user.
+# Install Local LLM Manager on macOS (e.g. a Mac Studio) as a launchd agent of the current user.
 # Models run as native processes (MLX, llama.cpp, ...); Docker is optional.
 set -euo pipefail
 cd "$(dirname "$0")"
 APP_DIR="$(pwd)"
-LABEL="com.llm-model-manager"
+LABEL="com.local-llm-manager"
 PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
-LOG="${HOME}/Library/Logs/llm-model-manager.log"
+LOG="${HOME}/Library/Logs/local-llm-manager.log"
 
 # Python 3.10+ is required (the Xcode python3 is 3.9). Homebrew: brew install python@3.12
 PYTHON="${PYTHON:-}"

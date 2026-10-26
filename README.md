@@ -1,4 +1,4 @@
-# LLM Model Manager
+# Local LLM Manager
 
 [![CI](https://github.com/olekslev69/dgxspark-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/olekslev69/dgxspark-manager/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -30,8 +30,8 @@ Requirements: Python 3.10+, Docker with the NVIDIA runtime, and your user in the
 git clone https://github.com/olekslev69/dgxspark-manager.git
 cd dgxspark-manager
 ./install.sh                                 # venv + systemd service, runs as your user
-nano ~/.config/llm-model-manager.env         # set DGXM_PASSWORD (and HF_TOKEN if needed)
-sudo systemctl restart llm-model-manager
+nano ~/.config/local-llm-manager.env         # set DGXM_PASSWORD (and HF_TOKEN if needed)
+sudo systemctl restart local-llm-manager
 ```
 
 Then open `http://<host-ip>:8090` and log in with `admin` / your password.
@@ -55,7 +55,7 @@ One installation is the **hub**: it has the dashboard, the database (recipes, sc
 the scheduler. Every other machine runs the same app in **agent mode**: no dashboard, just a small API
 that runs what the hub sends. A typical setup is a DGX Spark or Linux GPU box as hub and a Mac Studio as agent.
 
-1. On the agent machine, in its `.env` (`~/.config/llm-model-manager.env` with `install.sh`):
+1. On the agent machine, in its `.env` (`~/.config/local-llm-manager.env` with `install.sh`):
    ```bash
    DGXM_MODE=agent
    DGXM_AGENT_TOKEN=<output of: openssl rand -hex 32>
@@ -117,7 +117,7 @@ page-cache drop).
 | Tags / Card colour | Organisation only: tags for filtering and grouping, a colour (green, black, …) to tell cards apart at a glance. |
 
 The editor shows a live preview of the exact `docker run` command. Every container the manager starts is
-named after the recipe's container name and labelled `llm-model-manager=1`.
+named after the recipe's container name and labelled `local-llm-manager=1`.
 
 Status values: **Stopped**, **Starting**, **Loading model** (container up, health check not passing yet),
 **Ready**, **Failed** (container exited with an error; check its logs).
@@ -260,10 +260,10 @@ curl -u admin:$PW "http://spark:8090/api/recipes/1/logs?tail=200"
 ```bash
 pip install -r requirements-dev.txt
 pytest
-DGXM_DB=/tmp/dev.db python -m llm_model_manager.main
+DGXM_DB=/tmp/dev.db python -m local_llm_manager.main
 ```
 
-Layout: `llm_model_manager/` holds the FastAPI app (`main.py`), recipe → `docker run` translation
+Layout: `local_llm_manager/` holds the FastAPI app (`main.py`), recipe → `docker run` translation
 (`recipes.py`), script import and its safety check (`importer.py`, `script_check.py`), lifecycle rules (`manager.py`), where things run (`executor.py`: this machine or a remote agent; agent API in
 `agent.py`; native processes in `processes.py`), the scheduler (`scheduler.py`) and its timeline projection (`timeline.py`), SQLite storage (`db.py`)
 and the static UI (`static/`, plain HTML/JS with no build step). Tests use a fake docker client.

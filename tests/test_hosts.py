@@ -3,13 +3,13 @@ import pytest
 from conftest import FakeDocker, recipe_body
 from fastapi.testclient import TestClient
 
-from llm_model_manager import config
-from llm_model_manager import executor as executor_mod
-from llm_model_manager.agent import create_agent_app
-from llm_model_manager.db import Database
-from llm_model_manager.executor import LocalExecutor
-from llm_model_manager.main import create_app
-from llm_model_manager.processes import ProcessRunner
+from local_llm_manager import config
+from local_llm_manager import executor as executor_mod
+from local_llm_manager.agent import create_agent_app
+from local_llm_manager.db import Database
+from local_llm_manager.executor import LocalExecutor
+from local_llm_manager.main import create_app
+from local_llm_manager.processes import ProcessRunner
 
 TOKEN = "s3cret-agent-token"
 

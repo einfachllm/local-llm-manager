@@ -5,11 +5,11 @@ from fastapi.testclient import TestClient
 
 os.environ.setdefault("DGXM_SEED", "0")
 
-from llm_model_manager import executor as executor_mod  # noqa: E402
-from llm_model_manager.db import Database  # noqa: E402
-from llm_model_manager.docker import CommandResult  # noqa: E402
-from llm_model_manager.main import create_app  # noqa: E402
-from llm_model_manager.processes import ProcessRunner  # noqa: E402
+from local_llm_manager import executor as executor_mod  # noqa: E402
+from local_llm_manager.db import Database  # noqa: E402
+from local_llm_manager.docker import CommandResult  # noqa: E402
+from local_llm_manager.main import create_app  # noqa: E402
+from local_llm_manager.processes import ProcessRunner  # noqa: E402
 
 
 class FakeDocker:
