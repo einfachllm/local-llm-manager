@@ -39,7 +39,7 @@ def _recipe(body: AgentRequest) -> dict:
 
 def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
     ex = executor or LocalExecutor()
-    app = FastAPI(title="LLM Model Manager agent", version=__version__)
+    app = FastAPI(title="Local LLM Manager agent", version=__version__)
     auth = [Depends(require_token)]
 
     @app.exception_handler(ActionError)
@@ -48,8 +48,8 @@ def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index():
-        return (f"<!doctype html><title>LLM Model Manager agent</title><body style='font-family:sans-serif'>"
-                f"<h3>LLM Model Manager agent on {host_info()['hostname']}</h3>"
+        return (f"<!doctype html><title>Local LLM Manager agent</title><body style='font-family:sans-serif'>"
+                f"<h3>Local LLM Manager agent on {host_info()['hostname']}</h3>"
                 f"<p>This machine is controlled from a hub dashboard. Add it there under <b>Hosts</b> "
                 f"with this URL and its agent token.</p></body>")
 

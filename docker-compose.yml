@@ -1,9 +1,9 @@
 services:
-  llm-model-manager:
+  local-llm-manager:
     # Prebuilt image from CI (amd64 + arm64). `docker compose up -d --build` builds it locally instead.
     image: ghcr.io/olekslev69/dgxspark-manager:latest
     build: .
-    container_name: llm-model-manager
+    container_name: local-llm-manager
     restart: unless-stopped
     # Host networking so model health checks on 127.0.0.1:<port> reach the model containers.
     network_mode: host
