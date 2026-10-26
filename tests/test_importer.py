@@ -2,6 +2,9 @@ import asyncio
 import os
 from pathlib import Path
 
+import pytest
+
+from local_llm_manager import importer
 from local_llm_manager.importer import import_script, recipe_from_argv
 from local_llm_manager.recipes import build_run_argv
 
@@ -169,3 +172,9 @@ docker run --name t -p 9301:8000 vllm/vllm-openai --model org/m "$@"
     # A script that works on the first try gets no such warning.
     ok = run_import("docker run --name u -p 9302:8000 vllm/vllm-openai --model org/m")
     assert not any("stopped before" in w for w in ok["warnings"])
+
+
+def test_missing_modern_bash_gives_a_clear_error(monkeypatch):
+    monkeypatch.setattr(importer, "find_bash", lambda: None)
+    with pytest.raises(importer.ScriptImportError, match="brew install bash"):
+        asyncio.run(importer.import_script("docker run img"))
