@@ -38,8 +38,10 @@ def test_security_headers(client):
 
 def test_without_password_only_ip_or_localhost_hosts(client):
     """DNS rebinding: an attacker's domain pointing at this machine must not reach an unprotected dashboard."""
-    assert client.get("/api/meta", headers={"Host": "attacker.example:8090"}).status_code == 403
-    for host in ("localhost:8090", "192.0.2.20:8090", "[::1]:8090", "127.0.0.1"):
+    for host in ("attacker.example:8090", "spark.attacker.example", "ts.net.attacker.example"):
+        assert client.get("/api/meta", headers={"Host": host}).status_code == 403, host
+    for host in ("localhost:8090", "192.0.2.20:8090", "[::1]:8090", "127.0.0.1", "100.64.0.7:8090",
+                 "spark:8090", "spark.tail1234.ts.net", "mac-studio.local:8090"):
         assert client.get("/api/meta", headers={"Host": host}).status_code == 200, host
 
 
@@ -70,3 +72,33 @@ def test_example_password_is_refused(monkeypatch):
     monkeypatch.setattr(config, "AUTH_PASSWORD", "change-me")
     with pytest.raises(SystemExit, match="change-me"):
         main.run()
+
+
+def test_publish_ip_binds_ports_and_native_servers(monkeypatch):
+    from local_llm_manager import recipes
+    monkeypatch.setattr(config, "PUBLISH_IP", "100.64.0.7")
+    docker = recipes.build_run_argv({**recipe_body(command="vllm serve {model} --host {bind_host} --port {port}"),
+                                     "container_name": "m"})
+    assert "100.64.0.7:8100:8000" in docker and docker[docker.index("--host") + 1] == "0.0.0.0"
+    native = recipes.build_process_argv({"runtime": "process", "command": "mlx_lm.server --host {bind_host}",
+                                         "model": "m", "host_port": 8080, "container_port": 8080})
+    assert native == ["mlx_lm.server", "--host", "100.64.0.7"]
+    host_net = recipes.build_run_argv({**recipe_body(command="serve --host {bind_host}", docker_args="--network host"),
+                                       "container_name": "m"})
+    assert "-p" not in host_net and host_net[host_net.index("--host") + 1] == "100.64.0.7"
+
+
+def test_tailscale_setting_resolves_or_explains(monkeypatch):
+    for name in ("HOST", "PUBLISH_IP", "HEALTH_HOST"):
+        monkeypatch.setattr(config, name, getattr(config, name))  # restored after the test
+    monkeypatch.setattr(config, "HOST", "tailscale")
+    monkeypatch.setattr(config, "PUBLISH_IP", "tailscale")
+    monkeypatch.delenv("DGXM_HEALTH_HOST", raising=False)
+    real_lookup = config.tailscale_ip
+    monkeypatch.setattr(config, "tailscale_ip", lambda: "100.64.0.7")
+    config.resolve_network()
+    assert config.HOST == config.PUBLISH_IP == config.HEALTH_HOST == "100.64.0.7"
+
+    monkeypatch.setattr(config, "TAILSCALE_CLI", ("no-such-tailscale-binary",))
+    with pytest.raises(SystemExit, match="Tailscale"):
+        real_lookup()
