@@ -56,7 +56,7 @@ your user without `sudo`.
 ```bash
 git clone https://github.com/einfachllm/local-llm-manager.git
 cd local-llm-manager
-./install.sh          # prints a generated password (stored in ~/.config/local-llm-manager.env)
+./install.sh          # prints a generated password (stored in .env in this folder)
 ```
 
 **macOS** (installs a launchd agent; Docker on a Mac cannot use the GPU, so use native recipes such as
@@ -100,8 +100,7 @@ upgrading, and copy `data/manager.db` first if you want to be able to go back.
 One installation is the **hub**: it serves the dashboard and stores recipes, schedules and the activity
 log. Every other machine runs the same app as an **agent** that only executes what the hub tells it to.
 
-1. On the agent machine, uncomment these two lines in its `.env` (`~/.config/local-llm-manager.env` on
-   Linux) and (re)install; the installer already filled in a random token (at least 32 characters):
+1. On the agent machine, uncomment these two lines in its `.env` and (re)install; the installer already filled in a random token (at least 32 characters):
    ```bash
    DGXM_MODE=agent
    DGXM_AGENT_TOKEN=3f9c…   # generated
@@ -188,7 +187,8 @@ opened by IP address, `localhost` or a local/Tailscale name. Behind a reverse pr
 
 ## Configuration
 
-Set in `.env` (or `~/.config/local-llm-manager.env` with `install.sh`):
+Set in `.env` in the install folder (used by both installers, `run.sh` and Docker Compose); restart the
+service after changes (`sudo systemctl restart local-llm-manager`, or rerun the installer):
 
 | Variable | Default | |
 |---|---|---|

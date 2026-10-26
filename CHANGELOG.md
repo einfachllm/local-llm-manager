@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- The Linux installer now keeps the settings in `.env` in the install folder, like the macOS installer,
+  `run.sh` and Docker Compose. An existing `~/.config/local-llm-manager.env` is moved there if there is no
+  `.env` yet.
+- Rerunning an installer replaces a leftover `change-me` password with a random one.
+- After installing, `install.sh` checks that the service started (and shows its log if not) and prints the
+  real address, including the Tailscale name/IP with `DGXM_HOST=tailscale`.
+- Passwords that contain the user name are refused.
+- Configuration errors (weak password, short agent token) exit with status 78, which the systemd unit does
+  not restart on, instead of restarting every 5 seconds.
+
 ## [0.1.0] - 2026-10-26
 
 First public release.
