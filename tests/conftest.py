@@ -24,6 +24,8 @@ class FakeDocker:
         self.ports_in_use: set[int] = set()
         # Extra log line the fake prints, e.g. a vLLM engine stats line (see test_api metrics test).
         self.log_stats = ""
+        # Local images, as list_images() returns them.
+        self.images: list[dict] = []
 
     async def run_argv(self, argv):
         self.calls.append(argv)
@@ -32,6 +34,9 @@ class FakeDocker:
         name = argv[argv.index("--name") + 1]
         self.containers[name] = {"id": "abc123", "state": "running", "status": "Up 1 second", "image": ""}
         return CommandResult(0, "abc123def456\n", "")
+
+    async def list_images(self):
+        return [dict(i) for i in self.images]
 
     async def list_containers(self):
         return {k: dict(v) for k, v in self.containers.items()}

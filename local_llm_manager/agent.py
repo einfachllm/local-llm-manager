@@ -88,6 +88,10 @@ def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
         return StreamingResponse(lines(), media_type="text/plain; charset=utf-8",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    @app.get("/agent/v1/images", dependencies=auth)
+    async def images():
+        return await ex.images()
+
     @app.post("/agent/v1/drop-caches", dependencies=auth)
     async def drop_caches():
         ok, message = await ex.drop_caches()
