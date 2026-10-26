@@ -12,9 +12,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Release workflow: tagging `vX.Y.Z` publishes versioned multi-arch Docker images and a GitHub Release
   with the Python wheel and sdist.
 - CI: Ruff and ShellCheck lint, tests on Python 3.10-3.13 and macOS, Python package build check.
+- The Schedules tab shows the hub's time zone (also `timezone` in `GET /api/meta`); Docker Compose
+  mounts the host's `/etc/localtime` so schedules no longer run in UTC inside the container.
 - `pyproject.toml`, so the manager can be installed with `pip install .` (command `local-llm-manager`).
 
 ### Changed
+- `install.sh` restarts the service, so rerunning it after `git pull` upgrades a running install.
+- Shorter README focused on setup, networking between machines, schedules and security; developer
+  details moved to CONTRIBUTING.md.
 - CI (pushes and pull requests) no longer builds the Docker image. `:latest` is published only by a
   manual run of the new `docker.yml` workflow; release tags publish `:X.Y.Z` and `:X.Y`.
 
