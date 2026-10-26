@@ -122,6 +122,13 @@ named after the recipe's container name and labelled `local-llm-manager=1`.
 Status values: **Stopped**, **Starting**, **Loading model** (container up, health check not passing yet),
 **Ready**, **Failed** (container exited with an error; check its logs).
 
+A running model's card shows live numbers: tokens/s in and out (with the rate per request when several
+run), running/queued requests, KV cache usage and prefix cache hit rate. They come from the server's
+Prometheus endpoint `/metrics` on its host port, as rates since the previous refresh (every 5 s), so they
+follow the load. vLLM serves `/metrics` by default; for SGLang add `--enable-metrics`, for llama.cpp
+server `--metrics`. Without it the card falls back to vLLM's stats line in the log, which is printed only
+every ~10 s and not at all while idle; an old line is greyed out with its age.
+
 Stopping keeps the stopped container so its logs stay readable; the next start removes and re-creates it.
 
 ### Ports and endpoints
