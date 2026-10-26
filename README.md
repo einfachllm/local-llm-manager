@@ -41,8 +41,8 @@ Other ways to run it:
 
 - **Foreground:** `cp .env.example .env && ./run.sh`
 - **Docker Compose:** `cp .env.example .env && docker compose up -d` uses the prebuilt image
-  `ghcr.io/einfachllm/local-llm-manager:latest` (the latest release, amd64 + arm64); pin a version with
-  e.g. `:0.1.0`, or add `--build` to build it locally (e.g. from the current `main`) instead. It mounts
+  `ghcr.io/einfachllm/local-llm-manager:latest` (amd64 + arm64, built from `main`); pin a release with
+  e.g. `:0.1.0`, or add `--build` to build it locally instead. It mounts
   the docker socket and uses host networking; `HOME` is passed through so `~` in recipe volumes points
   at your home on the host. In a container, use Docker recipes: native-process recipes would run inside
   the manager's container, not on the host.
@@ -283,11 +283,13 @@ and the static UI (`static/`, plain HTML/JS with no build step). Tests use a fak
 ### CI and releases
 
 - [`ci.yml`](.github/workflows/ci.yml) runs on pushes to `main` and on pull requests: Ruff and ShellCheck, the
-  tests on Python 3.10-3.13 (Linux) and 3.12 (macOS), a Python package build, and a Docker build for
-  `linux/amd64` and `linux/arm64` with a smoke test. The Docker build runs for pull requests only, not
-  for pushes to `main`, and never publishes an image.
+  tests on Python 3.10-3.13 (Linux) and 3.12 (macOS), and a Python package build. It does not build the
+  Docker image.
+- [`docker.yml`](.github/workflows/docker.yml) runs only when started by hand (*Actions → Docker latest →
+  Run workflow* on `main`): it builds the image for `linux/amd64` and `linux/arm64`, smoke-tests it and
+  publishes `ghcr.io/einfachllm/local-llm-manager:latest` (plus a `sha-…` tag).
 - [`release.yml`](.github/workflows/release.yml) runs on a tag `vX.Y.Z`: it checks the tag against
-  `__version__`, runs the tests, publishes the images `X.Y.Z`, `X.Y` and `latest`, and creates a GitHub
+  `__version__`, runs the tests, publishes the images `X.Y.Z` and `X.Y`, and creates a GitHub
   Release with the wheel, the sdist and the matching [CHANGELOG](CHANGELOG.md) section. See
   [CONTRIBUTING.md](CONTRIBUTING.md#releases-maintainers) for the steps.
 
