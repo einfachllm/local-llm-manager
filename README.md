@@ -104,15 +104,35 @@ log. Every other machine runs the same app as an **agent** that only executes wh
 | Hub | each agent, port `8090` | Start/stop models, status, logs (plain HTTP + token) |
 | Apps using a model | the machine running it, the recipe's port (e.g. `8100`) | The model's OpenAI-compatible API at `http://<machine>:<port>/v1` |
 
-Agents never connect to the hub. All machines should be on the same local network or in the same
-[Tailscale](https://tailscale.com) / WireGuard network; then use the agent's LAN or Tailscale name in its
-URL. Do not expose these ports to the internet.
+Agents never connect to the hub. Keep all of this inside one private network - ideally Tailscale (next
+section) - and never expose these ports to the internet.
+
+## Recommended: Tailscale only (also from your phone)
+
+[Tailscale](https://tailscale.com) puts all your machines and your phone into one private, encrypted
+network, so the dashboard, the agents and the model APIs are reachable from anywhere - but only by your
+own devices. It also encrypts the hub ↔ agent traffic, which is otherwise plain HTTP.
+
+1. Install Tailscale on every machine (hub, agents) and on your phone, logged in to the same tailnet.
+2. On every machine, add to its `.env` and restart the manager:
+   ```bash
+   DGXM_HOST=tailscale         # the manager listens only on this machine's Tailscale IP
+   DGXM_PUBLISH_IP=tailscale   # model ports too (docker -p 100.x.y.z:port, native servers via {bind_host})
+   ```
+3. Add agents under **Hosts → Add host** by their Tailscale name, e.g. `http://mac-studio:8090`.
+4. On your phone, open `http://<hub-name>:8090` (e.g. `http://spark:8090`) and use *Add to Home Screen*.
+   For HTTPS, run `tailscale serve --bg 8090` on the hub and open `https://<hub-name>.<tailnet>.ts.net`.
+
+`tailscale` is resolved to the machine's address (`tailscale ip -4`) at start-up; if Tailscale is not up
+yet, the service fails and systemd / launchd retry. Keep `DGXM_PASSWORD` set anyway: your phone's browser
+visits other sites too. Recipes created before this setting existed may contain `--host 0.0.0.0` in their
+command; change it to `--host {bind_host}` for native-process and `--network host` recipes.
 
 ## Recipes in short
 
 - Pick a **framework preset** (it fills in image, command, port and health check), then adjust the model,
   arguments, environment and volumes. The editor shows the exact `docker run` command.
-- In the command, `{model}`, `{port}`, `{host_port}` and `{name}` are replaced. An environment line with
+- In the command, `{model}`, `{port}`, `{host_port}`, `{name}` and `{bind_host}` (listen address) are replaced. An environment line with
   only a name (e.g. `HF_TOKEN`) takes the value from the manager's own `.env`, so secrets stay out of
   recipes.
 - **Native process** recipes run the command directly on the machine (needed for MLX on a Mac). Output
@@ -148,7 +168,7 @@ as described in [SECURITY.md](SECURITY.md).
 Built-in protections: the hub refuses to start with the example password `change-me`; requests that change
 something are only accepted from the dashboard itself (other websites cannot use your browser's saved
 login), and the dashboard cannot be embedded in other sites. Without a password it only answers when
-opened by IP address or `localhost`. Behind a reverse proxy, pass the original host (`X-Forwarded-Host`).
+opened by IP address, `localhost` or a local/Tailscale name. Behind a reverse proxy, pass the original host (`X-Forwarded-Host`).
 
 ## Configuration
 
@@ -157,7 +177,8 @@ Set in `.env` (or `~/.config/local-llm-manager.env` with `install.sh`):
 | Variable | Default | |
 |---|---|---|
 | `DGXM_PASSWORD` / `DGXM_USER` | *(empty = no login, IP access only)* / `admin` | Dashboard login |
-| `DGXM_PORT` / `DGXM_HOST` | `8090` / `0.0.0.0` | Listen address |
+| `DGXM_PORT` / `DGXM_HOST` | `8090` / `0.0.0.0` | Listen address; `tailscale` = Tailscale IP only |
+| `DGXM_PUBLISH_IP` | *(empty = all interfaces)* | Address model ports are published on; `tailscale` = Tailscale IP |
 | `DGXM_MODE` | `hub` | `agent`: no dashboard, controlled by a hub |
 | `DGXM_AGENT_TOKEN` | | Token the hub must send (required in agent mode) |
 | `DGXM_DB` | `./data/manager.db` | SQLite database |
@@ -165,7 +186,7 @@ Set in `.env` (or `~/.config/local-llm-manager.env` with `install.sh`):
 | `DGXM_SEED` | `1` | Add two example recipes to an empty database |
 | `HF_TOKEN`, … | | Passed to recipes that list the bare name in their environment |
 
-Less common: `DGXM_HEALTH_HOST` (`127.0.0.1`), `DGXM_PROC_DIR` (`<db folder>/processes`),
+Less common: `DGXM_HEALTH_HOST` (`DGXM_PUBLISH_IP`, else `127.0.0.1`), `DGXM_PROC_DIR` (`<db folder>/processes`),
 `DGXM_DROP_CACHES_IMAGE` (`busybox:latest`).
 
 Everything in the UI is also available as a JSON API; see `http://<machine>:8090/docs`.
