@@ -27,10 +27,13 @@ First public release.
   the agent API and the model ports inside your tailnet - also for use from a phone.
 - Blur toggle for screenshots and screen shares, dark/light/auto themes, keyboard shortcuts.
 - Installers for Linux (systemd) and macOS (launchd), Docker Compose, multi-arch image
-  `ghcr.io/einfachllm/local-llm-manager` (amd64 + arm64), `pip install .`.
+  `ghcr.io/einfachllm/local-llm-manager` (amd64 + arm64), `pip install .`. All of them read the settings
+  from `.env` in the install folder; the installers create it with a random password, check that the
+  service started and print its address (also over Tailscale).
 
 ### Security
-- HTTP Basic auth with a password policy (at least 12 characters, no well-known passwords) and
+- HTTP Basic auth with a password policy (at least 12 characters, no well-known passwords, not
+  containing the user name) and
   lockout after 10 failed logins in 10 minutes; the installers generate a random password and agent token.
 - Agents require a token of at least 32 characters.
 - Cross-site requests that change something are rejected (CSRF), host names are checked against DNS
