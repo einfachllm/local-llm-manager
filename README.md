@@ -22,6 +22,17 @@ silicon, or any Linux box - from any browser on your network:
 Model weights and Docker images must already be on the machine that runs them; the manager does not
 download them.
 
+## Use cases
+
+- **Run local AI servers for clients:** add each client's machine as a host (over Tailscale) and roll out a
+  recipe or an updated one - new image, model or flags - from one dashboard, then restart it there.
+- **Save energy at night:** a schedule stops your models (or frees the memory) in the evening and starts
+  them again in the morning; the timeline shows when what runs.
+- **Test a recipe across your stack:** duplicate it to the Spark, the Mac Studio or a client box, start it
+  and compare readiness time, tokens/s and KV cache side by side.
+- **Switch models for your agents:** give the recipes on a machine the same port, and **Switch to**
+  replaces the running model in one step - your agents keep the same endpoint `http://<host>:<port>/v1`.
+
 ## Screenshots
 
 | Light theme | Schedules & planned-runs timeline |
