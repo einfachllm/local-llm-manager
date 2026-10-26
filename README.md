@@ -7,15 +7,32 @@
 A small web dashboard to run local LLMs on your own machines - an NVIDIA DGX Spark, a Mac with Apple
 silicon, or any Linux box - from any browser on your network:
 
+![Model recipes, dark theme](docs/screenshots/recipes-dark.png)
+
 - **Recipes:** save how to start a model server (vLLM, SGLang, TensorRT-LLM, llama.cpp, MLX or any image),
   as a Docker container or as a native process. Or import an existing starter script / `docker run` command.
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).
-- **Live status, logs and stats:** loading/ready/failed, tokens/s, running requests, KV cache usage.
+- **Live status, logs and stats:** loading/ready/failed, tokens/s with a throughput sparkline, running
+  requests, KV cache usage - and an estimate of how long a start typically takes (measured trigger → ready).
 - **Schedules:** start, stop or switch models at set times, with a timeline of what will run when.
 - **Several machines, one dashboard:** e.g. a DGX Spark and a Mac Studio side by side.
+- **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
+  ⭐ pinned recipes, collapsible groups and keyboard shortcuts (`?` shows them).
 
 Model weights and Docker images must already be on the machine that runs them; the manager does not
 download them.
+
+## Screenshots
+
+| Light theme | Schedules & planned-runs timeline |
+|---|---|
+| ![Light theme](docs/screenshots/recipes-light.png) | ![Schedules](docs/screenshots/schedules-dark.png) |
+
+| Hosts, ports & endpoints | Recipe editor |
+|---|---|
+| ![Hosts](docs/screenshots/hosts-dark.png) | ![Recipe editor](docs/screenshots/recipe-editor-dark.png) |
+
+Host names and IPs are shown blurred via the top-bar **🙈 Blur** toggle - handy for screenshots and screen shares.
 
 ## Quick start
 
