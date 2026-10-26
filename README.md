@@ -56,9 +56,7 @@ your user without `sudo`.
 ```bash
 git clone https://github.com/einfachllm/local-llm-manager.git
 cd local-llm-manager
-./install.sh
-nano ~/.config/local-llm-manager.env      # set DGXM_PASSWORD
-sudo systemctl restart local-llm-manager
+./install.sh          # prints a generated password (stored in ~/.config/local-llm-manager.env)
 ```
 
 **macOS** (installs a launchd agent; Docker on a Mac cannot use the GPU, so use native recipes such as
@@ -67,16 +65,16 @@ MLX - `pip install mlx-lm` - or `brew install llama.cpp`; also `brew install bas
 ```bash
 git clone https://github.com/einfachllm/local-llm-manager.git
 cd local-llm-manager
-./install-macos.sh     # creates .env on the first run
-nano .env              # set DGXM_PASSWORD
-./install-macos.sh     # run again to apply
+./install-macos.sh    # prints a generated password (stored in .env)
 ```
 
 **Docker Compose** (Linux, Docker recipes only):
-`cp .env.example .env`, set `DGXM_PASSWORD`, then `docker compose up -d`. This uses the image
+`cp .env.example .env`, set `DGXM_PASSWORD` (at least 12 characters, e.g. `openssl rand -base64 18`),
+then `docker compose up -d`. This uses the image
 `ghcr.io/einfachllm/local-llm-manager:latest` (amd64 + arm64); add `--build` to build it yourself.
 
-Then open `http://<machine>:8090` and log in as `admin` with your password.
+Then open `http://<machine>:8090` and log in as `admin` with that password. To change it, edit the env file
+(at least 12 characters, no well-known passwords) and restart the service.
 
 ## Upgrading
 
@@ -91,6 +89,9 @@ git pull                  # or a release: git fetch --tags && git checkout v0.2.
 
 With Docker Compose: `docker compose pull && docker compose up -d`.
 
+If the service does not start after an upgrade, check its log: newer versions refuse weak passwords
+(under 12 characters) and agent tokens under 32 characters.
+
 Upgrade the hub and all agents to the same version. Read the [CHANGELOG](CHANGELOG.md) before
 upgrading, and copy `data/manager.db` first if you want to be able to go back.
 
@@ -99,10 +100,11 @@ upgrading, and copy `data/manager.db` first if you want to be able to go back.
 One installation is the **hub**: it serves the dashboard and stores recipes, schedules and the activity
 log. Every other machine runs the same app as an **agent** that only executes what the hub tells it to.
 
-1. On the agent machine, add to its `.env` (`~/.config/local-llm-manager.env` on Linux) and (re)install:
+1. On the agent machine, uncomment these two lines in its `.env` (`~/.config/local-llm-manager.env` on
+   Linux) and (re)install; the installer already filled in a random token (at least 32 characters):
    ```bash
    DGXM_MODE=agent
-   DGXM_AGENT_TOKEN=<output of: openssl rand -hex 32>
+   DGXM_AGENT_TOKEN=3f9c…   # generated
    ```
 2. In the hub's dashboard: **Hosts → Add host**, with the agent's URL (e.g. `http://mac-studio:8090`)
    and the same token. Recipes then get a **Host** field.
@@ -176,7 +178,10 @@ on those machines - effectively root. So: always set `DGXM_PASSWORD`, use a long
 keep everything on a trusted network or VPN (or behind an HTTPS reverse proxy). Report vulnerabilities
 as described in [SECURITY.md](SECURITY.md).
 
-Built-in protections: the hub refuses to start with the example password `change-me`; requests that change
+Built-in protections: the installers generate a random password; the hub refuses to start with a password
+under 12 characters or a well-known one (`change-me`, `admin`, …), an agent with a token under 32 characters;
+after 10 wrong logins within 10 minutes an address is locked out for the rest of that window (logged);
+the database (it stores agent tokens) is readable by its owner only; requests that change
 something are only accepted from the dashboard itself (other websites cannot use your browser's saved
 login), and the dashboard cannot be embedded in other sites. Without a password it only answers when
 opened by IP address, `localhost` or a local/Tailscale name. Behind a reverse proxy, pass the original host (`X-Forwarded-Host`).
@@ -187,7 +192,7 @@ Set in `.env` (or `~/.config/local-llm-manager.env` with `install.sh`):
 
 | Variable | Default | |
 |---|---|---|
-| `DGXM_PASSWORD` / `DGXM_USER` | *(empty = no login, IP access only)* / `admin` | Dashboard login |
+| `DGXM_PASSWORD` / `DGXM_USER` | *(empty = no login, local access only)* / `admin` | Dashboard login, at least 12 characters |
 | `DGXM_PORT` / `DGXM_HOST` | `8090` / `0.0.0.0` | Listen address; `tailscale` = Tailscale IP only |
 | `DGXM_PUBLISH_IP` | *(empty = all interfaces)* | Address model ports are published on; `tailscale` = Tailscale IP |
 | `DGXM_MODE` | `hub` | `agent`: no dashboard, controlled by a hub |
