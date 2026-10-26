@@ -16,7 +16,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   mounts the host's `/etc/localtime` so schedules no longer run in UTC inside the container.
 - `pyproject.toml`, so the manager can be installed with `pip install .` (command `local-llm-manager`).
 
+### Security
+- Cross-site request forgery: another website could make a logged-in browser start, stop, switch or
+  free memory (bodyless `POST`s). State-changing requests from a foreign `Origin` are now rejected.
+- Without a password, only IP addresses and `localhost` are accepted as `Host` (DNS rebinding).
+- Security headers against clickjacking (`X-Frame-Options`, `frame-ancestors`) and MIME sniffing.
+- The hub refuses to start with the example password `change-me`.
+- A non-ASCII username or password in Basic auth caused a 500 error instead of 401.
+- Host names and agent URLs were inserted into the page as HTML without escaping (XSS).
+- The Blur toggle showed the first and last characters of host names; it now shows aliases like
+  `host-3f2a`, and also covers the host dropdowns, port hints and host error messages.
+
 ### Fixed
+- Screenshots replaced with a demo setup; example IP/host name in code comments replaced.
 - Script import looks for bash 4 or newer (also in `/opt/homebrew/bin`, `/usr/local/bin`) and says
   "run `brew install bash`" if there is none, instead of failing with "command not found" on macOS.
 

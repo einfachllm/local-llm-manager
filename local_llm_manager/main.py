@@ -1,6 +1,7 @@
 """FastAPI application: REST API + static web UI."""
 
 import base64
+import ipaddress
 import logging
 import os
 import re
@@ -11,6 +12,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -230,6 +232,61 @@ def hub_timezone() -> str:
     return f"{now.tzname()} (UTC{offset[:3]}:{offset[3:]})"
 
 
+SECURITY_HEADERS = {
+    # The dashboard must not be framed by other sites (clickjacking with the browser's saved login).
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+}
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def _hostname(netloc: str) -> str:
+    """Host part of a Host header / URL netloc, without port or IPv6 brackets."""
+    netloc = netloc.strip().lower()
+    if netloc.startswith("["):
+        return netloc[1:netloc.find("]")] if "]" in netloc else netloc
+    return netloc.rsplit(":", 1)[0] if netloc.count(":") == 1 else netloc
+
+
+def _is_ip_or_localhost(host: str) -> bool:
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def request_guard(request: Request) -> Optional[Response]:
+    """Reject requests a browser could be tricked into sending on the user's behalf.
+
+    - Cross-site requests that change something (CSRF): browsers send the saved Basic-auth login with
+      a form POST from any website, so state-changing requests must come from the dashboard's own origin.
+      Clients without an Origin header (curl, scripts, the hub's agent calls) are not affected.
+    - DNS rebinding when no password is set: an attacker's domain that resolves to this machine. Without
+      a password only IP addresses and localhost are accepted as Host.
+    """
+    host = request.headers.get("host", "")
+    if not config.AUTH_PASSWORD and host and not _is_ip_or_localhost(_hostname(host)):
+        return PlainTextResponse("Open the dashboard by IP address, or set DGXM_PASSWORD to use host names.",
+                                 status_code=403)
+    if request.method not in SAFE_METHODS:
+        origin = request.headers.get("origin")
+        if origin is not None:
+            parsed = urlsplit(origin)
+            # Behind a reverse proxy the browser's host may only be in X-Forwarded-Host.
+            forwarded = request.headers.get("x-forwarded-host", "").split(",")
+            allowed = {h.strip().lower() for h in (host, *forwarded)} - {""}
+            if parsed.netloc.lower() not in allowed:
+                return PlainTextResponse("Cross-site request blocked", status_code=403)
+        elif request.headers.get("sec-fetch-site") in ("cross-site", "same-site"):
+            return PlainTextResponse("Cross-site request blocked", status_code=403)
+    return None
+
+
 def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
                run_scheduler: bool = True, procs: Optional[ProcessRunner] = None,
                remote_transport: Optional[httpx.AsyncBaseTransport] = None) -> FastAPI:
@@ -251,18 +308,23 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
 
     @app.middleware("http")
     async def basic_auth(request: Request, call_next):
+        if blocked := request_guard(request):
+            return blocked
         if config.AUTH_PASSWORD:
             ok = False
             header = request.headers.get("authorization", "")
             if header.lower().startswith("basic "):
                 try:
                     user, _, pw = base64.b64decode(header[6:]).decode().partition(":")
-                    ok = secrets.compare_digest(user, config.AUTH_USER) and secrets.compare_digest(pw, config.AUTH_PASSWORD)
+                    ok = (secrets.compare_digest(user.encode(), config.AUTH_USER.encode())
+                          & secrets.compare_digest(pw.encode(), config.AUTH_PASSWORD.encode()))
                 except (ValueError, UnicodeDecodeError):
                     ok = False
             if not ok:
                 return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Local LLM Manager"'})
-        return await call_next(request)
+        response = await call_next(request)
+        response.headers.update(SECURITY_HEADERS)
+        return response
 
     @app.exception_handler(ActionError)
     async def action_error(_: Request, exc: ActionError):
@@ -592,8 +654,12 @@ def run() -> None:
             raise SystemExit("DGXM_MODE=agent needs DGXM_AGENT_TOKEN (a long random secret shared with the hub)")
         uvicorn.run(create_agent_app(), host=config.HOST, port=config.PORT, log_level="info")
         return
+    if config.AUTH_PASSWORD == "change-me":
+        raise SystemExit("DGXM_PASSWORD is still the example value 'change-me': set your own password in .env "
+                         "(or ~/.config/local-llm-manager.env) and start again")
     if not config.AUTH_PASSWORD:
-        logging.warning("DGXM_PASSWORD is not set - the dashboard is open to anyone who can reach port %s", config.PORT)
+        logging.warning("DGXM_PASSWORD is not set - the dashboard is open to anyone who can reach port %s "
+                        "(only by IP address or localhost)", config.PORT)
     uvicorn.run(create_app(), host=config.HOST, port=config.PORT, log_level="info")
 
 
