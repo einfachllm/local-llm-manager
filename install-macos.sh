@@ -36,8 +36,8 @@ rm -rf .venv
 
 if [ ! -f .env ]; then
   cp .env.example .env
-  chmod 600 .env
-  echo "Created ${APP_DIR}/.env - edit it to set DGXM_PASSWORD, then run this script again."
+  .venv/bin/python -m local_llm_manager.envfile .env
+  echo "Created ${APP_DIR}/.env with a random password and agent token."
 fi
 
 mkdir -p "$(dirname "$PLIST")" "$(dirname "$LOG")"

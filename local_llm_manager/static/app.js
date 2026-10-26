@@ -64,21 +64,21 @@ const PLATFORM = { darwin: "macOS", linux: "Linux" };
 
 function memText(m) { return `${m.used_gb} / ${m.total_gb} GB`; }
 
-/* Blur a host name / IP when the "Blur" toggle in the top bar is on; the hosts strip must not
- * expose the machine identity. Underlying values stay untouched; only display strings are masked. */
+/* Blur a host name / IP when the "Blur" toggle in the top bar is on, for screenshots and screen
+ * shares. Nothing of the real name is shown: each name becomes a stable alias such as "host-3f2a"
+ * (an IPv4 address "ip-…"), so different machines still look different. Only display strings are
+ * masked; the underlying values stay untouched. */
+function aliasHash(s) {
+  let h = 0x811c9dc5;  // FNV-1a
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(16).padStart(8, "0").slice(0, 4);
+}
 function maskAddr(name) {
   const s = String(name ?? "").trim();
   if (!s) return "–";
   if (!state.blur) return s;
-  // IPv4 192.0.2.114 -> 192…114
-  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(s)) {
-    const parts = s.split(".");
-    return `${parts[0]}…${parts[parts.length - 1]}`;
-  }
-  // hostname thinkstationpgx-a688 -> thinkstationpg…988
-  if (s.length > 6) return `${s.slice(0, 6)}…${s.slice(-2)}`;
-  if (s.length > 1) return `${s[0]}…${s[s.length - 1]}`;
-  return "••••";
+  if (s === "localhost" || s === "127.0.0.1" || s === "::1") return s;
+  return `${/^(?:\d{1,3}\.){3}\d{1,3}$/.test(s) ? "ip" : "host"}-${aliasHash(s.toLowerCase())}`;
 }
 function maskUrl(url) {
   if (!url) return "–";
@@ -100,6 +100,13 @@ function maskEndpoint(urlStr) {
   } catch {
     return maskAddr(urlStr);
   }
+}
+// Mask a host's own name (from its URL) and any IPv4 address inside free text such as an error message.
+function blurHostText(text, url) {
+  let str = String(text ?? "");
+  if (!state.blur) return str;
+  try { const h = new URL(url).hostname; if (h) str = str.split(h).join(maskAddr(h)); } catch { /* no URL */ }
+  return blurText(str);
 }
 // Mask bare IPv4 addresses inside free text (e.g. activity log messages).
 function blurText(s) {
@@ -129,15 +136,15 @@ async function loadHosts() {
 function renderHostsStrip() {
   $("#hosts-strip").innerHTML = state.hosts.map((h) => {
     if (!h.online) {
-      return `<button class="host-chip offline" data-host="${h.id}" title="${esc(h.error || "offline")}">
-        <span class="host-name">${maskAddr(h.name)}</span><span class="host-mem">offline</span></button>`;
+      return `<button class="host-chip offline" data-host="${h.id}" title="${esc(blurHostText(h.error || "offline", h.url))}">
+        <span class="host-name">${esc(maskAddr(h.name))}</span><span class="host-mem">offline</span></button>`;
     }
     const m = h.system.memory;
     const pct = memPct(m);
     const gpu = h.system.gpus[0];
     const title = `${maskAddr(h.name)}: ${memText(m)} used, ${m.available_gb} GB free` + (gpu ? `\nGPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C · ${gpu.power_w ?? "?"} W` : "");
     return `<button class="host-chip" data-host="${h.id}" title="${esc(title)}">
-        <span class="host-name">${maskAddr(h.name)} ${h.is_local ? '<span class="host-note">this machine</span>' : '<span class="host-note">remote</span>'}</span>
+        <span class="host-name">${esc(maskAddr(h.name))} ${h.is_local ? '<span class="host-note">this machine</span>' : '<span class="host-note">remote</span>'}</span>
         <span class="bar"><span class="${barClass(pct)}" style="width:${pct.toFixed(1)}%"></span></span>
         <span class="host-mem">${esc(memText(m))}${gpu ? ` · GPU ${gpu.utilization ?? "?"}%` : ""}</span>
       </button>`;
@@ -214,8 +221,8 @@ function renderHosts() {
     const m = h.system?.memory;
     const gpu = h.system?.gpus?.[0];
     return `<tr data-id="${h.id}">
-      <td><b>${maskAddr(h.name)}</b>${h.is_local ? ` <span class="chip small on">this machine</span>` : `<br><small class="host-url">${maskUrl(h.url)}</small>`}</td>
-      <td>${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span><br><small>${esc(h.error || "")}</small>`}</td>
+      <td><b>${esc(maskAddr(h.name))}</b>${h.is_local ? ` <span class="chip small on">this machine</span>` : `<br><small class="host-url">${esc(maskUrl(h.url))}</small>`}</td>
+      <td>${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span><br><small>${esc(blurHostText(h.error || "", h.url))}</small>`}</td>
       <td>${h.info ? `${esc(PLATFORM[h.info.platform] ?? h.info.platform)} · ${esc(h.info.machine)}<br><small>${esc(maskAddr(h.info.hostname))} · v${esc(h.info.version)}</small>` : "–"}</td>
       <td style="min-width:160px">${m ? `<div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
         <small>${esc(memText(m))} · ${m.available_gb} GB free</small>` : "–"}</td>
@@ -719,7 +726,7 @@ function updatePortHint() {
   const port = Number(f.host_port.value);
   if (!port) { hint.textContent = ""; hint.className = "port-hint"; return; }
   const others = recipesOnPort(f.host_id.value, port, editingRecipe?.id);
-  const where = multiHost() ? ` on ${hostName(f.host_id.value)}` : "";
+  const where = multiHost() ? ` on ${maskAddr(hostName(f.host_id.value))}` : "";
   if (!others.length) {
     hint.textContent = `No other recipe uses port ${port}${where}.`;
     hint.className = "port-hint ok";
@@ -767,7 +774,7 @@ function openRecipeEditor(r) {
   editingRecipe = r;
   recipeForm.reset();
   $("#sel-host").innerHTML = state.hosts.map((h) =>
-    `<option value="${h.id}">${esc(h.name)}${h.info ? ` (${esc(PLATFORM[h.info.platform] ?? h.info.platform)})` : h.online ? "" : " (offline)"}</option>`).join("");
+    `<option value="${h.id}">${esc(maskAddr(h.name))}${h.info ? ` (${esc(PLATFORM[h.info.platform] ?? h.info.platform)})` : h.online ? "" : " (offline)"}</option>`).join("");
   $("#sel-host").closest("label").classList.toggle("hidden", !multiHost());
   $("#recipe-error").textContent = "";
   showRecipeNote([]);
@@ -1175,9 +1182,9 @@ function openScheduleEditor(s) {
   $("#schedule-error").textContent = "";
   $("#schedule-title").textContent = s ? "Edit schedule" : "New schedule";
   $("#sel-recipe").innerHTML = state.recipes.map((r) =>
-    `<option value="${r.id}">${esc(r.name)}${multiHost() ? ` – ${esc(hostName(r.host_id))}` : ""}</option>`).join("");
+    `<option value="${r.id}">${esc(r.name)}${multiHost() ? ` – ${esc(maskAddr(hostName(r.host_id)))}` : ""}</option>`).join("");
   $("#sel-sched-host").innerHTML = `<option value="">All hosts</option>` +
-    state.hosts.map((h) => `<option value="${h.id}">${esc(h.name)}</option>`).join("");
+    state.hosts.map((h) => `<option value="${h.id}">${esc(maskAddr(h.name))}</option>`).join("");
   $("#sel-sched-host").value = s?.host_id ?? "";
   $("#in-once").value = toLocalInput(s?.run_at);
   $$("#days input").forEach((c) => { c.checked = true; });
