@@ -1,6 +1,7 @@
 # Local LLM Manager
 
-[![CI](https://github.com/olekslev69/dgxspark-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/olekslev69/dgxspark-manager/actions/workflows/ci.yml)
+[![CI](https://github.com/einfachllm/local-llm-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/einfachllm/local-llm-manager/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/einfachllm/local-llm-manager?sort=semver)](https://github.com/einfachllm/local-llm-manager/releases)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 A small web dashboard for running local LLMs on your own machines - an NVIDIA DGX Spark, a Mac (Apple
@@ -27,8 +28,8 @@ but only covers the recipe/model-control part, and recipes are edited in the bro
 Requirements: Python 3.10+, Docker with the NVIDIA runtime, and your user in the `docker` group.
 
 ```bash
-git clone https://github.com/olekslev69/dgxspark-manager.git
-cd dgxspark-manager
+git clone https://github.com/einfachllm/local-llm-manager.git
+cd local-llm-manager
 ./install.sh                                 # venv + systemd service, runs as your user
 nano ~/.config/local-llm-manager.env         # set DGXM_PASSWORD (and HF_TOKEN if needed)
 sudo systemctl restart local-llm-manager
@@ -40,8 +41,8 @@ Other ways to run it:
 
 - **Foreground:** `cp .env.example .env && ./run.sh`
 - **Docker Compose:** `cp .env.example .env && docker compose up -d` uses the prebuilt image
-  `ghcr.io/olekslev69/dgxspark-manager:latest` (amd64 + arm64, built by CI); add `--build` to build it
-  locally instead. It mounts the docker socket and uses host networking; `HOME` is passed through so `~`
+  `ghcr.io/einfachllm/local-llm-manager:latest` (the latest release, amd64 + arm64); pin a version with
+  e.g. `:0.1.0`, use `:edge` for the current `main`, or add `--build` to build it locally instead. It mounts the docker socket and uses host networking; `HOME` is passed through so `~`
   in recipe volumes points at your home on the host. In a container, use Docker recipes: native-process
   recipes would run inside the manager's container, not on the host.
 
@@ -85,8 +86,8 @@ Requirements: Python 3.10+ (`brew install python@3.12`), a current bash for scri
 (`brew install bash`), and your model servers, e.g. `pip install mlx-lm` or `brew install llama.cpp`.
 
 ```bash
-git clone https://github.com/olekslev69/dgxspark-manager.git
-cd dgxspark-manager
+git clone https://github.com/einfachllm/local-llm-manager.git
+cd local-llm-manager
 ./install-macos.sh            # venv + launchd agent; creates .env on first run
 nano .env                     # set DGXM_PASSWORD
 ./install-macos.sh            # run again to restart with the password
@@ -265,23 +266,38 @@ curl -u admin:$PW "http://spark:8090/api/recipes/1/logs?tail=200"
 ## Development
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.txt ruff
 pytest
+ruff check .
 DGXM_DB=/tmp/dev.db python -m local_llm_manager.main
 ```
+
+`pip install .` also installs it as a package with a `local-llm-manager` command.
 
 Layout: `local_llm_manager/` holds the FastAPI app (`main.py`), recipe → `docker run` translation
 (`recipes.py`), script import and its safety check (`importer.py`, `script_check.py`), lifecycle rules (`manager.py`), where things run (`executor.py`: this machine or a remote agent; agent API in
 `agent.py`; native processes in `processes.py`), the scheduler (`scheduler.py`) and its timeline projection (`timeline.py`), SQLite storage (`db.py`)
 and the static UI (`static/`, plain HTML/JS with no build step). Tests use a fake docker client.
 
-### CI
+### CI and releases
 
-`.github/workflows/ci.yml` runs the tests on Python 3.10, 3.12 and 3.13 for every push and pull request,
-then builds the Docker image for `linux/amd64` and `linux/arm64` and smoke-tests it. On `main` it pushes
-`ghcr.io/olekslev69/dgxspark-manager:latest` (plus a `sha-…` tag); a git tag `v1.2.3` also publishes
-`1.2.3` and `1.2`. Pull requests only build. After the first push, check the package's visibility under
-*GitHub → Packages*, if it should be pullable without `docker login ghcr.io`.
+- [`ci.yml`](.github/workflows/ci.yml) runs on every push and pull request: Ruff and ShellCheck, the
+  tests on Python 3.10-3.13 (Linux) and 3.12 (macOS), a Python package build, and a Docker build for
+  `linux/amd64` and `linux/arm64` with a smoke test. Pushes to `main` publish
+  `ghcr.io/einfachllm/local-llm-manager:edge` (plus a `sha-…` tag); pull requests only build.
+- [`release.yml`](.github/workflows/release.yml) runs on a tag `vX.Y.Z`: it checks the tag against
+  `__version__`, runs the tests, publishes the images `X.Y.Z`, `X.Y` and `latest`, and creates a GitHub
+  Release with the wheel, the sdist and the matching [CHANGELOG](CHANGELOG.md) section. See
+  [CONTRIBUTING.md](CONTRIBUTING.md#releases-maintainers) for the steps.
+
+After the first push, check the package's visibility under *GitHub → Packages*, if it should be pullable
+without `docker login ghcr.io`.
+
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[Code of Conduct](CODE_OF_CONDUCT.md). Report security issues privately as described in
+[SECURITY.md](SECURITY.md).
 
 ## License
 

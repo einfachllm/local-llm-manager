@@ -1,0 +1,64 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please **remove passwords, tokens (HF_TOKEN, DGXM_AGENT_TOKEN) and private
+        hostnames** from anything you paste. Security issues: see SECURITY.md instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create a recipe with ...
+        2. Click Start
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The `version` field of `GET /api/meta`, or the git commit / Docker image tag.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options: [NVIDIA DGX Spark, Linux (other GPU box), macOS (Apple silicon), Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run the manager?
+      options: [install.sh (systemd), install-macos.sh (launchd), Docker Compose, run.sh / foreground, Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Setup
+      options: [Single machine, Hub with agents]
+  - type: textarea
+    id: recipe
+    attributes:
+      label: Recipe / docker run command (if relevant)
+      render: shell
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Manager log (journalctl -u local-llm-manager, docker logs, ~/Library/Logs/...) and model logs.
+      render: text

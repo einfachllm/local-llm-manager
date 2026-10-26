@@ -1,7 +1,7 @@
 services:
   local-llm-manager:
     # Prebuilt image from CI (amd64 + arm64). `docker compose up -d --build` builds it locally instead.
-    image: ghcr.io/olekslev69/dgxspark-manager:latest
+    image: ghcr.io/einfachllm/local-llm-manager:latest
     build: .
     container_name: local-llm-manager
     restart: unless-stopped
