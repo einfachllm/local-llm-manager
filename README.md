@@ -35,6 +35,12 @@ download them.
 - **Switch models for your agents:** give the recipes on a machine the same port, and **Switch to**
   replaces the running model in one step - your agents keep the same endpoint `http://<host>:<port>/v1`.
 
+## Examples
+
+- [Telegram voice bot](examples/telegram-voice-bot/): talk to your own LLM from Telegram by voice or text.
+  Whisper runs next to it via Docker Compose; the LLM is a recipe in this manager, so **Switch to** changes
+  the bot's model.
+
 ## Screenshots
 
 | Light theme | Schedules & planned-runs timeline |
