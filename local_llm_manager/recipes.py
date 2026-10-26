@@ -117,7 +117,7 @@ RUNTIMES = {"docker": "Docker container", "process": "Native process"}
 # Card colours offered in the UI (purely visual). "" is the default card.
 CARD_COLORS = ("", "green", "teal", "blue", "purple", "pink", "orange", "yellow", "red", "black")
 
-MANAGED_LABEL = "llm-model-manager"
+MANAGED_LABEL = "local-llm-manager"
 
 
 def _lines(text: str) -> list[str]:

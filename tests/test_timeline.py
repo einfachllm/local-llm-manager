@@ -2,8 +2,8 @@ from datetime import timedelta
 
 from conftest import recipe_body
 
-from llm_model_manager.scheduler import local_now
-from llm_model_manager.timeline import build_timeline
+from local_llm_manager.scheduler import local_now
+from local_llm_manager.timeline import build_timeline
 
 T0 = local_now().replace(year=2030, month=1, day=7, hour=0, minute=0, second=0, microsecond=0)  # a Monday
 

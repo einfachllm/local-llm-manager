@@ -1,7 +1,7 @@
 import asyncio
 
-from llm_model_manager.importer import import_script
-from llm_model_manager.script_check import check_script
+from local_llm_manager.importer import import_script
+from local_llm_manager.script_check import check_script
 
 
 def risks(text):
