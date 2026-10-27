@@ -309,7 +309,7 @@ async function loadRecipes() {
 /* ---------------- recipe list: filter, sort, group ---------------- */
 
 const VIEW_KEY = "dgxm.recipeView";
-const view = { search: "", tags: [], sort: "name", group: "", host: "", kind: "", collapsed: {} };
+const view = { search: "", tags: [], sort: "name", group: "", host: "", kind: "", layout: "rows", collapsed: {} };
 try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || "{}")); } catch { /* storage unavailable */ }
 if (typeof view.group === "boolean") view.group = view.group ? "tag" : "";  // older saved views
 const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* ignore */ } };
@@ -369,6 +369,7 @@ const kindOf = (r) => r.kind === "agent" ? "agent" : "model";
 
 function renderToolbar() {
   $$("#recipe-kind button").forEach((b) => b.classList.toggle("on", b.dataset.kind === view.kind));
+  $$("#recipe-layout button").forEach((b) => b.classList.toggle("on", b.dataset.layout === (view.layout === "tiles" ? "tiles" : "rows")));
   const tags = allTags();
   // Drop filters for tags that no longer exist.
   const known = new Set(tags.map(([t]) => t.toLowerCase()));
@@ -463,6 +464,47 @@ function cardHtml(r) {
   } else if (med && !running) {
     startInfo = `<span class="start-hint mono" title="Median time from Start to ready (last ${Math.min(hist.length, 8)} start${hist.length > 1 ? "s" : ""})">⏱ ~${fmtDur(med)}</span>`;
   }
+  const actions = `
+          ${running
+            ? `<button class="btn small stop" data-act="stop" ${busy ? "disabled" : ""}>Stop</button>
+               <button class="btn small" data-act="restart" ${busy ? "disabled" : ""}>Restart</button>`
+            : `<button class="btn small go" data-act="start" ${busy ? "disabled" : ""}>Start</button>
+               <button class="btn small" data-act="switch" ${busy ? "disabled" : ""} title="Stop all other models on this host, free its memory, then start this one">Switch to</button>`}
+          <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
+          <button class="btn small ghost" data-act="edit">Edit</button>
+          <button class="btn small ghost" data-act="duplicate">Duplicate</button>
+          <button class="btn small ghost danger" data-act="delete" ${running ? "disabled" : ""}>Delete</button>`;
+  const endpoint = running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(maskEndpoint(url))}/v1</a>`
+    : `<span class="muted">${esc(maskEndpoint(url))}/v1</span>`;
+  if (view.layout !== "tiles") {
+    // Row layout: the same facts as the tile, side by side; agents keep their own row style.
+    const facts = [
+      ["Model", esc(r.model || "–")],
+      ["Endpoint", endpoint],
+      [r.runtime === "process" ? "Name" : "Container", esc(r.container_name)],
+      r.est_memory_gb ? ["Est. memory", `${r.est_memory_gb} GB`] : null,
+      r.container ? [r.runtime === "process" ? "Process" : "Docker", esc(r.container.status)] : null,
+    ].filter(Boolean);
+    return `
+      <article class="card model-row is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
+        <div class="row-icon" aria-hidden="true">🧠</div>
+        <div class="row-main">
+          <div class="row-title">
+            <span class="card-title">${esc(r.name)}</span>
+            <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
+            ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
+            <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
+          </div>
+          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? "Working…" : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}
+            ${r.tags?.length ? r.tags.map((t) =>
+              `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("") : ""}</div>
+          ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
+          <dl class="row-facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
+          ${metricsHtml(r)}
+        </div>
+        <div class="actions">${actions}</div>
+      </article>`;
+  }
   return `
       <article class="card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
         <div class="card-head">
@@ -479,23 +521,13 @@ function cardHtml(r) {
         ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
         <dl class="kv">
           <dt>Model</dt><dd>${esc(r.model || "–")}</dd>
-          <dt>Endpoint</dt><dd>${running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(maskEndpoint(url))}/v1</a>` : `<span class="muted">${esc(maskEndpoint(url))}/v1</span>`}</dd>
+          <dt>Endpoint</dt><dd>${endpoint}</dd>
           <dt>${r.runtime === "process" ? "Name" : "Container"}</dt><dd>${esc(r.container_name)}</dd>
           ${r.est_memory_gb ? `<dt>Est. memory</dt><dd>${r.est_memory_gb} GB</dd>` : ""}
           ${r.container ? `<dt>${r.runtime === "process" ? "Process" : "Docker"}</dt><dd>${esc(r.container.status)}</dd>` : ""}
         </dl>
         ${metricsHtml(r)}
-        <div class="actions">
-          ${running
-            ? `<button class="btn small stop" data-act="stop" ${busy ? "disabled" : ""}>Stop</button>
-               <button class="btn small" data-act="restart" ${busy ? "disabled" : ""}>Restart</button>`
-            : `<button class="btn small go" data-act="start" ${busy ? "disabled" : ""}>Start</button>
-               <button class="btn small" data-act="switch" ${busy ? "disabled" : ""} title="Stop all other models on this host, free its memory, then start this one">Switch to</button>`}
-          <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
-          <button class="btn small ghost" data-act="edit">Edit</button>
-          <button class="btn small ghost" data-act="duplicate">Duplicate</button>
-          <button class="btn small ghost danger" data-act="delete" ${running ? "disabled" : ""}>Delete</button>
-        </div>
+        <div class="actions">${actions}</div>
       </article>`;
 }
 
@@ -566,7 +598,7 @@ function kindsHtml(items, hostId = "") {
   return (agents.length ? `<section class="kind-section agents">${kindHeadHtml("agent", agents, hostId)}
       <div class="agent-list">${agents.map(agentCardHtml).join("")}</div></section>` : "")
     + (models.length ? `<section class="kind-section models">${kindHeadHtml("model", models, hostId)}
-      <div class="grid">${models.map(cardHtml).join("")}</div></section>` : "");
+      <div class="${view.layout === "tiles" ? "grid" : "row-list"}">${models.map(cardHtml).join("")}</div></section>` : "");
 }
 
 function renderRecipes() {
@@ -628,6 +660,13 @@ $("#tag-filter").addEventListener("click", (ev) => {
 $("#recipe-search").addEventListener("input", (ev) => { view.search = ev.target.value; saveView(); renderRecipes(); });
 $("#recipe-sort").addEventListener("change", (ev) => { view.sort = ev.target.value; saveView(); renderRecipes(); });
 $("#recipe-group").addEventListener("change", (ev) => { view.group = ev.target.value; saveView(); renderRecipes(); });
+$("#recipe-layout").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-layout]");
+  if (!b) return;
+  view.layout = b.dataset.layout;
+  saveView();
+  renderRecipes();
+});
 $("#recipe-kind").addEventListener("click", (ev) => {
   const b = ev.target.closest("button[data-kind]");
   if (!b) return;
