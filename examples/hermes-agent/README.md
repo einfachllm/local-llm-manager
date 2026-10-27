@@ -125,6 +125,10 @@ the host and list only the bare **names** (`TELEGRAM_BOT_TOKEN`, one per line) i
 passes them through from its environment, so no secret ever lands in the recipe, the database or the
 dashboard.
 
+No typing needed: [`docker-recipe.example.sh`](docker-recipe.example.sh) is an importable version of
+exactly this command - paste it into **Recipes → Import**, clear the pre-filled *Health path*, adjust
+`HERMES_UID/GID`, create.
+
 ## Gotchas worth knowing
 
 - `hermes config set` **saves nothing** while `config.yaml` has a parse error (a duplicated key, bad
