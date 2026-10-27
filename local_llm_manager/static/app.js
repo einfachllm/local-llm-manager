@@ -309,7 +309,7 @@ async function loadRecipes() {
 /* ---------------- recipe list: filter, sort, group ---------------- */
 
 const VIEW_KEY = "dgxm.recipeView";
-const view = { search: "", tags: [], sort: "name", group: "", host: "", kind: "", collapsed: {} };
+const view = { search: "", tags: [], sort: "name", group: "", host: "", kind: "", layout: "rows", collapsed: {} };
 try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || "{}")); } catch { /* storage unavailable */ }
 if (typeof view.group === "boolean") view.group = view.group ? "tag" : "";  // older saved views
 const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* ignore */ } };
@@ -369,6 +369,7 @@ const kindOf = (r) => r.kind === "agent" ? "agent" : "model";
 
 function renderToolbar() {
   $$("#recipe-kind button").forEach((b) => b.classList.toggle("on", b.dataset.kind === view.kind));
+  $$("#recipe-layout button").forEach((b) => b.classList.toggle("on", b.dataset.layout === (view.layout === "tiles" ? "tiles" : "rows")));
   const tags = allTags();
   // Drop filters for tags that no longer exist.
   const known = new Set(tags.map(([t]) => t.toLowerCase()));
@@ -463,6 +464,47 @@ function cardHtml(r) {
   } else if (med && !running) {
     startInfo = `<span class="start-hint mono" title="Median time from Start to ready (last ${Math.min(hist.length, 8)} start${hist.length > 1 ? "s" : ""})">⏱ ~${fmtDur(med)}</span>`;
   }
+  const actions = `
+          ${running
+            ? `<button class="btn small stop" data-act="stop" ${busy ? "disabled" : ""}>Stop</button>
+               <button class="btn small" data-act="restart" ${busy ? "disabled" : ""}>Restart</button>`
+            : `<button class="btn small go" data-act="start" ${busy ? "disabled" : ""}>Start</button>
+               <button class="btn small" data-act="switch" ${busy ? "disabled" : ""} title="Stop all other models on this host, free its memory, then start this one">Switch to</button>`}
+          <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
+          <button class="btn small ghost" data-act="edit">Edit</button>
+          <button class="btn small ghost" data-act="duplicate">Duplicate</button>
+          <button class="btn small ghost danger" data-act="delete" ${running ? "disabled" : ""}>Delete</button>`;
+  const endpoint = running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(maskEndpoint(url))}/v1</a>`
+    : `<span class="muted">${esc(maskEndpoint(url))}/v1</span>`;
+  if (view.layout !== "tiles") {
+    // Row layout: the same facts as the tile, side by side; agents keep their own row style.
+    const facts = [
+      ["Model", esc(r.model || "–")],
+      ["Endpoint", endpoint],
+      [r.runtime === "process" ? "Name" : "Container", esc(r.container_name)],
+      r.est_memory_gb ? ["Est. memory", `${r.est_memory_gb} GB`] : null,
+      r.container ? [r.runtime === "process" ? "Process" : "Docker", esc(r.container.status)] : null,
+    ].filter(Boolean);
+    return `
+      <article class="card model-row is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
+        <div class="row-icon" aria-hidden="true">🧠</div>
+        <div class="row-main">
+          <div class="row-title">
+            <span class="card-title">${esc(r.name)}</span>
+            <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
+            ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
+            <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
+          </div>
+          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? "Working…" : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}
+            ${r.tags?.length ? r.tags.map((t) =>
+              `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("") : ""}</div>
+          ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
+          <dl class="row-facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
+          ${metricsHtml(r)}
+        </div>
+        <div class="actions">${actions}</div>
+      </article>`;
+  }
   return `
       <article class="card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
         <div class="card-head">
@@ -479,23 +521,13 @@ function cardHtml(r) {
         ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
         <dl class="kv">
           <dt>Model</dt><dd>${esc(r.model || "–")}</dd>
-          <dt>Endpoint</dt><dd>${running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(maskEndpoint(url))}/v1</a>` : `<span class="muted">${esc(maskEndpoint(url))}/v1</span>`}</dd>
+          <dt>Endpoint</dt><dd>${endpoint}</dd>
           <dt>${r.runtime === "process" ? "Name" : "Container"}</dt><dd>${esc(r.container_name)}</dd>
           ${r.est_memory_gb ? `<dt>Est. memory</dt><dd>${r.est_memory_gb} GB</dd>` : ""}
           ${r.container ? `<dt>${r.runtime === "process" ? "Process" : "Docker"}</dt><dd>${esc(r.container.status)}</dd>` : ""}
         </dl>
         ${metricsHtml(r)}
-        <div class="actions">
-          ${running
-            ? `<button class="btn small stop" data-act="stop" ${busy ? "disabled" : ""}>Stop</button>
-               <button class="btn small" data-act="restart" ${busy ? "disabled" : ""}>Restart</button>`
-            : `<button class="btn small go" data-act="start" ${busy ? "disabled" : ""}>Start</button>
-               <button class="btn small" data-act="switch" ${busy ? "disabled" : ""} title="Stop all other models on this host, free its memory, then start this one">Switch to</button>`}
-          <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
-          <button class="btn small ghost" data-act="edit">Edit</button>
-          <button class="btn small ghost" data-act="duplicate">Duplicate</button>
-          <button class="btn small ghost danger" data-act="delete" ${running ? "disabled" : ""}>Delete</button>
-        </div>
+        <div class="actions">${actions}</div>
       </article>`;
 }
 
@@ -547,16 +579,26 @@ function agentCardHtml(r) {
       </article>`;
 }
 
-function kindHeadHtml(kind, items) {
+// A section head per kind; `hostId` (inside a host group) makes "+ New" create it on that host.
+function kindHeadHtml(kind, items, hostId = "") {
   const running = items.filter((r) => RUNNING.includes(r.status)).length;
   const count = `${items.length} ${kind === "agent" ? "agent" : "model"}${items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}`;
+  const add = (label) => `<button class="btn small" data-new-kind="${kind}" data-host="${esc(hostId)}">+ New ${label}</button>`;
   return kind === "agent"
-    ? `<div class="kind-head"><h3>🤖 Agents <span>${count}</span></h3>
-        <span class="kind-sub">Programs that use a model. “Switch to” keeps them running.</span>
-        <button class="btn small" data-new-kind="agent">+ New agent</button></div>`
-    : `<div class="kind-head"><h3>🧠 Models <span>${count}</span></h3>
-        <span class="kind-sub">LLM servers with an OpenAI-compatible API.</span>
-        <button class="btn small" data-new-kind="model">+ New model</button></div>`;
+    ? `<div class="kind-head agents"><h3>🤖 Agents <span>${count}</span></h3>
+        <span class="kind-sub">Programs that use a model. “Switch to” keeps them running.</span>${add("agent")}</div>`
+    : `<div class="kind-head models"><h3>🧠 Models <span>${count}</span></h3>
+        <span class="kind-sub">LLM servers with an OpenAI-compatible API.</span>${add("model")}</div>`;
+}
+
+// Agents above models: as rows, then as the usual card grid.
+function kindsHtml(items, hostId = "") {
+  const agents = items.filter((r) => kindOf(r) === "agent");
+  const models = items.filter((r) => kindOf(r) === "model");
+  return (agents.length ? `<section class="kind-section agents">${kindHeadHtml("agent", agents, hostId)}
+      <div class="agent-list">${agents.map(agentCardHtml).join("")}</div></section>` : "")
+    + (models.length ? `<section class="kind-section models">${kindHeadHtml("model", models, hostId)}
+      <div class="${view.layout === "tiles" ? "grid" : "row-list"}">${models.map(cardHtml).join("")}</div></section>` : "");
 }
 
 function renderRecipes() {
@@ -570,40 +612,35 @@ function renderRecipes() {
     $("#recipes").innerHTML = `<div class="empty">No recipe matches the current filter.</div>`;
     return;
   }
-  const agents = list.filter((r) => kindOf(r) === "agent");
-  const models = list.filter((r) => kindOf(r) === "model");
   let html = "";
-  if (agents.length) {
-    html += `<section class="kind-section agents">${kindHeadHtml("agent", agents)}
-      <div class="agent-list">${agents.map(agentCardHtml).join("")}</div></section>`;
-  } else if (!view.kind && !state.recipes.some((r) => kindOf(r) === "agent")) {
+  if (!view.kind && !state.recipes.some((r) => kindOf(r) === "agent")) {
     html += `<div class="agent-empty">🤖 No agents yet. Agents, such as a Hermes gateway, run as recipes too and get
       their own section here. <button class="btn small ghost" data-new-kind="agent">+ New agent</button></div>`;
   }
-  if (models.length) {
-    html += `<section class="kind-section models">${kindHeadHtml("model", models)}${modelsHtml(models)}</section>`;
-  }
-  $("#recipes").innerHTML = html;
+  $("#recipes").innerHTML = html + (view.group ? groupedHtml(list) : kindsHtml(list));
 }
 
-function modelsHtml(list) {
-  if (!view.group) return `<div class="grid">${list.map(cardHtml).join("")}</div>`;
-  // Group by host, or by each recipe's first tag (e.g. the model name); every recipe appears once.
+// Group by host, or by each recipe's first tag (e.g. the model name); every recipe appears once, and
+// each group stacks its agents above its models.
+function groupedHtml(list) {
   const groups = new Map();
   for (const r of list) {
     const label = view.group === "host" ? maskAddr(hostName(r.host_id)) : r.tags?.[0] ?? "";
     const key = view.group === "host" ? String(state.hosts.findIndex((h) => h.id === r.host_id)).padStart(3, "0") : label.toLowerCase();
-    if (!groups.has(key)) groups.set(key, { label, items: [] });
+    if (!groups.has(key)) groups.set(key, { label, hostId: view.group === "host" ? r.host_id : "", items: [] });
     groups.get(key).items.push(r);
   }
   const keys = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b, undefined, { numeric: true }));
   return keys.map((k) => {
     const g = groups.get(k);
     const running = g.items.filter((r) => RUNNING.includes(r.status)).length;
+    const nAgents = g.items.filter((r) => kindOf(r) === "agent").length;
+    const nModels = g.items.length - nAgents;
+    const parts = [nAgents && `${nAgents} agent${nAgents === 1 ? "" : "s"}`, nModels && `${nModels} model${nModels === 1 ? "" : "s"}`].filter(Boolean);
     const collapsed = !!view.collapsed[`${view.group}:${k}`];
     return `<section class="group${collapsed ? " is-collapsed" : ""}" data-gkey="${esc(k)}">
-        <h3 class="group-title" title="Click to ${collapsed ? "expand" : "collapse"}"><span class="group-caret">${collapsed ? "▸" : "▾"}</span>${g.label ? esc(g.label) : "Untagged"} <span>${g.items.length} recipe${g.items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}</span></h3>
-        <div class="grid">${g.items.map(cardHtml).join("")}</div>
+        <h3 class="group-title" title="Click to ${collapsed ? "expand" : "collapse"}"><span class="group-caret">${collapsed ? "▸" : "▾"}</span>${view.group === "host" ? "⌂ " : ""}${g.label ? esc(g.label) : "Untagged"} <span>${parts.join(" · ")}${running ? ` · ${running} running` : ""}</span></h3>
+        <div class="group-body">${kindsHtml(g.items, g.hostId)}</div>
       </section>`;
   }).join("");
 }
@@ -623,6 +660,13 @@ $("#tag-filter").addEventListener("click", (ev) => {
 $("#recipe-search").addEventListener("input", (ev) => { view.search = ev.target.value; saveView(); renderRecipes(); });
 $("#recipe-sort").addEventListener("change", (ev) => { view.sort = ev.target.value; saveView(); renderRecipes(); });
 $("#recipe-group").addEventListener("change", (ev) => { view.group = ev.target.value; saveView(); renderRecipes(); });
+$("#recipe-layout").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-layout]");
+  if (!b) return;
+  view.layout = b.dataset.layout;
+  saveView();
+  renderRecipes();
+});
 $("#recipe-kind").addEventListener("click", (ev) => {
   const b = ev.target.closest("button[data-kind]");
   if (!b) return;
@@ -663,7 +707,7 @@ function recipeBodyFrom(r, overrides = {}) {
 
 $("#recipes").addEventListener("click", async (ev) => {
   const add = ev.target.closest("[data-new-kind]");
-  if (add) { openRecipeEditor(null, add.dataset.newKind); return; }
+  if (add) { openRecipeEditor(null, add.dataset.newKind, add.dataset.host); return; }
   const head = ev.target.closest(".group-title");
   if (head) {
     const key = head.closest(".group").dataset.gkey;
@@ -901,7 +945,7 @@ $("#ports").addEventListener("click", async (ev) => {
   catch { prompt("Copy the endpoint:", b.dataset.copy); }
 });
 
-function openRecipeEditor(r, kind = "model") {
+function openRecipeEditor(r, kind = "model", hostId = "") {
   editingRecipe = r;
   recipeForm.reset();
   $("#sel-host").innerHTML = state.hosts.map((h) =>
@@ -916,7 +960,7 @@ function openRecipeEditor(r, kind = "model") {
     fillRecipeForm(r);
     setKind(kindOf(r), false);
   } else {
-    const hostId = view.host || state.hosts.find((h) => h.is_local)?.id;
+    hostId = hostId || view.host || state.hosts.find((h) => h.is_local)?.id;
     recipeForm.elements.host_id.value = hostId ?? "";
     // On a Mac, containers have no GPU access, so native MLX is the sensible default.
     const mac = hostPlatform(hostId) === "darwin";
