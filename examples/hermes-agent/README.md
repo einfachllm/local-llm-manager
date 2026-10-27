@@ -32,8 +32,9 @@ An agent needs tool calling. Create (or adjust) a recipe on the machine that wil
   ```
   --served-model-name local --enable-auto-tool-choice --tool-call-parser hermes
   ```
-  Use the parser that fits the model (`hermes` for Qwen2.5/Qwen3 and Hermes models, `qwen3_coder` for
-  Qwen3-Coder, `llama3_json` for Llama 3, …; see the vLLM tool-calling docs). For SGLang the flags are
+  Use the parser that fits the model (`hermes` for Qwen2.5/Qwen3 and Hermes models — recent vLLM also has
+  `qwen3_xml`, and thinking models need a matching `--reasoning-parser` — `qwen3_coder` for Qwen3-Coder,
+  `llama3_json` for Llama 3, …; see the vLLM tool-calling docs). For SGLang the flags are
   `--served-model-name local --tool-call-parser <parser>`; llama.cpp needs `--jinja`.
 - Give every model you want to switch between the **same port** and `--served-model-name local`: Hermes then
   keeps working with the new model after **Switch to** (restart the gateway, see step 3).
