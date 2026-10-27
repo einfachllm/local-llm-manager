@@ -29,6 +29,7 @@ from .script_check import check_script
 from .manager import ActionError, Manager
 from .processes import ProcessRunner
 from .agent import create_agent_app
+from .selfmetrics import Sink
 from .recipes import (CARD_COLORS, FRAMEWORKS, RUNTIMES, build_run_argv, format_command, format_process_command,
                       split_args, uses_host_network)
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
@@ -361,12 +362,16 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
 
     app = FastAPI(title="Local LLM Manager", version=__version__, lifespan=lifespan)
     app.state.db, app.state.manager, app.state.scheduler = db, manager, scheduler
+    app.state.metrics = Sink()
 
     throttle = LoginThrottle()
     app.state.login_throttle = throttle
 
     @app.middleware("http")
     async def basic_auth(request: Request, call_next):
+        # Liveness / self-metrics for external scrapers: no login, no request guards, not counted.
+        if request.url.path in ("/healthz", "/metrics"):
+            return await call_next(request)
         if blocked := request_guard(request):
             return blocked
         if config.AUTH_PASSWORD:
@@ -391,6 +396,10 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             throttle.succeeded(client)
         response = await call_next(request)
         response.headers.update(SECURITY_HEADERS)
+        route = request.scope.get("route")  # the matched API path, with ids already collapsed
+        if route is not None and getattr(route, "path", None):
+            app.state.metrics.add("dgxm_api_requests_total", "API requests, by method, route and status.",
+                                  method=request.method, path=route.path, status=str(response.status_code))
         return response
 
     @app.exception_handler(ActionError)
@@ -413,6 +422,35 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         if not r:
             raise HTTPException(404, "Recipe not found")
         return r
+
+    # ---- self-monitoring (no login: liveness for scrapers, no sensitive data) ----
+
+    @app.get("/healthz", include_in_schema=False)
+    async def healthz():
+        """Process is up and the database answers. 503 (not 4xx) means "retry", for monitors."""
+        if not db.ping():
+            return PlainTextResponse("database unreachable", status_code=503)
+        return PlainTextResponse("ok")
+
+    @app.get("/metrics", include_in_schema=False)
+    async def self_metrics():
+        """The manager's own metrics (Prometheus text), enabled with DGXM_METRICS=1."""
+        if not config.METRICS_ENABLED:
+            raise HTTPException(404)
+        sink = app.state.metrics
+        sink.gauge("dgxm_build_info", "Manager build.", 1.0, version=__version__, mode="hub")
+        sink.gauge("dgxm_uptime_seconds", "Seconds since the manager started.", sink.uptime())
+        counts = db.counts()
+        sink.gauge("dgxm_recipes_total", "Stored recipes.", counts["recipes"])
+        sink.gauge("dgxm_hosts_total", "Configured hosts.", counts["hosts"])
+        sink.gauge("dgxm_schedules_total", "Stored schedules.", counts["schedules"])
+        sink.gauge("dgxm_schedules_enabled_total", "Enabled schedules.", counts["schedules_enabled"])
+        for (action, result), n in manager.actions.items():
+            sink.counter("dgxm_actions_total", "Recipe actions since start, by action and result.",
+                         n, action=action, result=result)
+        for result, n in scheduler.runs.items():
+            sink.counter("dgxm_schedule_runs_total", "Scheduled runs since start, by result.", n, result=result)
+        return PlainTextResponse(sink.render(), media_type="text/plain; version=0.0.4; charset=utf-8")
 
     # ---- meta ----------------------------------------------------------
 

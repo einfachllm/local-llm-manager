@@ -5,9 +5,11 @@ Both executors have the same async interface, so the Manager does not care where
 """
 
 import asyncio
+import logging
 import platform
 import socket
 import sys
+from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 
 import httpx
@@ -46,6 +48,29 @@ class LocalExecutor:
         self.docker = docker or Docker()
         self.procs = procs or ProcessRunner(config.PROC_DIR)
         self.rates = servermetrics.RateTracker()
+
+    def _stop_marker(self, name: str) -> Path:
+        """File that records the container id the manager last stopped (`<name>.stopped`).
+
+        Docker cannot be asked who stopped a container, and `docker stop` and an OOM kill both
+        end in exit code 137 - the marker (surviving manager restarts, like the containers) is
+        what tells the two apart.
+        """
+        return self.procs.dir / f"{name}.stopped"
+
+    def _write_stop_marker(self, name: str, container_id: str) -> None:
+        if container_id:
+            self._stop_marker(name).write_text(container_id)
+
+    def _clear_stop_marker(self, name: str) -> None:
+        self._stop_marker(name).unlink(missing_ok=True)
+
+    def _was_stopped_by_manager(self, name: str, container_id: str) -> bool:
+        marker = self._stop_marker(name)
+        try:
+            return bool(container_id) and marker.read_text().strip() == container_id
+        except OSError:
+            return False
 
     async def info(self) -> dict[str, Any]:
         return host_info()
@@ -90,7 +115,8 @@ class LocalExecutor:
             elif r.get("runtime") == "process":
                 status = "failed" if c.get("failed") else "stopped"
             else:
-                status = "failed" if _failed_exit(c["status"]) else "stopped"
+                stopped_by_us = self._was_stopped_by_manager(r["container_name"], c["id"])
+                status = "failed" if _failed_exit(c["status"], stopped_by_us) else "stopped"
             out[r["id"]] = {"status": status, "container": c}
         if running:
             async with httpx.AsyncClient(timeout=2.0) as client:
@@ -135,6 +161,9 @@ class LocalExecutor:
         existing = (await self._instances([recipe]))[recipe["id"]]
         if existing:
             await self.docker.remove(name)
+        # A fresh run clears the "manager stopped it" marker, so a later OOM kill is not read
+        # as a clean stop just because this recipe was stopped before.
+        self._clear_stop_marker(name)
         argv = build_run_argv(recipe)
         res = await self.docker.run_argv(argv)
         if not res.ok:
@@ -146,9 +175,17 @@ class LocalExecutor:
         if recipe.get("runtime") == "process":
             stopped = await self.procs.stop(name)
             return f"Stopped {recipe['name']}" if stopped else f"{recipe['name']} is not running"
+        cid = (await self._instances([recipe]))[recipe["id"]]
+        cid = cid["id"] if cid else ""
         res = await self.docker.stop(name)
         if not res.ok:
             raise ActionError(f"docker stop failed: {res.error}", 500)
+        # Remember (id + file) that we stopped it: its usual 137/143 exit code is then read as a
+        # clean stop, while an OOM-killed container (same codes, no marker) shows as failed.
+        try:
+            self._write_stop_marker(name, cid)
+        except OSError as e:
+            logging.warning("Could not write stop marker for %s: %s", name, e)
         return f"Stopped {recipe['name']}"
 
     async def logs(self, recipe: dict, tail: int = 500) -> str:
@@ -280,12 +317,18 @@ def port_in_use(port: int) -> bool:
     return False
 
 
-def _failed_exit(status: str) -> bool:
-    """`Exited (1) 3 minutes ago` -> True. 0 and the codes docker stop produces (137/143) are not failures."""
+def _failed_exit(status: str, manager_stopped: bool = False) -> bool:
+    """`Exited (1) 3 minutes ago` -> True. 0 and 143 (SIGTERM from a stop) are not failures.
+    137 (SIGKILL) counts as clean only if the manager stopped the container: an OOM-killed
+    container exits with the same code, but no stop marker was written for it."""
     if not status.startswith("Exited ("):
         return False
     code = status[len("Exited ("):].split(")", 1)[0]
-    return code not in ("0", "137", "143")
+    if code in ("0", "143"):
+        return False
+    if code == "137":
+        return not manager_stopped
+    return True
 
 
 def agent_payload_recipe(recipe: dict) -> dict:

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -73,6 +74,8 @@ class Scheduler:
         self.db = db
         self.manager = manager
         self._task: Optional[asyncio.Task] = None
+        # Self-metrics: how many scheduled runs succeeded / failed since the manager started.
+        self.runs: Counter = Counter()
 
     def resync(self) -> None:
         """On startup: recompute cron schedules from now (missed runs are skipped) and
@@ -97,6 +100,7 @@ class Scheduler:
             log.exception("schedule %s failed", schedule["id"])
             ok, msg = False, f"{type(e).__name__}: {e}"
         self.db.record_schedule_run(schedule["id"], ok, msg)
+        self.runs["ok" if ok else "error"] += 1
         return ok, msg
 
     async def tick(self) -> None:

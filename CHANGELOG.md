@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Self-monitoring:** `GET /healthz` (hub and agent, no login) answers `ok` while the process is up and
+  the database reachable (503 otherwise), and with `DGXM_METRICS=1` `GET /metrics` serves the manager's
+  own metrics in Prometheus format (uptime, request/action counts, stored recipes/hosts) - no recipe or
+  host data.
+- **Activity-log retention:** events and start-time measurements older than `DGXM_RETENTION_DAYS`
+  (default 90 days, `0` = keep all) are pruned on start-up, and the database records its schema version
+  (`PRAGMA user_version`).
 - `examples/hermes-agent`: guide to run Hermes Agent (Telegram, local faster-whisper STT and Piper TTS) on an
   LLM recipe, with the Hermes gateway as a native-process recipe, tool-calling flags and security notes.
 - `examples/telegram-voice-bot`: a Telegram bot (voice and text) with a local Whisper server via Docker
@@ -17,6 +24,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   filter, "Newer available" / "Missing on a host" filters and a summary; the recipes per image are collapsed
   into a count that expands per host. Scales to ~100 recipes on 5 hosts on one screen. Agents get
   `GET /agent/v1/images` (older agents are reported as too old to list images).
+
+### Changed
+- A stopped Docker container that exits with 137/143 (what `docker stop` usually produces) is now
+  recognised as a clean stop only when the manager itself stopped it (recorded in a small state
+  file next to the process logs). A container the kernel OOM-killed exits the same way but without
+  that record, so it now shows **failed** instead of a misleading "stopped".
 
 ### Fixed
 - On phones, the tab bar wraps instead of making the page wider than the screen.

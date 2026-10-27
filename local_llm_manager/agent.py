@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from . import __version__, config
 from .executor import ActionError, LocalExecutor, host_info
+from .selfmetrics import Sink
 
 
 class AgentRequest(BaseModel):
@@ -41,10 +42,21 @@ def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
     ex = executor or LocalExecutor()
     app = FastAPI(title="Local LLM Manager agent", version=__version__)
     auth = [Depends(require_token)]
+    metrics = Sink()
+    app.state.metrics = metrics
 
     @app.exception_handler(ActionError)
     async def action_error(_: Request, exc: ActionError):
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+    @app.middleware("http")
+    async def count_requests(request: Request, call_next):
+        response = await call_next(request)
+        route = request.scope.get("route")
+        if route is not None and getattr(route, "path", None) and request.url.path not in ("/healthz", "/metrics"):
+            metrics.add("dgxm_api_requests_total", "Agent API requests, by method, route and status.",
+                        method=request.method, path=route.path, status=str(response.status_code))
+        return response
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index():
@@ -52,6 +64,19 @@ def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
                 f"<h3>Local LLM Manager agent on {host_info()['hostname']}</h3>"
                 f"<p>This machine is controlled from a hub dashboard. Add it there under <b>Hosts</b> "
                 f"with this URL and its agent token.</p></body>")
+
+    # Liveness / self-metrics for external scrapers: no token needed, no sensitive data.
+    @app.get("/healthz", include_in_schema=False)
+    async def healthz():
+        return PlainTextResponse("ok")
+
+    @app.get("/metrics", include_in_schema=False)
+    async def self_metrics():
+        if not config.METRICS_ENABLED:
+            raise HTTPException(404)
+        metrics.gauge("dgxm_build_info", "Manager build.", 1.0, version=__version__, mode="agent")
+        metrics.gauge("dgxm_uptime_seconds", "Seconds since the agent started.", metrics.uptime())
+        return PlainTextResponse(metrics.render(), media_type="text/plain; version=0.0.4; charset=utf-8")
 
     @app.get("/agent/v1/info", dependencies=auth)
     async def info():
