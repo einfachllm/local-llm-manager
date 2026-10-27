@@ -17,6 +17,8 @@
   --note-text: #f5d38a;
   --tip-bg: #0a1020;
   --tl-lane: rgba(255,255,255,.025);
+  --agent: #2cc4c9;
+  --agent-bg: rgba(44,196,201,.10);
   --radius: 10px;
   color-scheme: dark;
 }
@@ -39,6 +41,8 @@
   --note-text: #8a6100;
   --tip-bg: #ffffff;
   --tl-lane: rgba(0,0,0,.035);
+  --agent: #0e8f94;
+  --agent-bg: rgba(14,143,148,.09);
   color-scheme: light;
 }
 * { box-sizing: border-box; }
@@ -409,3 +413,62 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
 .img-recipes td { padding-top: 0; }
 .img-recipes div { margin: 2px 0 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .newer-chip { color: var(--green); border-color: rgba(52,199,123,.55); cursor: pointer; }
+
+/* models vs. agents: two sections, and agents as wide rows instead of tiles */
+.kind-section { margin-bottom: 30px; }
+.kind-head {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  margin: 0 0 12px; padding-bottom: 8px; border-bottom: 2px solid var(--border-strong);
+}
+.kind-head h3 { font-size: 16px; }
+.kind-head h3 span { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+.kind-head .kind-sub { color: var(--muted); font-size: 12.5px; }
+.kind-head .btn { margin-left: auto; }
+.kind-section.agents .kind-head { border-bottom-color: var(--agent); }
+.kind-section.agents .kind-head h3 { color: var(--agent); }
+.agent-list { display: flex; flex-direction: column; gap: 10px; }
+.agent-card {
+  flex-direction: row; align-items: center; gap: 16px; padding: 12px 16px;
+  background: linear-gradient(90deg, var(--agent-bg), var(--panel) 220px);
+  border-style: dashed;
+}
+.agent-card.is-ready { border-style: solid; }
+.agent-icon {
+  flex: 0 0 auto; width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+  font-size: 24px; background: var(--agent-bg); border: 1px solid var(--agent);
+}
+.agent-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.agent-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.agent-title-row .card-host { margin-top: 0; }
+.badge.agent { background: var(--agent-bg); color: var(--agent); border: 1px solid var(--agent); }
+.agent-uptime { font-size: 12px; }
+.agent-facts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; }
+.agent-facts:empty { display: none; }
+.agent-uses { color: var(--muted); margin-right: 4px; }
+.agent-uses b { color: var(--text); font-weight: 500; }
+.chip.secret { cursor: default; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.chip.secret.ok { color: var(--green); border-color: rgba(34,197,139,.45); }
+.chip.secret.bad { color: var(--red); border-color: rgba(239,91,91,.55); background: rgba(239,91,91,.08); }
+.agent-warn {
+  font-size: 12.5px; padding: 6px 10px; border-radius: 6px;
+  background: rgba(240,180,41,.08); border: 1px solid rgba(240,180,41,.45); color: var(--note-text);
+}
+.agent-card .actions { flex: 0 0 auto; margin-top: 0; justify-content: flex-end; max-width: 420px; }
+.agent-empty {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; padding: 10px 14px;
+  border: 1px dashed var(--border-strong); border-radius: var(--radius); color: var(--muted); font-size: 13px;
+}
+.agent-empty .btn { margin-left: auto; }
+.kind-filter { width: 100%; }
+.kind-filter button { flex: 1 1 0; padding: 5px 4px; white-space: nowrap; font-size: 12px; }
+.kind-seg { display: flex; width: 100%; margin-top: 4px; }
+.kind-seg button { flex: 1 1 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 12px; text-align: left; }
+.kind-seg button b { font-weight: 600; color: var(--text); }
+.kind-seg button.on { box-shadow: inset 0 0 0 2px var(--accent); }
+.kind-seg button[data-kind=agent].on { box-shadow: inset 0 0 0 2px var(--agent); }
+@media (max-width: 720px) {
+  .agent-card { flex-direction: column; align-items: stretch; }
+  .agent-icon { width: 38px; height: 38px; font-size: 20px; }
+  .agent-card .actions { max-width: none; justify-content: flex-start; }
+  .kind-head .btn { margin-left: 0; }
+}
