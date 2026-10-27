@@ -309,7 +309,7 @@ async function loadRecipes() {
 /* ---------------- recipe list: filter, sort, group ---------------- */
 
 const VIEW_KEY = "dgxm.recipeView";
-const view = { search: "", tags: [], sort: "name", group: "", host: "", collapsed: {} };
+const view = { search: "", tags: [], sort: "name", group: "", host: "", kind: "", collapsed: {} };
 try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || "{}")); } catch { /* storage unavailable */ }
 if (typeof view.group === "boolean") view.group = view.group ? "tag" : "";  // older saved views
 const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* ignore */ } };
@@ -356,6 +356,7 @@ function visibleRecipes() {
   const want = view.tags.map((t) => t.toLowerCase());
   return state.recipes.filter((r) => {
     if (view.host && String(r.host_id) !== view.host) return false;
+    if (view.kind && kindOf(r) !== view.kind) return false;
     const tags = (r.tags || []).map((t) => t.toLowerCase());
     if (!want.every((t) => tags.includes(t))) return false;
     if (!q) return true;
@@ -364,7 +365,10 @@ function visibleRecipes() {
   }).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (SORTS[view.sort] || byName)(a, b));
 }
 
+const kindOf = (r) => r.kind === "agent" ? "agent" : "model";
+
 function renderToolbar() {
+  $$("#recipe-kind button").forEach((b) => b.classList.toggle("on", b.dataset.kind === view.kind));
   const tags = allTags();
   // Drop filters for tags that no longer exist.
   const known = new Set(tags.map(([t]) => t.toLowerCase()));
@@ -495,6 +499,66 @@ function cardHtml(r) {
       </article>`;
 }
 
+// Agents (e.g. a Hermes gateway) serve no LLM API: a wide row with what matters for them - running or
+// not, the secrets they need, stray copies - instead of a model card's endpoint and engine numbers.
+const AGENT_STATUS_LABEL = { ...STATUS_LABEL, ready: "Running", loading: "Starting" };
+
+function agentCardHtml(r) {
+  const busy = state.busy.has(r.id);
+  const running = RUNNING.includes(r.status);
+  const active = new Set(view.tags.map((t) => t.toLowerCase()));
+  const uptime = r.container?.status ? `<span class="muted mono agent-uptime">${esc(r.container.status)}</span>` : "";
+  const secrets = Object.entries(r.secrets || {});
+  const dups = r.duplicates || [];
+  return `
+      <article class="card agent-card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
+        <div class="agent-icon" aria-hidden="true">🤖</div>
+        <div class="agent-main">
+          <div class="agent-title-row">
+            <span class="card-title">${esc(r.name)}</span>
+            <span class="badge agent" title="An agent: uses a model, kept running by “Switch to”">Agent · ${r.runtime === "process" ? "native" : "Docker"}</span>
+            ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
+            <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
+          </div>
+          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? "Working…" : AGENT_STATUS_LABEL[r.status] ?? r.status}</span>${uptime}</div>
+          ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
+          <div class="agent-facts">
+            ${r.model ? `<span class="agent-uses" title="The model this agent talks to">uses <b>${esc(r.model)}</b></span>` : ""}
+            ${secrets.map(([k, ok]) => ok
+              ? `<span class="chip small secret ok" title="Set in the manager's environment on this host (value hidden)">🔑 ${esc(k)} ✓</span>`
+              : `<span class="chip small secret bad" title="Not set in the manager's environment on this host: the agent will not get it. Add it to the manager's .env and restart the manager.">🔑 ${esc(k)} ✗ not set</span>`).join("")}
+            ${(r.tags || []).map((t) =>
+              `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}
+          </div>
+          ${dups.length ? `<div class="agent-warn">⚠ ${dups.length === 1 ? "Another copy" : `${dups.length} other copies`} of this command
+            ${dups.length === 1 ? "runs" : "run"} outside the manager (pid ${dups.map(Number).join(", ")}). Two gateways on one bot
+            token lose messages: kill ${dups.length === 1 ? "it" : "them"}, then restart this recipe.</div>` : ""}
+        </div>
+        <div class="actions">
+          ${running
+            ? `<button class="btn small stop" data-act="stop" ${busy ? "disabled" : ""}>Stop</button>
+               <button class="btn small" data-act="restart" ${busy ? "disabled" : ""}>Restart</button>`
+            : `<button class="btn small go" data-act="start" ${busy ? "disabled" : ""}>Start</button>`}
+          <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
+          <button class="btn small ghost" data-act="edit">Edit</button>
+          <button class="btn small ghost" data-act="duplicate">Duplicate</button>
+          <button class="btn small ghost danger" data-act="delete" ${running ? "disabled" : ""}>Delete</button>
+        </div>
+      </article>`;
+}
+
+function kindHeadHtml(kind, items) {
+  const running = items.filter((r) => RUNNING.includes(r.status)).length;
+  const count = `${items.length} ${kind === "agent" ? "agent" : "model"}${items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}`;
+  return kind === "agent"
+    ? `<div class="kind-head"><h3>🤖 Agents <span>${count}</span></h3>
+        <span class="kind-sub">Programs that use a model. “Switch to” keeps them running.</span>
+        <button class="btn small" data-new-kind="agent">+ New agent</button></div>`
+    : `<div class="kind-head"><h3>🧠 Models <span>${count}</span></h3>
+        <span class="kind-sub">LLM servers with an OpenAI-compatible API.</span>
+        <button class="btn small" data-new-kind="model">+ New model</button></div>`;
+}
+
 function renderRecipes() {
   renderToolbar();
   if (!state.recipes.length) {
@@ -506,10 +570,24 @@ function renderRecipes() {
     $("#recipes").innerHTML = `<div class="empty">No recipe matches the current filter.</div>`;
     return;
   }
-  if (!view.group) {
-    $("#recipes").innerHTML = `<div class="grid">${list.map(cardHtml).join("")}</div>`;
-    return;
+  const agents = list.filter((r) => kindOf(r) === "agent");
+  const models = list.filter((r) => kindOf(r) === "model");
+  let html = "";
+  if (agents.length) {
+    html += `<section class="kind-section agents">${kindHeadHtml("agent", agents)}
+      <div class="agent-list">${agents.map(agentCardHtml).join("")}</div></section>`;
+  } else if (!view.kind && !state.recipes.some((r) => kindOf(r) === "agent")) {
+    html += `<div class="agent-empty">🤖 No agents yet. Agents, such as a Hermes gateway, run as recipes too and get
+      their own section here. <button class="btn small ghost" data-new-kind="agent">+ New agent</button></div>`;
   }
+  if (models.length) {
+    html += `<section class="kind-section models">${kindHeadHtml("model", models)}${modelsHtml(models)}</section>`;
+  }
+  $("#recipes").innerHTML = html;
+}
+
+function modelsHtml(list) {
+  if (!view.group) return `<div class="grid">${list.map(cardHtml).join("")}</div>`;
   // Group by host, or by each recipe's first tag (e.g. the model name); every recipe appears once.
   const groups = new Map();
   for (const r of list) {
@@ -519,7 +597,7 @@ function renderRecipes() {
     groups.get(key).items.push(r);
   }
   const keys = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b, undefined, { numeric: true }));
-  $("#recipes").innerHTML = keys.map((k) => {
+  return keys.map((k) => {
     const g = groups.get(k);
     const running = g.items.filter((r) => RUNNING.includes(r.status)).length;
     const collapsed = !!view.collapsed[`${view.group}:${k}`];
@@ -545,6 +623,13 @@ $("#tag-filter").addEventListener("click", (ev) => {
 $("#recipe-search").addEventListener("input", (ev) => { view.search = ev.target.value; saveView(); renderRecipes(); });
 $("#recipe-sort").addEventListener("change", (ev) => { view.sort = ev.target.value; saveView(); renderRecipes(); });
 $("#recipe-group").addEventListener("change", (ev) => { view.group = ev.target.value; saveView(); renderRecipes(); });
+$("#recipe-kind").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-kind]");
+  if (!b) return;
+  view.kind = b.dataset.kind;
+  saveView();
+  renderRecipes();
+});
 $("#recipe-host").addEventListener("change", (ev) => { view.host = ev.target.value; saveView(); renderRecipes(); });
 $("#recipe-search").value = view.search;
 $("#recipe-sort").value = SORTS[view.sort] ? view.sort : "name";
@@ -569,7 +654,7 @@ async function runAction(key, path, okMsg) {
 
 const RECIPE_BODY_FIELDS = ["name", "description", "host_id", "runtime", "framework", "image", "model",
   "container_name", "host_port", "container_port", "command", "args", "env", "volumes", "docker_args",
-  "gpus", "health_path", "est_memory_gb", "tags", "color"];
+  "gpus", "health_path", "est_memory_gb", "tags", "color", "kind"];
 function recipeBodyFrom(r, overrides = {}) {
   const body = { pinned: !!r.pinned };
   for (const f of RECIPE_BODY_FIELDS) body[f] = r[f];
@@ -577,6 +662,8 @@ function recipeBodyFrom(r, overrides = {}) {
 }
 
 $("#recipes").addEventListener("click", async (ev) => {
+  const add = ev.target.closest("[data-new-kind]");
+  if (add) { openRecipeEditor(null, add.dataset.newKind); return; }
   const head = ev.target.closest(".group-title");
   if (head) {
     const key = head.closest(".group").dataset.gkey;
@@ -684,7 +771,39 @@ function syncRuntime() {
   $("#port-label").textContent = native ? "Port" : "Host port";
   $("#model-hint").textContent = native ? "HF id or local path (~ allowed)" : "HF id or path inside the container";
   if (native) recipeForm.elements.container_port.value = recipeForm.elements.host_port.value;
+  if (recipeForm.elements.kind.value === "agent") setKind("agent", false);
 }
+
+// Agents have no LLM API: by default no GPU (`--gpus all` fails on machines without NVIDIA) and no
+// health check (the port is only a placeholder), so "running" means the process/container is up.
+function setKind(kind, adjust) {
+  const f = recipeForm.elements;
+  f.kind.value = kind;
+  $$("#kind-seg button").forEach((b) => b.classList.toggle("on", b.dataset.kind === kind));
+  const agent = kind === "agent";
+  if (adjust) {
+    const preset = state.meta.frameworks[f.framework.value] || {};
+    if (agent) {
+      if (f.gpus.value.trim() === "all") f.gpus.value = "";
+      if (f.health_path.value === (preset.health_path ?? "")) f.health_path.value = "";
+    } else if (!f.health_path.value) {
+      f.health_path.value = preset.health_path ?? "";
+    }
+  }
+  $("#model-hint").textContent = agent ? "the model it talks to, shown on the card (optional)"
+    : f.runtime.value === "process" ? "HF id or local path (~ allowed)" : "HF id or path inside the container";
+  f.health_path.placeholder = agent ? "none: running = process/container is up" : "/health";
+  $("#port-label").textContent = agent ? "Port (placeholder if it listens on none)" : f.runtime.value === "process" ? "Port" : "Host port";
+  const noun = agent ? "agent" : "recipe";
+  $("#recipe-title").textContent = editingRecipe ? `Edit ${noun} – ${editingRecipe.name}` : `New ${noun}`;
+}
+
+$("#kind-seg").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-kind]");
+  if (!b || b.dataset.kind === recipeForm.elements.kind.value) return;
+  setKind(b.dataset.kind, true);
+  recipeForm.dispatchEvent(new Event("input"));
+});
 
 function markSwatch() {
   const current = recipeForm.elements.color.value;
@@ -708,6 +827,7 @@ function applyFramework(name, overwriteAll) {
   ["image", "command", "container_port", "health_path"].forEach((k) => { recipeForm.elements[k].value = p[k] ?? ""; });
   ["args", "docker_args", "volumes", "env"].forEach((k) => set(k, p[k]));
   syncRuntime();
+  setKind(recipeForm.elements.kind.value, true);
 }
 
 // Ports are per host: the same port may be used on two different machines.
@@ -754,6 +874,15 @@ function renderPorts() {
   $("#ports").innerHTML = rows.length ? rows.map((r) => {
     const shared = recipesOnPort(r.host_id, r.host_port, r.id);
     const running = RUNNING.includes(r.status);
+    if (kindOf(r) === "agent") {
+      return `<tr>
+      <td>${esc(maskAddr(hostName(r.host_id)))}</td>
+      <td class="mono">${r.host_port}${shared.length ? ` <span class="chip small warn-chip" title="Also used by: ${esc(shared.map((x) => x.name).join(", "))}">shared</span>` : ""}</td>
+      <td>🤖 ${esc(r.name)}</td>
+      <td><span class="pill ${r.status}">${AGENT_STATUS_LABEL[r.status] ?? r.status}</span></td>
+      <td class="muted">agent – no LLM API</td>
+    </tr>`;
+    }
     return `<tr>
       <td>${esc(maskAddr(hostName(r.host_id)))}</td>
       <td class="mono">${r.host_port}${shared.length ? ` <span class="chip small warn-chip" title="Also used by: ${esc(shared.map((x) => x.name).join(", "))}">shared</span>` : ""}</td>
@@ -772,7 +901,7 @@ $("#ports").addEventListener("click", async (ev) => {
   catch { prompt("Copy the endpoint:", b.dataset.copy); }
 });
 
-function openRecipeEditor(r) {
+function openRecipeEditor(r, kind = "model") {
   editingRecipe = r;
   recipeForm.reset();
   $("#sel-host").innerHTML = state.hosts.map((h) =>
@@ -782,9 +911,10 @@ function openRecipeEditor(r) {
   showRecipeNote([]);
   recipeForm.elements.color.value = "";
   markSwatch();
-  $("#recipe-title").textContent = r ? `Edit recipe – ${r.name}` : "New recipe";
+  setKind(r ? kindOf(r) : kind, false);
   if (r) {
     fillRecipeForm(r);
+    setKind(kindOf(r), false);
   } else {
     const hostId = view.host || state.hosts.find((h) => h.is_local)?.id;
     recipeForm.elements.host_id.value = hostId ?? "";
@@ -792,7 +922,8 @@ function openRecipeEditor(r) {
     const mac = hostPlatform(hostId) === "darwin";
     recipeForm.elements.gpus.value = mac ? "" : "all";
     recipeForm.elements.host_port.value = nextFreePort(recipeForm.elements.host_id.value);
-    applyFramework(mac ? "mlx" : "vllm", true);
+    // A new agent starts as a native process (e.g. `hermes gateway run`); Docker is one click away.
+    applyFramework(kind === "agent" ? "process-custom" : mac ? "mlx" : "vllm", true);
   }
   syncHostNetworkPorts();
   updatePortHint();
@@ -805,7 +936,8 @@ $("#btn-new-recipe").addEventListener("click", () => openRecipeEditor(null));
 $("#sel-host").addEventListener("change", (e) => {
   updatePortHint();
   // New recipe moved to a Mac: switch to native MLX (Docker on macOS has no GPU access).
-  if (!editingRecipe && hostPlatform(e.target.value) === "darwin" && recipeForm.elements.runtime.value === "docker") {
+  if (!editingRecipe && hostPlatform(e.target.value) === "darwin" && recipeForm.elements.runtime.value === "docker"
+      && recipeForm.elements.kind.value !== "agent") {
     recipeForm.elements.gpus.value = "";
     applyFramework("mlx", true);
     updatePreview();
@@ -1184,7 +1316,7 @@ function openScheduleEditor(s) {
   $("#schedule-error").textContent = "";
   $("#schedule-title").textContent = s ? "Edit schedule" : "New schedule";
   $("#sel-recipe").innerHTML = state.recipes.map((r) =>
-    `<option value="${r.id}">${esc(r.name)}${multiHost() ? ` – ${esc(maskAddr(hostName(r.host_id)))}` : ""}</option>`).join("");
+    `<option value="${r.id}">${kindOf(r) === "agent" ? "🤖 " : ""}${esc(r.name)}${multiHost() ? ` – ${esc(maskAddr(hostName(r.host_id)))}` : ""}</option>`).join("");
   $("#sel-sched-host").innerHTML = `<option value="">All hosts</option>` +
     state.hosts.map((h) => `<option value="${h.id}">${esc(maskAddr(h.name))}</option>`).join("");
   $("#sel-sched-host").value = s?.host_id ?? "";
