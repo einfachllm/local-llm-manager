@@ -207,15 +207,25 @@ service after changes (`sudo systemctl restart local-llm-manager`, or rerun the 
 | `DGXM_PUBLISH_IP` | *(empty = all interfaces)* | Address model ports are published on; `tailscale` = Tailscale IP |
 | `DGXM_MODE` | `hub` | `agent`: no dashboard, controlled by a hub |
 | `DGXM_AGENT_TOKEN` | | Token the hub must send (required in agent mode) |
+| `DGXM_METRICS` | *(off)* | `1`: serve the manager's own metrics at `/metrics` (Prometheus format) |
 | `DGXM_DB` | `./data/manager.db` | SQLite database |
 | `DGXM_STOP_TIMEOUT` | `30` | Seconds to wait on stop before killing |
 | `DGXM_SEED` | `1` | Add two example recipes to an empty database |
 | `HF_TOKEN`, … | | Passed to recipes that list the bare name in their environment |
 
 Less common: `DGXM_HEALTH_HOST` (`DGXM_PUBLISH_IP`, else `127.0.0.1`), `DGXM_PROC_DIR` (`<db folder>/processes`),
-`DGXM_DROP_CACHES_IMAGE` (`busybox:latest`).
+`DGXM_DROP_CACHES_IMAGE` (`busybox:latest`), `DGXM_RETENTION_DAYS` (`90`, activity-log and start-time
+retention in days; `0` keeps everything).
 
 Everything in the UI is also available as a JSON API; see `http://<machine>:8090/docs`.
+
+## Monitoring
+
+`GET /healthz` answers `ok` while the manager process is up and its database is reachable (503 otherwise).
+It needs no login on hub and agent, so an external monitor (e.g. Uptime Kuma, `curl` from a watchdog)
+notices a dead machine. With `DGXM_METRICS=1` in `.env`, `GET /metrics` additionally serves the
+manager's own metrics in Prometheus format (uptime, request and action counts, stored recipes/hosts) -
+again without login, and again without any recipe or host data.
 
 ## Contributing
 
