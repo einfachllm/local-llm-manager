@@ -6,6 +6,7 @@ Both executors have the same async interface, so the Manager does not care where
 
 import asyncio
 import logging
+import os
 import platform
 import socket
 import sys
@@ -17,7 +18,8 @@ import httpx
 from . import __version__, config, logstats, servermetrics, system
 from .docker import Docker, try_drop_caches_locally
 from .processes import ProcessError, ProcessRunner
-from .recipes import build_process_argv, build_run_argv, format_command, format_process_command, process_env
+from .recipes import (build_process_argv, build_run_argv, format_command, format_process_command, process_env,
+                      secret_names)
 
 
 class ActionError(Exception):
@@ -118,15 +120,33 @@ class LocalExecutor:
                 stopped_by_us = self._was_stopped_by_manager(r["container_name"], c["id"])
                 status = "failed" if _failed_exit(c["status"], stopped_by_us) else "stopped"
             out[r["id"]] = {"status": status, "container": c}
+            if r.get("kind") == "agent":
+                out[r["id"]].update(await self._agent_checks(r))
         if running:
+            # Agents serve no LLM API, so there are no engine metrics to read.
+            with_metrics = [r for r in running if r.get("kind") != "agent"]
             async with httpx.AsyncClient(timeout=2.0) as client:
                 health = await asyncio.gather(*(self._healthy(client, r) for r in running))
-                stats = await asyncio.gather(*(self._metrics(client, r, instances[r["id"]]) for r in running))
-            for r, ok, m in zip(running, health, stats):
+                stats = await asyncio.gather(*(self._metrics(client, r, instances[r["id"]]) for r in with_metrics))
+            for r, ok in zip(running, health):
                 out[r["id"]]["status"] = "ready" if ok else "loading"
+            for r, m in zip(with_metrics, stats):
                 if m:
                     out[r["id"]]["metrics"] = m
         self.rates.forget_except({_instance_key(r, instances[r["id"]]) for r in running})
+        return out
+
+    async def _agent_checks(self, recipe: dict) -> dict[str, Any]:
+        """For agents: which passed-through secrets are set here (names only, never values), and
+        other copies of a native agent's command running outside the manager (e.g. a detached
+        gateway that would poll the same bot token)."""
+        out: dict[str, Any] = {"secrets": {k: bool(os.environ.get(k)) for k in secret_names(recipe)}}
+        if recipe.get("runtime") == "process":
+            try:
+                argv = build_process_argv(recipe)
+            except ValueError:
+                argv = []
+            out["duplicates"] = await asyncio.to_thread(self.procs.duplicates, recipe["container_name"], argv)
         return out
 
     async def _metrics(self, client: httpx.AsyncClient, recipe: dict, instance: dict) -> dict:
@@ -333,7 +353,7 @@ def _failed_exit(status: str, manager_stopped: bool = False) -> bool:
 
 def agent_payload_recipe(recipe: dict) -> dict:
     """The fields an agent needs to run a recipe (no host, tags, colours...)."""
-    keep = ("id", "name", "runtime", "framework", "image", "model", "container_name", "host_port",
+    keep = ("id", "name", "kind", "runtime", "framework", "image", "model", "container_name", "host_port",
             "container_port", "command", "args", "env", "volumes", "docker_args", "gpus", "health_path")
     return {k: recipe.get(k) for k in keep}
 

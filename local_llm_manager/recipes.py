@@ -115,6 +115,10 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
 
 RUNTIMES = {"docker": "Docker container", "process": "Native process"}
 
+# What a recipe runs: an LLM server, or an agent that talks to one (e.g. a Hermes gateway). Agents
+# are shown apart on the dashboard, have no endpoint or engine metrics, and "switch" leaves them alone.
+KINDS = {"model": "Model", "agent": "Agent"}
+
 # Card colours offered in the UI (purely visual). "" is the default card.
 CARD_COLORS = ("", "green", "teal", "blue", "purple", "pink", "orange", "yellow", "red", "black")
 
@@ -204,6 +208,11 @@ def build_process_argv(recipe: dict[str, Any]) -> list[str]:
     """argv for a native-process recipe: command + framework arguments, with `~` expanded."""
     argv = split_args(substitute(recipe.get("command", ""), recipe)) + split_args(recipe.get("args", ""))
     return [os.path.expanduser(a) if a.startswith("~") else a for a in argv]
+
+
+def secret_names(recipe: dict[str, Any]) -> list[str]:
+    """Bare KEY lines of the env field: variables passed through from the manager's own environment."""
+    return [line for line in _lines(recipe.get("env", "")) if "=" not in line]
 
 
 def process_env(recipe: dict[str, Any]) -> dict[str, str]:
