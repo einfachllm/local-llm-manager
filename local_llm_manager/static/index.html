@@ -25,13 +25,18 @@
   <main>
     <section id="tab-recipes" class="panel">
       <div class="panel-head">
-        <h2>Model recipes</h2>
+        <h2>Recipes</h2>
         <button class="btn primary" id="btn-new-recipe">+ New recipe</button>
       </div>
       <div class="recipes-layout">
         <div id="recipes"></div>
         <aside class="filter-rail" aria-label="Recipe filters">
           <div class="toolbar">
+            <div class="seg kind-filter" id="recipe-kind" role="group" aria-label="Show">
+              <button type="button" data-kind="">All</button>
+              <button type="button" data-kind="model">🧠 Models</button>
+              <button type="button" data-kind="agent">🤖 Agents</button>
+            </div>
             <input id="recipe-search" type="search" placeholder="Search name, model, image, tag…">
             <label class="inline">Sort
               <select id="recipe-sort">
@@ -151,6 +156,13 @@
       </div>
       <div class="note hidden" id="recipe-note"></div>
       <div class="form-grid">
+        <div class="span2 field">This recipe runs
+          <input type="hidden" name="kind" value="model">
+          <div class="seg kind-seg" id="kind-seg" role="group" aria-label="Kind">
+            <button type="button" data-kind="model"><b>🧠 A model</b><small>an LLM server with an API (vLLM, SGLang, llama.cpp, MLX…)</small></button>
+            <button type="button" data-kind="agent"><b>🤖 An agent</b><small>a program that uses a model (e.g. a Hermes gateway); “Switch to” keeps it running</small></button>
+          </div>
+        </div>
         <label>Name<input name="name" required></label>
         <label>Host<select name="host_id" id="sel-host"></select></label>
         <label>Runtime<select name="runtime" id="sel-runtime"></select></label>

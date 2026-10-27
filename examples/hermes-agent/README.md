@@ -37,7 +37,7 @@ An agent needs tool calling. Create (or adjust) a recipe on the machine that wil
   `llama3_json` for Llama 3, …; see the vLLM tool-calling docs). For SGLang the flags are
   `--served-model-name local --tool-call-parser <parser>`; llama.cpp needs `--jinja`.
 - Give every model you want to switch between the **same port** and `--served-model-name local`: Hermes then
-  keeps working with the new model after **Switch to** (restart the gateway, see step 3).
+  keeps working with the new model after **Switch to** (see step 3).
 - Pick a model with a long context (Hermes sends a large system prompt and tool list; 32k+ tokens).
 
 Start it and check: `curl http://127.0.0.1:8101/v1/models` lists `local`.
@@ -85,23 +85,28 @@ messages and to send voice bubbles. Try it once in the terminal with `hermes` be
 
 ## 3. The Hermes gateway as a recipe
 
-Add a recipe, **Native process**, on the same host:
+Add a recipe on the same host with **+ New agent** (or pick *This recipe runs: An agent* in the editor).
+That puts it in the dashboard's **Agents** section, and **Switch to** on a model leaves it running:
 
 | Field | Value |
 |---|---|
+| Runtime | Native process |
 | Name | `hermes-gateway` |
 | Command | `/home/you/.local/bin/hermes gateway run` (the path from `which hermes`) |
 | Port | a free placeholder port, e.g. `8199` (Hermes does not listen on it) |
 | Health path | *(empty - the gateway has no HTTP endpoint)* |
+| Model | e.g. `local (Qwen3-30B on :8101)` - only shown on the card |
+| Environment | your secret **names**, e.g. `TELEGRAM_BOT_TOKEN` (see the Docker variant below) |
 
 Start it and watch the log in the dashboard; then message your bot on Telegram, by text or voice.
 
 - Do **not** also run `hermes gateway install` / `hermes gateway start`: two gateways polling the same bot
   token fight over the messages. The manager is the service manager here.
-- **Switch to** stops *every* other recipe on that host - the gateway too. After switching the LLM, press
-  **Start** on `hermes-gateway` again (it loads in seconds). In a schedule, add a "start hermes-gateway" a
-  few minutes after the "switch to". Never use **Switch to** on the gateway recipe itself: it would stop
-  the LLM.
+- **Switch to** on a model stops the other *models* on that host, not agents: the gateway keeps running
+  and talks to the new model on the same port. If replies fail right after a switch (the model is still
+  loading), wait until it is *Ready*, or press **Restart** on the gateway. Agents have no **Switch to**.
+- The agent card shows each secret name with ✓ (set in the manager's environment) or ✗ *not set*, and warns
+  when a second copy of the gateway command runs outside the manager (see Gotchas).
 - A schedule "stop all" in the evening and "start" of both recipes in the morning gives you a bot that
   sleeps at night.
 
@@ -112,6 +117,7 @@ state plus the recipe definition, and no Hermes install on the host to maintain:
 
 | Field | Value |
 |---|---|
+| This recipe runs | An agent |
 | Image | `nousresearch/hermes-agent` |
 | Command | `gateway run` - and only that: never override the entrypoint, the image needs its s6 `/init` |
 | Volumes | `~/.hermes:/opt/data` (same config, keys and sessions as the native install) |

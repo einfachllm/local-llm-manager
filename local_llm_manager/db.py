@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     runtime         TEXT NOT NULL DEFAULT 'docker',
     host_id         INTEGER,
     pinned          INTEGER NOT NULL DEFAULT 0,
+    kind            TEXT NOT NULL DEFAULT 'model',
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
@@ -94,7 +95,7 @@ SCHEMA_VERSION = 1
 RECIPE_FIELDS = (
     "name", "description", "framework", "image", "model", "container_name", "host_port",
     "container_port", "command", "args", "env", "volumes", "docker_args", "gpus",
-    "health_path", "est_memory_gb", "tags", "color", "runtime", "host_id", "pinned",
+    "health_path", "est_memory_gb", "tags", "color", "runtime", "host_id", "pinned", "kind",
 )
 
 # Columns added after the first release, created on existing databases at startup.
@@ -107,6 +108,8 @@ MIGRATIONS = {
     # Host for stop_all / free_memory schedules; NULL = all hosts.
     ("schedules", "host_id"): "ALTER TABLE schedules ADD COLUMN host_id INTEGER",
     ("recipes", "pinned"): "ALTER TABLE recipes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+    # "model" (an LLM server) or "agent" (a program using one, e.g. a Hermes gateway).
+    ("recipes", "kind"): "ALTER TABLE recipes ADD COLUMN kind TEXT NOT NULL DEFAULT 'model'",
 }
 
 SCHEDULE_FIELDS = ("name", "action", "recipe_id", "cron", "run_at", "enabled", "host_id")
@@ -135,7 +138,7 @@ def normalize_tags(tags: Any) -> list[str]:
 RECIPE_DEFAULTS = {
     "description": "", "framework": "", "image": "", "model": "",
     "command": "", "args": "", "env": "", "volumes": "", "docker_args": "",
-    "gpus": "all", "health_path": "/health", "color": "", "runtime": "docker", "pinned": 0,
+    "gpus": "all", "health_path": "/health", "color": "", "runtime": "docker", "pinned": 0, "kind": "model",
 }
 
 
