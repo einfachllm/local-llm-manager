@@ -92,4 +92,4 @@ else
   echo "Installed. Open http://${IP}:${PORT:-8090}"
 fi
 echo "Service log: tail -f ${LOG}"
-echo "Uninstall:   launchctl bootout gui/\$(id -u) ${PLIST} && rm ${PLIST}"
+echo "Uninstall:   ./uninstall-macos.sh"
