@@ -46,6 +46,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that record, so it now shows **failed** instead of a misleading "stopped".
 
 ### Fixed
+- The "KV" figure in a card's stats line no longer drops onto its own line (it picked up the layout of
+  the card's fact list).
 - On phones, the tab bar wraps instead of making the page wider than the screen.
 
 ## [0.1.0] - 2026-10-26
