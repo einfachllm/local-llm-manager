@@ -174,8 +174,37 @@ def test_logs(client):
 
 def test_failed_exit_detection():
     assert executor_mod._failed_exit("Exited (1) 2 minutes ago")
-    assert not executor_mod._failed_exit("Exited (137) 2 minutes ago")
+    assert not executor_mod._failed_exit("Exited (0) 2 minutes ago")
+    assert not executor_mod._failed_exit("Exited (143) 2 minutes ago")  # SIGTERM from a stop
     assert not executor_mod._failed_exit("Up 3 hours")
+    # 137 (SIGKILL): only a manager-initiated stop (the stop marker) is clean, an OOM kill fails.
+    assert executor_mod._failed_exit("Exited (137) 2 minutes ago")
+    assert not executor_mod._failed_exit("Exited (137) 2 minutes ago", manager_stopped=True)
+
+
+def test_oom_kill_shows_failed(client, fake_docker):
+    r = create(client)
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+    # The kernel OOM-kills the server while it runs: exit 137, no stop marker.
+    fake_docker.containers[r["container_name"]].update(state="exited", status="Exited (137) 1 minute ago")
+    assert client.get(f"/api/recipes/{r['id']}").json()["status"] == "failed"
+
+
+def test_manager_stop_survives_as_clean_stop(client, fake_docker):
+    local = client.app.state.manager.local
+    r = create(client)
+    client.post(f"/api/recipes/{r['id']}/start")
+    assert client.post(f"/api/recipes/{r['id']}/stop").status_code == 200
+    name = r["container_name"]
+    # The stop is recorded on disk (container id), not in the manager's memory.
+    assert local._stop_marker(name).read_text() == fake_docker.containers[name]["id"]
+    # The same 137 exit code a stop usually produces is then read as a clean stop, even across a
+    # manager restart.
+    fake_docker.containers[name]["status"] = "Exited (137) 1 second ago"
+    assert client.get(f"/api/recipes/{r['id']}").json()["status"] == "stopped"
+    # Re-starting clears the marker, so a later OOM kill of the new container is a failure again.
+    client.post(f"/api/recipes/{r['id']}/start")
+    assert not local._stop_marker(name).exists()
 
 
 def test_schedule_crud_and_validation(client):
