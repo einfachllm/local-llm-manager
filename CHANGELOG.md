@@ -18,6 +18,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the same command runs outside the manager (e.g. a detached second gateway on the same bot token).
   Grouped by host or tag, each group stacks its agents above its models, and its "+ New" buttons create
   the recipe on that host.
+- **Model rows:** models are shown as wide rows like agents (🧠 icon, the card's facts side by side) by
+  default; "Models as: Rows / Tiles" in the filter rail switches back to the card grid (remembered per
+  browser).
 - **Self-monitoring:** `GET /healthz` (hub and agent, no login) answers `ok` while the process is up and
   the database reachable (503 otherwise), and with `DGXM_METRICS=1` `GET /metrics` serves the manager's
   own metrics in Prometheus format (uptime, request/action counts, stored recipes/hosts) - no recipe or
