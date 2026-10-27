@@ -69,9 +69,13 @@ def test_agent_reports_secret_names_but_never_values(client, monkeypatch):
 
 
 def test_duplicates_finds_copies_started_outside_the_manager(tmp_path):
-    runner = ProcessRunner(tmp_path)
-    marker = f"agent-dup-{time.time_ns()}"
-    argv = [sys.executable, "-c", "import time; time.sleep(30)", marker]
+    runner = ProcessRunner(tmp_path / "proc")
+    # A script, like a real agent (`hermes gateway run`): its name stays in the command line, whereas
+    # the interpreter itself may show up under another name (macOS framework Python runs `Python`).
+    gateway = tmp_path / "fake-gateway"
+    gateway.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(30)\n")
+    gateway.chmod(0o755)
+    argv = [str(gateway), "run", f"agent-dup-{time.time_ns()}"]
     runner.start("gw", argv, env={"PATH": "/usr/bin:/bin"})
     stray = subprocess.Popen(argv)
     try:

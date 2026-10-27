@@ -117,6 +117,8 @@ main { padding: 24px; max-width: 1500px; margin: 0 auto; }
 .card-metrics .spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 .card-metrics.idle { color: var(--muted); }
 .card-metrics .idle-word { font-style: italic; }
+/* the metrics line's "KV" span is not the .kv fact list below */
+.card-metrics .kv { display: inline; font-size: inherit; }
 .card-metrics .kv.warm { color: var(--yellow); }
 .card-metrics .kv.hot { color: var(--red); font-weight: 600; }
 .spark.flat polyline { stroke: var(--muted); stroke-dasharray: 3 3; }
@@ -494,6 +496,7 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
 .row-facts div { display: flex; gap: 6px; min-width: 0; }
 .row-facts dt { color: var(--muted); }
 .row-facts dd { margin: 0; overflow-wrap: anywhere; }
+.row-facts a { color: var(--accent); text-decoration: none; }
 .model-row .card-metrics { align-self: flex-start; max-width: 100%; }
 .model-row .actions { flex: 0 0 auto; margin-top: 0; justify-content: flex-end; max-width: 420px; }
 #recipe-layout { display: inline-flex; }
