@@ -12,6 +12,9 @@ silicon, or any Linux box - from any browser on your network:
 - **Recipes:** save how to start a model server (vLLM, SGLang, TensorRT-LLM, llama.cpp, MLX or any image),
   as a Docker container or as a native process. Or import an existing starter script / `docker run` command.
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).
+- **Agents next to models:** run the programs that use your models - e.g. a [Hermes Agent](examples/hermes-agent/)
+  Telegram gateway - as recipes too. They get their own section per host (🤖 above 🧠), keep running when you
+  switch models, and show whether their secrets are set and whether a stray second copy is running.
 - **Live status, logs and stats:** loading/ready/failed, tokens/s with a throughput sparkline, running
   requests, KV cache usage - and an estimate of how long a start typically takes (measured trigger → ready).
 - **Schedules:** start, stop or switch models at set times, with a timeline of what will run when.
@@ -41,17 +44,18 @@ download them.
   Whisper runs next to it via Docker Compose; the LLM is a recipe in this manager, so **Switch to** changes
   the bot's model.
 - [Hermes Agent](examples/hermes-agent/): a full personal agent on Telegram with local speech-to-text and
-  text-to-speech, running on a model from this manager; the Hermes gateway itself is a native-process recipe.
+  text-to-speech, running on a model from this manager; the Hermes gateway itself is an agent recipe (native
+  process or Docker).
 
 ## Screenshots
 
-| Light theme | Schedules & planned-runs timeline |
+| Light theme, models as tiles | Schedules & planned-runs timeline |
 |---|---|
-| ![Light theme](docs/screenshots/recipes-light.png) | ![Schedules](docs/screenshots/schedules-dark.png) |
+| ![Light theme, models as tiles](docs/screenshots/recipes-light.png) | ![Schedules](docs/screenshots/schedules-dark.png) |
 
-| Hosts, ports & endpoints | Recipe editor |
+| Hosts, ports & endpoints | Recipe editor (an agent) |
 |---|---|
-| ![Hosts](docs/screenshots/hosts-dark.png) | ![Recipe editor](docs/screenshots/recipe-editor-dark.png) |
+| ![Hosts](docs/screenshots/hosts-dark.png) | ![Recipe editor, editing an agent](docs/screenshots/recipe-editor-dark.png) |
 
 The screenshots show a demo setup. The top-bar **🙈 Blur** toggle replaces host names and IPs with aliases such as
 `host-3f2a` (as in the Hosts screenshot) - handy for screenshots and screen shares.
@@ -165,6 +169,22 @@ command; change it to `--host {bind_host}` for native-process and `--network hos
 - Live stats come from the server's `/metrics` endpoint: on by default in vLLM, add `--enable-metrics`
   for SGLang and `--metrics` for llama.cpp.
 - Starting is refused if the port is already in use on that machine.
+
+### Models and agents
+
+The editor's first choice, *This recipe runs*, sets what a recipe is:
+
+- **A model** - an LLM server with an API (vLLM, SGLang, llama.cpp, MLX, …): the usual recipe.
+- **An agent** - a program that *uses* a model, e.g. a Hermes gateway (native or Docker). It is listed in
+  its own 🤖 Agents section (per host when grouped), has no endpoint or engine stats, and needs no GPU or
+  health path (running = its process/container is up; the port may be a placeholder). **Switch to** on a
+  model stops only the other *models* on that host, and agents themselves have no **Switch to**; "stop all"
+  and "free memory" stop agents too. The card shows each passed-through secret name (a bare `KEY` line in
+  *Environment*) with ✓ or ✗ - whether the manager's environment on that host has it; values are never
+  shown - and, for native agents, warns when the same command also runs outside the manager.
+
+Not to be confused with **agent mode** ([Several machines](#several-machines)), which is how the manager itself runs on a second machine.
+"Models as: Rows / Tiles" in the filter rail switches models between wide rows (default) and cards.
 
 ## Schedules and time zone
 
