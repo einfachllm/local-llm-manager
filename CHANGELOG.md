@@ -7,6 +7,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Agents apart from models:** a recipe is either a *model* (an LLM server) or an *agent* (a program that
+  uses one, e.g. a Hermes gateway; new `kind` field, default `model`). The Recipes tab shows two sections,
+  🤖 Agents and 🧠 Models, with their own counts and "+ New" buttons, and an All / Models / Agents filter.
+  Agents are wide rows instead of tiles: running or not and since when, the model they use, no endpoint or
+  engine metrics. **Switch to** keeps agents running and is not offered for them (the API answers 409);
+  "stop all" and "free memory" still stop them. A new agent defaults to no GPUs and no health check.
+  An agent card shows each passed-through secret name with ✓/✗ (whether it is set in the manager's
+  environment on that host; values are never sent) and, for native agents, warns when another copy of
+  the same command runs outside the manager (e.g. a detached second gateway on the same bot token).
 - **Self-monitoring:** `GET /healthz` (hub and agent, no login) answers `ok` while the process is up and
   the database reachable (503 otherwise), and with `DGXM_METRICS=1` `GET /metrics` serves the manager's
   own metrics in Prometheus format (uptime, request/action counts, stored recipes/hosts) - no recipe or

@@ -30,8 +30,8 @@ from .manager import ActionError, Manager
 from .processes import ProcessRunner
 from .agent import create_agent_app
 from .selfmetrics import Sink
-from .recipes import (CARD_COLORS, FRAMEWORKS, RUNTIMES, build_run_argv, format_command, format_process_command,
-                      split_args, uses_host_network)
+from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, build_run_argv, format_command,
+                      format_process_command, split_args, uses_host_network)
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
 from .timeline import build_timeline
 
@@ -61,6 +61,15 @@ class RecipeIn(BaseModel):
     tags: list[str] = []
     color: str = ""
     pinned: bool = False
+    kind: str = "model"
+
+    @field_validator("kind")
+    @classmethod
+    def known_kind(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in KINDS:
+            raise ValueError(f"kind must be one of {', '.join(KINDS)}")
+        return v
 
     @field_validator("color")
     @classmethod
@@ -461,6 +470,7 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             "frameworks": FRAMEWORKS,
             "colors": CARD_COLORS,
             "runtimes": RUNTIMES,
+            "kinds": KINDS,
             "platform": sys.platform,
             "actions": ACTIONS,
             "timezone": hub_timezone(),
