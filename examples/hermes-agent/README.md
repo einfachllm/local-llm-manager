@@ -58,6 +58,7 @@ model:
   provider: custom
   base_url: http://127.0.0.1:8101/v1
   default: local
+  key_env: MY_LLM_API_KEY   # name of the .env variable holding the key, if the endpoint needs one
 
 stt:
   provider: local          # faster-whisper on this machine, nothing leaves it
@@ -103,6 +104,37 @@ Start it and watch the log in the dashboard; then message your bot on Telegram, 
   the LLM.
 - A schedule "stop all" in the evening and "start" of both recipes in the morning gives you a bot that
   sleeps at night.
+
+### Or run it in Docker
+
+Same idea as a **Docker** recipe (framework *Custom (Docker)*), using the official image - one folder of
+state plus the recipe definition, and no Hermes install on the host to maintain:
+
+| Field | Value |
+|---|---|
+| Image | `nousresearch/hermes-agent` |
+| Command | `gateway run` - and only that: never override the entrypoint, the image needs its s6 `/init` |
+| Volumes | `~/.hermes:/opt/data` (same config, keys and sessions as the native install) |
+| Port | a free placeholder, e.g. `8198` (the gateway does not listen on it) |
+| Health path | *(empty)* |
+| GPUs | *(empty - the default `all` would make `docker run` fail on machines without NVIDIA)* |
+| Environment | `HERMES_UID=1000`, `HERMES_GID=1000`, plus your secret **names** |
+
+For the secrets (Telegram token, model API key): keep the **values** in the manager's own `.env` file on
+the host and list only the bare **names** (`TELEGRAM_BOT_TOKEN`, one per line) in the recipe. The manager
+passes them through from its environment, so no secret ever lands in the recipe, the database or the
+dashboard.
+
+## Gotchas worth knowing
+
+- `hermes config set` **saves nothing** while `config.yaml` has a parse error (a duplicated key, bad
+  indentation): Hermes quietly runs the last good copy. Check what is live with `hermes config get model`.
+- Without `model.key_env`, Hermes falls back to `OPENAI_API_KEY` / `OPENROUTER_API_KEY` from the
+  environment - and a recipe inherits the **manager's** environment. A stray cloud key there then
+  surfaces as a puzzling "invalid API key" from your local endpoint. Set `model.key_env` explicitly.
+- Hermes' own update/restart logic can spawn a detached standalone gateway next to your recipe; two
+  gateways polling one bot token means lost messages. If replies go missing, look for a second
+  `gateway run` process, kill it, restart the recipe.
 
 ## Voice quality and speed
 
