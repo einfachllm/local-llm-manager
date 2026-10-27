@@ -105,6 +105,18 @@ If the service does not start after an upgrade, check its log: newer versions re
 Upgrade the hub and all agents to the same version. Read the [CHANGELOG](CHANGELOG.md) before
 upgrading, and copy `data/manager.db` first if you want to be able to go back.
 
+## Uninstalling
+
+```bash
+./uninstall.sh            # Linux; on macOS: ./uninstall-macos.sh
+```
+
+This removes the service; your `data/manager.db`, `.env` and `.venv` stay in place (so a reinstall
+just works). Add `--purge` to delete those as well. Models that are currently running keep running -
+stop them in the dashboard first if you want them gone too.
+
+With Docker Compose: `docker compose down` (your data is in `./data`, delete it if you want).
+
 ## Several machines
 
 One installation is the **hub**: it serves the dashboard and stores recipes, schedules and the activity
