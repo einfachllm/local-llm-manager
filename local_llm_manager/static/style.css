@@ -281,7 +281,7 @@ label.inline select { width: auto; }
 .group-title:hover .group-caret { color: var(--accent); }
 .group-caret { display: inline-block; width: 18px; color: var(--muted); font-size: 12px; }
 .group.is-collapsed { margin-bottom: 14px; }
-.group.is-collapsed .grid { display: none; }
+.group.is-collapsed .group-body { display: none; }
 .group-title span { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
 input[readonly] { opacity: .6; }
 
@@ -471,4 +471,34 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
   .agent-icon { width: 38px; height: 38px; font-size: 20px; }
   .agent-card .actions { max-width: none; justify-content: flex-start; }
   .kind-head .btn { margin-left: 0; }
+}
+/* inside a host/tag group: smaller kind heads, indented under the group title */
+.group-body { padding-left: 14px; border-left: 2px solid var(--border); }
+.group-body .kind-section { margin-bottom: 18px; }
+.group-body .kind-head { border-bottom-width: 1px; margin-bottom: 10px; padding-bottom: 6px; }
+.group-body .kind-head h3 { font-size: 14px; }
+.group-body .kind-sub { display: none; }
+@media (max-width: 720px) { .group-body { padding-left: 8px; } }
+
+/* model rows (layout "rows"): like agent rows, with the model's facts side by side */
+.row-list { display: flex; flex-direction: column; gap: 10px; }
+.model-row { flex-direction: row; align-items: center; gap: 16px; padding: 12px 16px; }
+.row-icon {
+  flex: 0 0 auto; width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+  font-size: 24px; background: rgba(79,140,255,.10); border: 1px solid var(--accent);
+}
+.row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.row-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.row-title .card-host { margin-top: 0; }
+.row-facts { display: flex; flex-wrap: wrap; gap: 4px 22px; margin: 0; font-size: 12.5px; }
+.row-facts div { display: flex; gap: 6px; min-width: 0; }
+.row-facts dt { color: var(--muted); }
+.row-facts dd { margin: 0; overflow-wrap: anywhere; }
+.model-row .card-metrics { align-self: flex-start; max-width: 100%; }
+.model-row .actions { flex: 0 0 auto; margin-top: 0; justify-content: flex-end; max-width: 420px; }
+#recipe-layout { display: inline-flex; }
+@media (max-width: 720px) {
+  .model-row { flex-direction: column; align-items: stretch; }
+  .row-icon { width: 38px; height: 38px; font-size: 20px; }
+  .model-row .actions { max-width: none; justify-content: flex-start; }
 }
