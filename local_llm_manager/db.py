@@ -4,9 +4,11 @@ import os
 import socket
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
+
+from . import config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS recipes (
@@ -85,6 +87,10 @@ CREATE TABLE IF NOT EXISTS start_times (
 );
 """
 
+# Stored in SQLite's user_version pragma so a future migration pass can tell which databases
+# already have the current layout. Bump when the schema (not just a column) changes.
+SCHEMA_VERSION = 1
+
 RECIPE_FIELDS = (
     "name", "description", "framework", "image", "model", "container_name", "host_port",
     "container_port", "command", "args", "env", "volumes", "docker_args", "gpus",
@@ -156,8 +162,9 @@ def _recipe_out(row: dict, local_host_id: int) -> dict:
 
 
 class Database:
-    def __init__(self, path: Path | str):
+    def __init__(self, path: Path | str, retention_days: Optional[int] = None):
         self.path = str(path)
+        self.retention_days = config.RETENTION_DAYS if retention_days is None else retention_days
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             # The database holds agent tokens: readable by the owner only.
@@ -178,7 +185,22 @@ class Database:
             if not self._conn.execute("SELECT 1 FROM hosts WHERE url = ''").fetchone():
                 self._conn.execute("INSERT INTO hosts (name, url, token, created_at) VALUES (?, '', '', ?)",
                                    (socket.gethostname().split(".")[0] or "local", now_iso()))
+            # Record which layout this database has (no-op when it is already current).
+            self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            self._prune_old_rows()
             self._conn.commit()
+
+    def _prune_old_rows(self) -> None:
+        """Drop activity-log and start-time rows older than the retention window (0 = keep all).
+
+        Runs on every start-up, so the database stays bounded; it is a cheap index-free scan of
+        two tables that only the hub writes.
+        """
+        if self.retention_days <= 0:
+            return
+        cutoff = (datetime.now().astimezone() - timedelta(days=self.retention_days)).isoformat(timespec="seconds")
+        self._conn.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
+        self._conn.execute("DELETE FROM start_times WHERE ts < ?", (cutoff,))
 
     def _query(self, sql: str, params: tuple = ()) -> list[dict]:
         with self._lock:
@@ -338,3 +360,20 @@ class Database:
 
     def list_events(self, limit: int = 200) -> list[dict]:
         return self._query("SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,))
+
+    # ---- self-monitoring ------------------------------------------------
+
+    def ping(self) -> bool:
+        """True if the database answers a trivial query (for the /healthz endpoint)."""
+        try:
+            self._query("SELECT 1")
+            return True
+        except sqlite3.Error:
+            return False
+
+    def counts(self) -> dict[str, int]:
+        """How many recipes / hosts / schedules are stored (for the /metrics endpoint)."""
+        out = {table: self._query(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]
+               for table in ("recipes", "hosts", "schedules")}
+        out["schedules_enabled"] = self._query("SELECT COUNT(*) AS n FROM schedules WHERE enabled = 1")[0]["n"]
+        return out

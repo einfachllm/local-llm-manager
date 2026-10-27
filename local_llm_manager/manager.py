@@ -5,6 +5,7 @@ executors (executor.py) do the actual work on this machine or on a remote agent.
 """
 
 import asyncio
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional
 
@@ -27,6 +28,8 @@ class Manager:
         self.remote_transport = remote_transport
         # Serialises mutating operations so the scheduler and UI don't race.
         self.lock = asyncio.Lock()
+        # Self-metrics: (action, ok/error) -> how many times since the manager started.
+        self.actions: Counter = Counter()
 
     # ---- hosts ---------------------------------------------------------
 
@@ -162,44 +165,83 @@ class Manager:
 
     # ---- actions -------------------------------------------------------
 
+    def _count(self, action: str, ok: bool) -> None:
+        self.actions[(action, "ok" if ok else "error")] += 1
+
     async def start(self, recipe_id: int, source: str = "user", force: bool = False) -> str:
         async with self.lock:
-            return await self._start(self._get(recipe_id), source, force)
+            try:
+                result = await self._start(self._get(recipe_id), source, force)
+            except ActionError:
+                self._count("start", False)
+                raise
+            self._count("start", True)
+            return result
 
     async def stop(self, recipe_id: int, source: str = "user") -> str:
         async with self.lock:
-            return await self._stop(self._get(recipe_id), source)
+            try:
+                result = await self._stop(self._get(recipe_id), source)
+            except ActionError:
+                self._count("stop", False)
+                raise
+            self._count("stop", True)
+            return result
 
     async def restart(self, recipe_id: int, source: str = "user", force: bool = False) -> str:
         """Stop, remove and re-create the container/process so edits to the recipe take effect."""
         async with self.lock:
             recipe = self._get(recipe_id)
-            await self._stop(recipe, source, record=False)
-            return await self._start(recipe, source, force, action="restart")
+            try:
+                await self._stop(recipe, source, record=False)
+                result = await self._start(recipe, source, force, action="restart")
+            except ActionError:
+                self._count("restart", False)
+                raise
+            self._count("restart", True)
+            return result
 
     async def stop_all(self, source: str = "user", except_id: Optional[int] = None,
                        host_id: Optional[int] = None) -> str:
         async with self.lock:
-            return await self._stop_all(source, except_id, host_id)
+            try:
+                result = await self._stop_all(source, except_id, host_id)
+            except ActionError:
+                self._count("stop_all", False)
+                raise
+            self._count("stop_all", True)
+            return result
 
     async def switch(self, recipe_id: int, source: str = "user", drop_caches: bool = True) -> str:
         """Stop every other model on the same host, free memory there, then start this one."""
         async with self.lock:
             recipe = self._get(recipe_id)
-            msgs = [await self._stop_all(source, except_id=recipe_id, host_id=recipe["host_id"])]
-            if drop_caches:
-                msgs.append(await self._drop_caches(source, recipe["host_id"]))
-            msgs.append(await self._start(recipe, source, force=False, action="switch"))
-            return "; ".join(m for m in msgs if m)
+            try:
+                msgs = [await self._stop_all(source, except_id=recipe_id, host_id=recipe["host_id"])]
+                if drop_caches:
+                    msgs.append(await self._drop_caches(source, recipe["host_id"]))
+                msgs.append(await self._start(recipe, source, force=False, action="switch"))
+                result = "; ".join(m for m in msgs if m)
+            except ActionError:
+                self._count("switch", False)
+                raise
+            self._count("switch", True)
+            return result
 
     async def free_memory(self, source: str = "user", host_id: Optional[int] = None) -> str:
         """Stop all models and drop the page cache, on one host or (host_id None) on all of them."""
         async with self.lock:
-            msgs = [await self._stop_all(source, host_id=host_id)]
-            host_ids = [host_id] if host_id is not None else [h["id"] for h in self.db.list_hosts()]
-            for hid in host_ids:
-                msgs.append(await self._drop_caches(source, hid))
-            return "; ".join(m for m in msgs if m)
+            try:
+                msgs = [await self._stop_all(source, host_id=host_id)]
+                host_ids = [host_id] if host_id is not None else [h["id"] for h in self.db.list_hosts()]
+                for hid in host_ids:
+                    msgs.append(await self._drop_caches(source, hid))
+                result = "; ".join(m for m in msgs if m)
+            except ActionError:
+                self._count("free_memory", False)
+                raise
+            self._count("free_memory", True)
+            return result
 
     # ---- internals (caller holds the lock) -----------------------------
 
