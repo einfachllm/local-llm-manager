@@ -281,7 +281,7 @@ label.inline select { width: auto; }
 .group-title:hover .group-caret { color: var(--accent); }
 .group-caret { display: inline-block; width: 18px; color: var(--muted); font-size: 12px; }
 .group.is-collapsed { margin-bottom: 14px; }
-.group.is-collapsed .grid { display: none; }
+.group.is-collapsed .group-body { display: none; }
 .group-title span { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
 input[readonly] { opacity: .6; }
 
@@ -472,3 +472,10 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
   .agent-card .actions { max-width: none; justify-content: flex-start; }
   .kind-head .btn { margin-left: 0; }
 }
+/* inside a host/tag group: smaller kind heads, indented under the group title */
+.group-body { padding-left: 14px; border-left: 2px solid var(--border); }
+.group-body .kind-section { margin-bottom: 18px; }
+.group-body .kind-head { border-bottom-width: 1px; margin-bottom: 10px; padding-bottom: 6px; }
+.group-body .kind-head h3 { font-size: 14px; }
+.group-body .kind-sub { display: none; }
+@media (max-width: 720px) { .group-body { padding-left: 8px; } }
