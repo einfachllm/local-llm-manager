@@ -141,6 +141,33 @@ class ProcessRunner:
         self._paths(name)[0].write_text(json.dumps(state))
         return True
 
+    def duplicates(self, name: str, argv: list[str]) -> list[int]:
+        """PIDs of processes running `argv` that this manager did not start as `name`.
+
+        Matches the program's base name followed by the same arguments anywhere in a command line,
+        so `python3 ~/.local/bin/hermes gateway run` counts as a copy of `hermes gateway run`.
+        """
+        if not argv:
+            return []
+        head, rest = os.path.basename(argv[0]), argv[1:]
+        ours = {os.getpid()}
+        state = self._read_state(name)
+        if state is not None and self._alive(state):
+            try:
+                root = psutil.Process(state["pid"])
+                ours |= {root.pid, *(p.pid for p in root.children(recursive=True))}
+            except psutil.Error:
+                pass
+        found = []
+        for p in psutil.process_iter(["pid", "cmdline"]):
+            cmd = p.info.get("cmdline") or []
+            if p.info["pid"] in ours:
+                continue
+            if any(os.path.basename(tok) == head and cmd[i + 1:i + 1 + len(rest)] == rest
+                   for i, tok in enumerate(cmd)):
+                found.append(p.info["pid"])
+        return sorted(found)
+
     def logs(self, name: str, tail: int = 500) -> Optional[str]:
         _, log_file, _ = self._paths(name)
         if not log_file.exists():

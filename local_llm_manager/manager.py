@@ -213,11 +213,19 @@ class Manager:
             return result
 
     async def switch(self, recipe_id: int, source: str = "user", drop_caches: bool = True) -> str:
-        """Stop every other model on the same host, free memory there, then start this one."""
+        """Stop every other model on the same host, free memory there, then start this one.
+
+        Agents on the host keep running: they use a model rather than compete with it for memory.
+        """
         async with self.lock:
             recipe = self._get(recipe_id)
             try:
-                msgs = [await self._stop_all(source, except_id=recipe_id, host_id=recipe["host_id"])]
+                if recipe.get("kind") == "agent":
+                    msg = f"{recipe['name']} is an agent: start it instead of switching to it"
+                    self.db.add_event(source, "switch", False, msg, recipe["id"], self._target(recipe))
+                    raise ActionError(msg, 409)
+                msgs = [await self._stop_all(source, except_id=recipe_id, host_id=recipe["host_id"],
+                                             keep_agents=True)]
                 if drop_caches:
                     msgs.append(await self._drop_caches(source, recipe["host_id"]))
                 msgs.append(await self._start(recipe, source, force=False, action="switch"))
@@ -318,8 +326,10 @@ class Manager:
             self.db.add_event(source, "stop", True, msg, recipe["id"], target)
         return msg
 
-    async def _stop_all(self, source: str, except_id: Optional[int] = None, host_id: Optional[int] = None) -> str:
-        recipes = [r for r in self.db.list_recipes() if host_id is None or r["host_id"] == host_id]
+    async def _stop_all(self, source: str, except_id: Optional[int] = None, host_id: Optional[int] = None,
+                        keep_agents: bool = False) -> str:
+        recipes = [r for r in self.db.list_recipes() if (host_id is None or r["host_id"] == host_id)
+                   and not (keep_agents and r.get("kind") == "agent")]
         statuses = await self._statuses(recipes)
         stopped = []
         for recipe in recipes:
