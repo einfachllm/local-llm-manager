@@ -547,16 +547,26 @@ function agentCardHtml(r) {
       </article>`;
 }
 
-function kindHeadHtml(kind, items) {
+// A section head per kind; `hostId` (inside a host group) makes "+ New" create it on that host.
+function kindHeadHtml(kind, items, hostId = "") {
   const running = items.filter((r) => RUNNING.includes(r.status)).length;
   const count = `${items.length} ${kind === "agent" ? "agent" : "model"}${items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}`;
+  const add = (label) => `<button class="btn small" data-new-kind="${kind}" data-host="${esc(hostId)}">+ New ${label}</button>`;
   return kind === "agent"
-    ? `<div class="kind-head"><h3>🤖 Agents <span>${count}</span></h3>
-        <span class="kind-sub">Programs that use a model. “Switch to” keeps them running.</span>
-        <button class="btn small" data-new-kind="agent">+ New agent</button></div>`
-    : `<div class="kind-head"><h3>🧠 Models <span>${count}</span></h3>
-        <span class="kind-sub">LLM servers with an OpenAI-compatible API.</span>
-        <button class="btn small" data-new-kind="model">+ New model</button></div>`;
+    ? `<div class="kind-head agents"><h3>🤖 Agents <span>${count}</span></h3>
+        <span class="kind-sub">Programs that use a model. “Switch to” keeps them running.</span>${add("agent")}</div>`
+    : `<div class="kind-head models"><h3>🧠 Models <span>${count}</span></h3>
+        <span class="kind-sub">LLM servers with an OpenAI-compatible API.</span>${add("model")}</div>`;
+}
+
+// Agents above models: as rows, then as the usual card grid.
+function kindsHtml(items, hostId = "") {
+  const agents = items.filter((r) => kindOf(r) === "agent");
+  const models = items.filter((r) => kindOf(r) === "model");
+  return (agents.length ? `<section class="kind-section agents">${kindHeadHtml("agent", agents, hostId)}
+      <div class="agent-list">${agents.map(agentCardHtml).join("")}</div></section>` : "")
+    + (models.length ? `<section class="kind-section models">${kindHeadHtml("model", models, hostId)}
+      <div class="grid">${models.map(cardHtml).join("")}</div></section>` : "");
 }
 
 function renderRecipes() {
@@ -570,40 +580,35 @@ function renderRecipes() {
     $("#recipes").innerHTML = `<div class="empty">No recipe matches the current filter.</div>`;
     return;
   }
-  const agents = list.filter((r) => kindOf(r) === "agent");
-  const models = list.filter((r) => kindOf(r) === "model");
   let html = "";
-  if (agents.length) {
-    html += `<section class="kind-section agents">${kindHeadHtml("agent", agents)}
-      <div class="agent-list">${agents.map(agentCardHtml).join("")}</div></section>`;
-  } else if (!view.kind && !state.recipes.some((r) => kindOf(r) === "agent")) {
+  if (!view.kind && !state.recipes.some((r) => kindOf(r) === "agent")) {
     html += `<div class="agent-empty">🤖 No agents yet. Agents, such as a Hermes gateway, run as recipes too and get
       their own section here. <button class="btn small ghost" data-new-kind="agent">+ New agent</button></div>`;
   }
-  if (models.length) {
-    html += `<section class="kind-section models">${kindHeadHtml("model", models)}${modelsHtml(models)}</section>`;
-  }
-  $("#recipes").innerHTML = html;
+  $("#recipes").innerHTML = html + (view.group ? groupedHtml(list) : kindsHtml(list));
 }
 
-function modelsHtml(list) {
-  if (!view.group) return `<div class="grid">${list.map(cardHtml).join("")}</div>`;
-  // Group by host, or by each recipe's first tag (e.g. the model name); every recipe appears once.
+// Group by host, or by each recipe's first tag (e.g. the model name); every recipe appears once, and
+// each group stacks its agents above its models.
+function groupedHtml(list) {
   const groups = new Map();
   for (const r of list) {
     const label = view.group === "host" ? maskAddr(hostName(r.host_id)) : r.tags?.[0] ?? "";
     const key = view.group === "host" ? String(state.hosts.findIndex((h) => h.id === r.host_id)).padStart(3, "0") : label.toLowerCase();
-    if (!groups.has(key)) groups.set(key, { label, items: [] });
+    if (!groups.has(key)) groups.set(key, { label, hostId: view.group === "host" ? r.host_id : "", items: [] });
     groups.get(key).items.push(r);
   }
   const keys = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b, undefined, { numeric: true }));
   return keys.map((k) => {
     const g = groups.get(k);
     const running = g.items.filter((r) => RUNNING.includes(r.status)).length;
+    const nAgents = g.items.filter((r) => kindOf(r) === "agent").length;
+    const nModels = g.items.length - nAgents;
+    const parts = [nAgents && `${nAgents} agent${nAgents === 1 ? "" : "s"}`, nModels && `${nModels} model${nModels === 1 ? "" : "s"}`].filter(Boolean);
     const collapsed = !!view.collapsed[`${view.group}:${k}`];
     return `<section class="group${collapsed ? " is-collapsed" : ""}" data-gkey="${esc(k)}">
-        <h3 class="group-title" title="Click to ${collapsed ? "expand" : "collapse"}"><span class="group-caret">${collapsed ? "▸" : "▾"}</span>${g.label ? esc(g.label) : "Untagged"} <span>${g.items.length} recipe${g.items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}</span></h3>
-        <div class="grid">${g.items.map(cardHtml).join("")}</div>
+        <h3 class="group-title" title="Click to ${collapsed ? "expand" : "collapse"}"><span class="group-caret">${collapsed ? "▸" : "▾"}</span>${view.group === "host" ? "⌂ " : ""}${g.label ? esc(g.label) : "Untagged"} <span>${parts.join(" · ")}${running ? ` · ${running} running` : ""}</span></h3>
+        <div class="group-body">${kindsHtml(g.items, g.hostId)}</div>
       </section>`;
   }).join("");
 }
@@ -663,7 +668,7 @@ function recipeBodyFrom(r, overrides = {}) {
 
 $("#recipes").addEventListener("click", async (ev) => {
   const add = ev.target.closest("[data-new-kind]");
-  if (add) { openRecipeEditor(null, add.dataset.newKind); return; }
+  if (add) { openRecipeEditor(null, add.dataset.newKind, add.dataset.host); return; }
   const head = ev.target.closest(".group-title");
   if (head) {
     const key = head.closest(".group").dataset.gkey;
@@ -901,7 +906,7 @@ $("#ports").addEventListener("click", async (ev) => {
   catch { prompt("Copy the endpoint:", b.dataset.copy); }
 });
 
-function openRecipeEditor(r, kind = "model") {
+function openRecipeEditor(r, kind = "model", hostId = "") {
   editingRecipe = r;
   recipeForm.reset();
   $("#sel-host").innerHTML = state.hosts.map((h) =>
@@ -916,7 +921,7 @@ function openRecipeEditor(r, kind = "model") {
     fillRecipeForm(r);
     setKind(kindOf(r), false);
   } else {
-    const hostId = view.host || state.hosts.find((h) => h.is_local)?.id;
+    hostId = hostId || view.host || state.hosts.find((h) => h.is_local)?.id;
     recipeForm.elements.host_id.value = hostId ?? "";
     // On a Mac, containers have no GPU access, so native MLX is the sensible default.
     const mac = hostPlatform(hostId) === "darwin";

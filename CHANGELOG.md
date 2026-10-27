@@ -16,6 +16,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   An agent card shows each passed-through secret name with ✓/✗ (whether it is set in the manager's
   environment on that host; values are never sent) and, for native agents, warns when another copy of
   the same command runs outside the manager (e.g. a detached second gateway on the same bot token).
+  Grouped by host or tag, each group stacks its agents above its models, and its "+ New" buttons create
+  the recipe on that host.
 - **Self-monitoring:** `GET /healthz` (hub and agent, no login) answers `ok` while the process is up and
   the database reachable (503 otherwise), and with `DGXM_METRICS=1` `GET /metrics` serves the manager's
   own metrics in Prometheus format (uptime, request/action counts, stored recipes/hosts) - no recipe or
