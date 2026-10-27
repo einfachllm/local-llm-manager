@@ -42,6 +42,13 @@ DROP_CACHES_IMAGE = os.environ.get("DGXM_DROP_CACHES_IMAGE", "busybox:latest")
 SCHEDULER_TICK = float(os.environ.get("DGXM_SCHEDULER_TICK", "10"))
 ONCE_GRACE_SECONDS = int(os.environ.get("DGXM_ONCE_GRACE_SECONDS", "600"))
 
+# Days to keep activity-log entries and start-time measurements (0 = keep them forever).
+# Pruned on startup, so the database cannot grow without bound.
+RETENTION_DAYS = int(os.environ.get("DGXM_RETENTION_DAYS", "90"))
+
+# Serve the manager's own metrics (Prometheus format) at /metrics. /healthz is always available.
+METRICS_ENABLED = os.environ.get("DGXM_METRICS", "").strip().lower() in ("1", "true", "yes")
+
 
 TAILSCALE_CLI = ("tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale")
 
