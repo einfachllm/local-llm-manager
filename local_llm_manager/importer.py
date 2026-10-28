@@ -226,8 +226,6 @@ def _detect_framework(image: str, entrypoint: str, program: list[str]) -> str:
     hay = " ".join([image, entrypoint, *program]).lower()
     if "sglang" in hay:
         return "sglang"
-    if "trtllm" in hay or "tensorrt" in hay:
-        return "trtllm"
     if "llama.cpp" in hay or "llama-server" in hay or "llama_cpp" in hay:
         return "llamacpp"
     if "vllm" in hay:
@@ -281,7 +279,9 @@ def _split_command(tokens: list[str], detect) -> dict[str, Any]:
     k = 0
     while k < len(rest):
         key, val = _split_opt(rest[k])
-        is_model_flag = key in MODEL_FLAGS or (key == "-m" and framework in ("llamacpp", "llamacpp-native"))
+        is_model_flag = key in MODEL_FLAGS or (key == "-m"
+                                               and (framework == "llamacpp"
+                                                    or (program and os.path.basename(program[-1]) == "llama-server")))
         if (key in ("--host", "--port") or (is_model_flag and not model)) and (val is not None or k + 1 < len(rest)):
             if val is None:
                 val = rest[k + 1]
@@ -408,9 +408,10 @@ def recipe_from_argv(argv: list[str], description: str = "") -> tuple[dict[str, 
 
 
 # Model servers started directly on the host (programs, or `python -m` modules).
-NATIVE_SERVERS = {"mlx_lm.server": "mlx", "llama-server": "llamacpp-native", "vllm": "process-custom",
-                  "trtllm-serve": "process-custom"}
-NATIVE_MODULES = {"mlx_lm.server": "mlx", "mlx_lm": "mlx", "sglang.launch_server": "process-custom",
+NATIVE_SERVERS = {"mlx_lm.server": "process-custom", "llama-server": "process-custom",
+                  "tensorfold": "tensorfold", "vllm": "process-custom"}
+NATIVE_MODULES = {"mlx_lm.server": "process-custom", "mlx_lm": "process-custom",
+                  "sglang.launch_server": "process-custom",
                   "vllm.entrypoints.openai.api_server": "process-custom"}
 
 
@@ -418,7 +419,9 @@ def _native_server(argv: list[str]) -> Optional[str]:
     """Framework key if argv starts a known model server, else None."""
     prog = os.path.basename(argv[0])
     if prog == "mlx_lm" and len(argv) > 1 and argv[1] == "server":
-        return "mlx"
+        return "process-custom"
+    if prog == "tensorfold":
+        return "tensorfold" if len(argv) > 1 and argv[1] == "serve" else None
     if prog == "vllm":
         return "process-custom" if len(argv) > 1 and argv[1] == "serve" else None
     if prog in NATIVE_SERVERS:
@@ -426,7 +429,7 @@ def _native_server(argv: list[str]) -> Optional[str]:
     if prog.startswith("python") and len(argv) > 2 and argv[1] == "-m":
         module = argv[2]
         if module == "mlx_lm":
-            return "mlx" if len(argv) > 3 and argv[3] == "server" else None
+            return "process-custom" if len(argv) > 3 and argv[3] == "server" else None
         return NATIVE_MODULES.get(module)
     return None
 

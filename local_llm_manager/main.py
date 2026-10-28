@@ -245,21 +245,21 @@ def seed_examples(db: Database) -> None:
 
 
 def seed_mac_examples(db: Database) -> None:
-    mlx = FRAMEWORKS["mlx"]
     db.create_recipe({
         "name": "Qwen3-8B (MLX)", "description": "Example recipe - needs `pip install mlx-lm`.",
-        "runtime": "process", "framework": "mlx", "image": "", "model": "mlx-community/Qwen3-8B-4bit",
+        "runtime": "process", "framework": "process-custom", "image": "", "model": "mlx-community/Qwen3-8B-4bit",
         "container_name": "mlx-qwen3-8b", "host_port": 8080, "container_port": 8080,
-        "command": mlx["command"], "args": "", "env": "", "volumes": "", "docker_args": "", "gpus": "",
-        "health_path": mlx["health_path"], "est_memory_gb": 6, "tags": ["qwen3-8b", "example"],
+        "command": "mlx_lm.server --model {model} --host {bind_host} --port {port}",
+        "args": "", "env": "", "volumes": "", "docker_args": "", "gpus": "",
+        "health_path": "/v1/models", "est_memory_gb": 6, "tags": ["qwen3-8b", "example"],
     })
-    llama = FRAMEWORKS["llamacpp-native"]
     db.create_recipe({
         "name": "GGUF model (llama.cpp)", "description": "Example recipe - needs `brew install llama.cpp`.",
-        "runtime": "process", "framework": "llamacpp-native", "image": "", "model": "~/models/model.gguf",
+        "runtime": "process", "framework": "process-custom", "image": "", "model": "~/models/model.gguf",
         "container_name": "llamacpp-gguf", "host_port": 8081, "container_port": 8081,
-        "command": llama["command"], "args": llama["args"], "env": "", "volumes": "", "docker_args": "",
-        "gpus": "", "health_path": llama["health_path"], "est_memory_gb": None, "tags": ["gguf", "example"],
+        "command": "llama-server -m {model} --host {bind_host} --port {port}",
+        "args": "-ngl 999\n-c 32768", "env": "", "volumes": "", "docker_args": "",
+        "gpus": "", "health_path": "/health", "est_memory_gb": None, "tags": ["gguf", "example"],
     })
 
 

@@ -19,6 +19,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   registered entries by folder name ("Use" / "Use all"), and offers to register the rest. Recipes that
   mount their model folder directly get **→ Register** under *Used by recipes* (`POST /api/weights/adopt`),
   and an imported `docker run` that mounts a registered path is switched to that entry.
+- **TensorFold preset** (native process): `tensorfold serve {model} --host {bind_host} --port {port}`,
+  health check on `/health`, port 8080. Importing a `tensorfold serve ...` script picks the preset up.
 - **Weights tab:** a new "Weights" tab (shortcut `6`) lists every model referenced by model recipes and,
   per host, whether its weights are present locally - mirroring the Images tab. A recipe's `{model}` is
   resolved to a host path when it is a container path backed by a volume mount (e.g.
@@ -58,6 +60,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `GET /agent/v1/images` (older agents are reported as too old to list images).
 
 ### Changed
+- **Framework presets trimmed to what is actually used:** the TensorRT-LLM preset (Docker) and the
+  MLX / llama.cpp (native) presets are gone. The native-process section now offers **TensorFold** and
+  **Custom (native)**; imported `mlx_lm.server` / `llama-server` / `trtllm-serve` scripts and Mac
+  defaults now land on Custom (native). Existing recipes using a removed framework key need a one-time
+  framework re-save (the API rejects the old keys).
 - **Recipe editor:** the command preview sits in its own column beside the form and stays in view while
   you scroll (stacked below it on narrow screens), shows docker's and the framework's flags in two colours,
   and has a Copy button. Importing is easier to find: an "📋 Import docker run / script…" button on the
