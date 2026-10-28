@@ -150,11 +150,25 @@
     <section id="tab-models" class="panel hidden">
       <div class="panel-head">
         <h2>Weights</h2>
-        <button class="btn ghost" id="btn-refresh-models">Refresh</button>
+        <div class="sched-actions">
+          <button class="btn ghost" id="btn-refresh-models">Refresh</button>
+          <button class="btn" id="btn-discover-weights" title="Look for model folders in each host's DGXM_MODEL_DIR (default ~/models) and match them to the entries below">🔍 Search hosts</button>
+          <button class="btn primary" id="btn-new-weight">+ Register weights</button>
+        </div>
       </div>
-      <p class="hint">The model weights your model recipes reference and whether each host has them locally:
-        the host folder a container path like <code>/model</code> is mounted from (Volumes), the Hugging Face
-        cache for <code>org/name</code> ids, or a file in <code>DGXM_MODEL_DIR</code> (default <code>~/models</code>).
+      <p class="hint">Register model weights once and set <b>where they live on each host</b>. A recipe that picks
+        them writes <code>{weights}</code> (e.g. the volume <code>{weights}:/model:ro</code>) and gets that host's
+        path when it starts – so moving a recipe to another host needs no edits. Click a cell to set or change a path.</p>
+      <div id="weights-discover" class="discover hidden"></div>
+      <div class="table-wrap"><table class="table images-matrix weights-matrix">
+        <thead id="weights-head"></thead>
+        <tbody id="weights"></tbody>
+      </table></div>
+
+      <div class="panel-head ports-head"><h2>Used by recipes</h2></div>
+      <p class="hint">What every model recipe references and whether each host has it locally: the host folder a
+        container path like <code>/model</code> is mounted from (Volumes), the Hugging Face cache for
+        <code>org/name</code> ids, or a file in <code>DGXM_MODEL_DIR</code> (default <code>~/models</code>).
         <b>✗ missing</b> means the weights are not on that host yet.</p>
       <div class="toolbar images-toolbar">
         <input id="models-search" type="search" placeholder="Search model or recipe…">
@@ -215,6 +229,9 @@
         </div>
         <label class="span2 docker-only">Docker image<input name="image"></label>
         <label class="span2">Model <small id="model-hint">HF id or path inside the container</small><input name="model" placeholder="org/model-name"></label>
+        <label class="span2">Weights <small>registered in the Weights tab; their path on this recipe's host fills <code>{weights}</code></small>
+          <select name="weights_id" id="sel-weights"></select>
+          <small id="weights-status" class="port-hint"></small></label>
         <label><span id="name-label">Container name</span><input name="container_name" placeholder="derived from name"></label>
         <label class="docker-only">GPUs (--gpus)<input name="gpus" placeholder="all"></label>
         <label><span id="port-label">Host port</span>
@@ -264,6 +281,27 @@
       </div>
       <div class="error" id="host-error"></div>
       <div class="dialog-foot">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Weights entry -->
+  <dialog id="dlg-weight" class="dialog">
+    <form id="form-weight" method="dialog">
+      <div class="dialog-head"><h3 id="weight-title">Weights</h3><button type="button" class="x" data-close>&times;</button></div>
+      <div class="form-grid">
+        <label class="span2">Name<input name="name" required placeholder="Nemotron-3.5-Super-VL NVFP4"></label>
+        <label class="span2">Source <small>optional, e.g. the Hugging Face repo id</small>
+          <input name="source" placeholder="nvidia/Nemotron-3.5-Super-VL-120B-A12B-NVFP4"></label>
+        <div class="span2 field">Path on each host <small>the folder (or file) on that machine; <code>~</code> is that machine's home. Empty = not on this host.</small>
+          <div id="weight-paths" class="weight-paths"></div></div>
+      </div>
+      <div class="error" id="weight-error"></div>
+      <div class="dialog-foot">
+        <button type="button" class="btn ghost danger" id="btn-weight-delete">Delete</button>
+        <span class="actions-gap"></span>
         <button type="button" class="btn ghost" data-close>Cancel</button>
         <button type="submit" class="btn primary">Save</button>
       </div>

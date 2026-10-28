@@ -122,6 +122,10 @@ def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
     async def models_check(body: AgentRequest):
         return await ex.check_models(body.items)
 
+    @app.get("/agent/v1/weights/scan", dependencies=auth)
+    async def weights_scan():
+        return await ex.scan_weights()
+
     @app.post("/agent/v1/drop-caches", dependencies=auth)
     async def drop_caches():
         ok, message = await ex.drop_caches()

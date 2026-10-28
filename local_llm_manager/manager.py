@@ -16,6 +16,7 @@ from .docker import Docker, split_image
 from .executor import (RUNNING_STATES, ActionError, LocalExecutor, RemoteExecutor, agent_payload_recipe,
                        resolve_model_target)
 from .processes import ProcessRunner
+from .recipes import WEIGHTS, fill_weights, model_mount, use_weights_mount, uses_weights
 
 __all__ = ["ActionError", "Manager"]
 
@@ -103,18 +104,23 @@ class Manager:
         return {"images": images, "native_recipes": native}
 
     async def models_overview(self) -> dict[str, Any]:
-        """Models referenced by model recipes: which recipes use each, and whether each of their
-        hosts has the weights locally (Hugging Face cache, a mounted host path, or a model dir)."""
+        """Models referenced by model recipes that are not on registered weights: which recipes use each,
+        and whether each of their hosts has the weights locally (Hugging Face cache, a mounted host path,
+        or a model dir)."""
         groups: dict[str, dict[str, Any]] = {}
         for r in self.db.list_recipes():
             if r.get("kind", "model") != "model" or not (r.get("model") or "").strip():
                 continue
+            if r.get("weights_id") and uses_weights(r):
+                continue  # on registered weights: the registry above it has their per-host paths
             target = resolve_model_target(r["model"], r.get("volumes", ""))
             ref = target["reference"]
             g = groups.setdefault(ref, {"model": ref, "kind": target["kind"], "target": target,
                                          "recipes": [], "host_ids": set()})
             g["recipes"].append({"id": r["id"], "name": r["name"], "host_id": r["host_id"]})
             g["host_ids"].add(r["host_id"])
+            # Can move onto a registry entry (adopt_weights) when every recipe mounts the folder itself.
+            g["adoptable"] = g.get("adoptable", True) and model_mount(r["model"], r.get("volumes", "")) is not None
 
         # Build per-host item lists: one resolved target per distinct reference on that host.
         by_host: dict[int, set[str]] = {}
@@ -148,6 +154,127 @@ class Manager:
             models.append({**g, "hosts": hosts})
         return {"models": models}
 
+    # ---- weights -------------------------------------------------------
+
+    def _payload(self, recipe: dict) -> dict:
+        """What an executor gets: the recipe with {weights} filled in for its host (older agents need
+        nothing new for this, they only see the resolved paths)."""
+        path = self.db.weight_path(recipe.get("weights_id"), recipe["host_id"])
+        return agent_payload_recipe(fill_weights(recipe, path))
+
+    async def _check_paths(self, host_id: int, paths: list[str]) -> tuple[dict[str, dict], Optional[str]]:
+        """path -> {present, location, expected} on one host, or ({}, error) when the host can't tell."""
+        items = [{"kind": "volume", "reference": p, "host_path": p} for p in paths]
+        try:
+            res = await self.executor_for(host_id).check_models(items)
+        except ActionError as e:
+            return {}, e.message
+        return {d["reference"]: d for d in res}, None
+
+    async def check_weight(self, weight_id: int, host_id: int) -> dict[str, Any]:
+        """Whether a weights entry is usable on a host: "unset" (no path there), "present", "missing" or
+        "unknown" (the host could not be asked)."""
+        path = self.db.weight_path(weight_id, host_id)
+        if not path:
+            return {"host_id": host_id, "state": "unset", "path": None, "location": None, "error": None}
+        found, err = await self._check_paths(host_id, [path])
+        d = found.get(path)
+        if d is None:
+            return {"host_id": host_id, "state": "unknown", "path": path, "location": None, "error": err}
+        return {"host_id": host_id, "state": "present" if d["present"] else "missing", "path": path,
+                "location": d.get("location") or d.get("expected"), "error": None}
+
+    async def weights_overview(self) -> dict[str, Any]:
+        """Registered weights with, for every host, the path set there and whether it exists."""
+        weights = self.db.list_weights()
+        hosts = self.db.list_hosts()
+
+        async def fetch(host: dict) -> tuple[int, dict[str, dict], Optional[str]]:
+            paths = sorted({w["locations"][host["id"]] for w in weights if host["id"] in w["locations"]})
+            if not paths:
+                return host["id"], {}, None
+            found, err = await self._check_paths(host["id"], paths)
+            return host["id"], found, err
+
+        results = {hid: (found, err) for hid, found, err in await asyncio.gather(*(fetch(h) for h in hosts))}
+        out = []
+        for w in weights:
+            cells = []
+            for h in hosts:
+                path = w["locations"].get(h["id"])
+                found, err = results[h["id"]]
+                d = found.get(path) if path else None
+                state = "unset" if not path else "unknown" if d is None else "present" if d["present"] else "missing"
+                cells.append({"host_id": h["id"], "state": state, "path": path, "error": err if state == "unknown" else None,
+                              "location": (d.get("location") or d.get("expected")) if d else None})
+            out.append({"id": w["id"], "name": w["name"], "source": w["source"], "recipe_ids": w["recipe_ids"],
+                        "hosts": cells})
+        return {"weights": out}
+
+    async def discover_weights(self) -> dict[str, Any]:
+        """Ask every host for the model folders in its model dirs. Returns, per host, what it found;
+        suggestions (a registered entry without a path on a host, and a folder there with the same name
+        as the entry's folder elsewhere, its name or its source repo); and found folders nobody registered."""
+        hosts = self.db.list_hosts()
+        weights = self.db.list_weights()
+
+        async def scan(host: dict) -> tuple[int, Optional[dict], Optional[str]]:
+            try:
+                return host["id"], await self.executor_for(host["id"]).scan_weights(), None
+            except ActionError as e:
+                return host["id"], None, e.message
+
+        scans = await asyncio.gather(*(scan(h) for h in hosts))
+        registered = {(hid, _norm_path(p)) for w in weights for hid, p in w["locations"].items()}
+        keys = {w["id"]: {_norm_name(n) for n in [w["name"], w["source"].rsplit("/", 1)[-1],
+                                                    *(p.rstrip("/").rsplit("/", 1)[-1] for p in w["locations"].values())] if n}
+                for w in weights}
+        out_hosts, suggestions, unregistered = [], [], []
+        for hid, res, err in scans:
+            found = (res or {}).get("found", [])
+            out_hosts.append({"host_id": hid, "error": err, "dirs": (res or {}).get("dirs", []), "count": len(found)})
+            for f in found:
+                if (hid, _norm_path(f["path"])) not in registered:
+                    unregistered.append({**f, "host_id": hid})
+            for w in weights:
+                if hid in w["locations"]:
+                    continue
+                match = next((f for f in found if _norm_name(f["name"]) in keys[w["id"]]), None)
+                if match:
+                    suggestions.append({"weight_id": w["id"], "name": w["name"], "host_id": hid,
+                                        "path": match["path"], "size_gb": match.get("size_gb")})
+        # Found folders matching a suggestion are not "unregistered" news as well.
+        suggested = {(s["host_id"], s["path"]) for s in suggestions}
+        unregistered = [f for f in unregistered if (f["host_id"], f["path"]) not in suggested]
+        return {"hosts": out_hosts, "suggestions": suggestions, "unregistered": unregistered}
+
+    def adopt_weights(self, recipe_ids: list[int], name: Optional[str] = None) -> dict[str, Any]:
+        """Move recipes whose model is a volume mount of its own onto a registry entry: the mount's host
+        side becomes {weights}, and its path is stored for the recipe's host. Recipes mounting the same
+        folder name share one entry (found by name, created when missing)."""
+        recipes = [self._get(rid) for rid in recipe_ids]
+        mounts = {}
+        for r in recipes:
+            m = model_mount(r.get("model", ""), r.get("volumes", ""))
+            if not m or WEIGHTS in m[1]:
+                raise ActionError(f"{r['name']}: its model is not mounted from a folder of its own "
+                                  f"(a volume like ~/models/x:{r.get('model') or '/model'})", 422)
+            mounts[r["id"]] = m
+        name = (name or "").strip() or mounts[recipes[0]["id"]][1].rstrip("/").rsplit("/", 1)[-1]
+        weight = next((w for w in self.db.list_weights() if w["name"].lower() == name.lower()), None)
+        wid = weight["id"] if weight else self.db.create_weight(name, "", {})
+        locations = dict(weight["locations"]) if weight else {}
+        for r in recipes:
+            index, path = mounts[r["id"]]
+            if r["host_id"] not in locations:
+                locations[r["host_id"]] = path
+                self.db.set_weight_location(wid, r["host_id"], path)
+            elif _norm_path(locations[r["host_id"]]) != _norm_path(path):
+                raise ActionError(f"{r['name']} mounts {path}, but '{name}' is already at "
+                                  f"{locations[r['host_id']]} on that host", 409)
+            self.db.update_recipe(r["id"], {**r, "volumes": use_weights_mount(r["volumes"], index), "weights_id": wid})
+        return self.db.get_weight(wid)
+
     # ---- status --------------------------------------------------------
 
     async def _statuses(self, recipes: list[dict]) -> dict[int, dict[str, Any]]:
@@ -158,7 +285,7 @@ class Manager:
 
         async def one(host_id: int, rs: list[dict]) -> dict[int, dict[str, Any]]:
             try:
-                return await self.executor_for(host_id).statuses([agent_payload_recipe(r) for r in rs])
+                return await self.executor_for(host_id).statuses([self._payload(r) for r in rs])
             except ActionError as e:
                 return {r["id"]: {"status": "offline", "container": None, "error": e.message} for r in rs}
 
@@ -205,10 +332,10 @@ class Manager:
     # ---- logs ----------------------------------------------------------
 
     async def logs(self, recipe: dict, tail: int = 500) -> str:
-        return await self._executor(recipe).logs(agent_payload_recipe(recipe), tail)
+        return await self._executor(recipe).logs(self._payload(recipe), tail)
 
     def follow_logs(self, recipe: dict, tail: int = 200) -> AsyncIterator[str]:
-        return self._executor(recipe).follow_logs(agent_payload_recipe(recipe), tail)
+        return self._executor(recipe).follow_logs(self._payload(recipe), tail)
 
     # ---- actions -------------------------------------------------------
 
@@ -346,13 +473,30 @@ class Manager:
                 fail(f"Not enough free memory for {recipe['name']}: needs ~{est:g} GB, "
                      f"{available:g} GB available. Stop other models or start with force.", 409)
 
+        if uses_weights(recipe):
+            await self._require_weights(recipe, fail)
+
         try:
-            text = await ex.start(agent_payload_recipe(recipe))
+            text = await ex.start(self._payload(recipe))
         except ActionError as e:
             fail(e.message, e.status_code)
         self.db.set_pending_start(recipe["id"], datetime.now().astimezone().isoformat(timespec="seconds"), source)
         self.db.add_event(source, action, True, text, recipe["id"], target)
         return text.split("\n", 1)[0]
+
+    async def _require_weights(self, recipe: dict, fail) -> None:
+        """Refuse to start a recipe whose {weights} has no path on its host, or whose path is not there."""
+        host = self._host_name(recipe["host_id"])
+        weight = self.db.get_weight(recipe["weights_id"]) if recipe.get("weights_id") else None
+        if weight is None:
+            fail(f"{recipe['name']} uses {{weights}} but has no weights selected: pick them in the recipe", 409)
+        check = await self.check_weight(weight["id"], recipe["host_id"])
+        if check["state"] == "unset":
+            fail(f"Weights '{weight['name']}' have no path on {host}: set it in the Weights tab", 409)
+        if check["state"] == "missing":
+            fail(f"Weights '{weight['name']}' not found on {host} at {check['location'] or check['path']}: "
+                 f"copy them there or fix the path in the Weights tab", 409)
+        # "unknown" (e.g. an agent too old to check): let the container report it.
 
     async def _stop(self, recipe: dict, source: str, record: bool = True) -> str:
         target = self._target(recipe)
@@ -365,7 +509,7 @@ class Manager:
                 self.db.add_event(source, "stop", status["status"] != "offline", msg, recipe["id"], target)
             return msg
         try:
-            msg = await self._executor(recipe).stop(agent_payload_recipe(recipe))
+            msg = await self._executor(recipe).stop(self._payload(recipe))
         except ActionError as e:
             self.db.add_event(source, "stop", False, e.message, recipe["id"], target)
             raise
@@ -396,6 +540,15 @@ class Manager:
             msg = f"{name}: {msg}"
         self.db.add_event(source, "drop_caches", ok, msg, target=name)
         return msg
+
+
+def _norm_name(name: str) -> str:
+    """Folder / model names compared loosely: "NVIDIA-Nemotron_VL" == "nvidia nemotron vl"."""
+    return "".join(c for c in name.lower() if c.isalnum())
+
+
+def _norm_path(path: str) -> str:
+    return path.strip().rstrip("/")
 
 
 def _created(image: dict) -> datetime:

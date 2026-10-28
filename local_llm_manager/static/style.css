@@ -549,3 +549,33 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
 .card.is-ready { box-shadow: 0 0 0 1px rgba(34,197,139,.25), 0 4px 18px rgba(34,197,139,.08); }
 .card:not(.agent-card):not(.model-row) .card-title { font-size: 16px; }
 .btn.icon { padding: 4px 8px; }
+
+/* weights registry */
+.link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-align: left; }
+.link:hover { text-decoration: underline; }
+.weight-name { font-weight: 600; }
+.weight-source { font-size: 11.5px; margin-top: 2px; word-break: break-all; }
+.weight-cell {
+  display: block; width: 100%; text-align: left; background: transparent; color: var(--text); font: inherit;
+  border: 1px dashed transparent; border-radius: 6px; padding: 3px 6px; cursor: pointer; word-break: break-all;
+}
+.weight-cell:hover { border-color: var(--border-strong); background: var(--panel-2); }
+.weight-cell.unset { border-color: var(--border); }
+.weight-cell code { font-size: 12px; }
+.weights-matrix td { vertical-align: middle; }
+.weight-paths { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.weight-path { display: grid; grid-template-columns: 160px 1fr; align-items: center; gap: 10px; color: var(--text); }
+.weight-path span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#weights-status code { font-size: 11.5px; }
+#weights-status .link { font-size: inherit; }
+.dialog-foot .actions-gap { flex: 1 1 0; }
+@media (max-width: 720px) { .weight-path { grid-template-columns: 1fr; gap: 4px; } }
+.discover {
+  margin-bottom: 16px; padding: 12px 14px; border: 1px solid rgba(79,140,255,.45); border-radius: var(--radius);
+  background: rgba(79,140,255,.06); font-size: 13px;
+}
+.discover-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.discover h4 { margin: 12px 0 6px; font-size: 13px; display: flex; align-items: center; gap: 10px; }
+.discover-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; border-top: 1px solid var(--border); }
+.discover-row code { word-break: break-all; }
+.discover-row .btn { margin-left: auto; }

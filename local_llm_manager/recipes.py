@@ -2,14 +2,15 @@
 
 import os
 import shlex
-from typing import Any
+from typing import Any, Optional
 
 from . import config
 
 # Defaults offered by the UI when a framework is picked. Every value stays editable per recipe.
 # In `command`, these placeholders are substituted: {model}, {port} (container port; for native
 # processes the same as the host port), {host_port}, {name} (container / process name) and
-# {bind_host} (listen address, see bind_host()).
+# {bind_host} (listen address, see bind_host()). {weights} - in model, volumes, command, args and env - is the
+# path of the recipe's registered weights on its host (see fill_weights()).
 # `runtime` is "docker" (run in a container) or "process" (run directly on the host, e.g. MLX on a Mac).
 SPARK_DOCKER_ARGS = "--ipc=host --ulimit memlock=-1 --ulimit stack=67108864"
 HF_CACHE_VOLUME = "~/.cache/huggingface:/root/.cache/huggingface"
@@ -155,6 +156,43 @@ def substitute(template: str, recipe: dict[str, Any]) -> str:
         .replace("{host_port}", str(recipe.get("host_port") or ""))
         .replace("{name}", recipe.get("container_name") or "")
     )
+
+
+# Stands for the path of the recipe's registered weights on the host it runs on (Weights tab).
+WEIGHTS = "{weights}"
+WEIGHT_FIELDS = ("model", "volumes", "command", "args", "env")
+
+
+def uses_weights(recipe: dict[str, Any]) -> bool:
+    return any(WEIGHTS in (recipe.get(f) or "") for f in WEIGHT_FIELDS)
+
+
+def fill_weights(recipe: dict[str, Any], path: Optional[str]) -> dict[str, Any]:
+    """A copy of the recipe with {weights} replaced by this host's path (left as is when there is none)."""
+    if not path or not uses_weights(recipe):
+        return recipe
+    return {**recipe, **{f: (recipe.get(f) or "").replace(WEIGHTS, path) for f in WEIGHT_FIELDS}}
+
+
+def model_mount(model: str, volumes: str) -> Optional[tuple[int, str]]:
+    """(line index, host path) of the volume line that mounts exactly the recipe's model path, e.g.
+    `~/models/x:/model:ro` for model `/model`; None when the model is not a mount of its own."""
+    target = (model or "").strip().rstrip("/")
+    if not target.startswith("/"):
+        return None
+    for i, line in enumerate((volumes or "").splitlines()):
+        parts = line.strip().split(":")
+        if len(parts) >= 2 and not line.strip().startswith("#") and parts[1].strip().rstrip("/") == target:
+            return i, parts[0].strip()
+    return None
+
+
+def use_weights_mount(volumes: str, index: int) -> str:
+    """The volumes text with the host side of line `index` replaced by {weights}."""
+    lines = volumes.splitlines()
+    parts = lines[index].strip().split(":")
+    lines[index] = ":".join([WEIGHTS] + parts[1:])
+    return "\n".join(lines)
 
 
 def split_args(text: str) -> list[str]:
