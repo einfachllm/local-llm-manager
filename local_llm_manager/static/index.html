@@ -16,6 +16,7 @@
       <button class="tab" data-tab="activity">Activity</button>
       <button class="tab" data-tab="hosts">Hosts</button>
       <button class="tab" data-tab="images">Images</button>
+      <button class="tab" data-tab="models">Models</button>
     </nav>
     <button id="btn-blur" class="blur-toggle" title="Blur IP addresses and host names" aria-pressed="true">🙈 Blur</button>
     <button id="btn-theme" class="blur-toggle" title="Switch between dark and light theme">🌙 Dark</button>
@@ -140,6 +141,26 @@
       <div class="table-wrap"><table class="table images-matrix">
         <thead id="images-head"></thead>
         <tbody id="images"></tbody>
+      </table></div>
+    </section>
+
+    <section id="tab-models" class="panel hidden">
+      <div class="panel-head">
+        <h2>Models</h2>
+        <button class="btn ghost" id="btn-refresh-models">Refresh</button>
+      </div>
+      <p class="hint">The model weights your model recipes reference and whether each host has them
+        locally (Hugging Face cache or the model folders from <code>DGXM_MODEL_DIR</code>, default
+        <code>~/models</code>). <b>✗ missing</b> means the weights are not on that host yet.</p>
+      <div class="toolbar images-toolbar">
+        <input id="models-search" type="search" placeholder="Search model or recipe…">
+        <label class="inline">Host <select id="models-host"><option value="">All hosts</option></select></label>
+        <button type="button" class="chip" id="models-only-missing" aria-pressed="false">✗ Missing on a host</button>
+        <span class="images-summary muted" id="models-summary"></span>
+      </div>
+      <div class="table-wrap"><table class="table images-matrix">
+        <thead id="models-head"></thead>
+        <tbody id="models"></tbody>
       </table></div>
     </section>
 

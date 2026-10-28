@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Models tab:** a new "Models" tab (shortcut `6`) lists every model referenced by model recipes and,
+  per host, whether its weights are present locally - mirroring the Images tab. A recipe's `{model}` is
+  resolved to a host path when it is a container path backed by a volume mount (e.g.
+  `/home/einfachllm/models/...`), to its Hugging Face hub-cache entry for `org/name` ids, or to a file
+  under `DGXM_MODEL_DIR` (default `~/models`). Hosts report presence via the new agent endpoint
+  `POST /agent/v1/models/check` (agents that predate it show "agent too old" until updated).
 - **Agents apart from models:** a recipe is either a *model* (an LLM server) or an *agent* (a program that
   uses one, e.g. a Hermes gateway; new `kind` field, default `model`). The Recipes tab shows two sections,
   🤖 Agents and 🧠 Models, with their own counts and "+ New" buttons, and an All / Models / Agents filter.
