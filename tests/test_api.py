@@ -58,6 +58,8 @@ def test_preview(client):
     cmd = client.post("/api/recipes/preview", json=recipe_body()).json()["command"]
     assert cmd.startswith("docker run -d --name test-vllm")
     assert "vllm serve Qwen/Qwen3-8B" in cmd
+    cmd = client.post("/api/recipes/preview?recipe_id=7", json=recipe_body()).json()["command"]
+    assert "local-llm-manager.recipe=7" in cmd
 
 
 def test_start_stop_restart(client, fake_docker):
