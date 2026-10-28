@@ -594,8 +594,10 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         return db.get_recipe(db.create_recipe(r))
 
     @app.post("/api/recipes/preview")
-    async def preview(body: RecipeIn):
+    async def preview(body: RecipeIn, recipe_id: Optional[int] = None):
         recipe = body.model_dump()
+        if recipe_id is not None:
+            recipe["id"] = recipe_id  # an edited recipe's label, as `start` would set it
         if body.runtime == "process":
             return {"command": format_process_command(recipe)}
         return {"command": format_command(build_run_argv(recipe))}
