@@ -197,9 +197,38 @@ input, select, textarea {
 input[type=checkbox] { width: auto; }
 textarea { resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
-.preview { margin: 0 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
-.preview-head { font-size: 12px; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--border); }
-.preview pre { margin: 0; padding: 10px; white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; }
+.preview { margin: 0 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); display: flex; flex-direction: column; min-height: 0; }
+.preview-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 12px; font-weight: 600; color: var(--text); padding: 6px 10px; border-bottom: 1px solid var(--border);
+}
+.preview-head small { margin-left: 6px; font-weight: 400; }
+.preview pre { margin: 0; padding: 10px; white-space: pre-wrap; word-break: break-all; max-height: 260px; overflow: auto; }
+.preview .flag { color: var(--accent); }
+.preview .dflag { color: var(--purple); }
+.preview .cont { color: var(--muted); }
+
+/* recipe editor: form on the left, the live command beside it (stacked on narrow screens) */
+.dialog.editor { width: min(1360px, 97vw); }
+.editor-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 42%); align-items: start; }
+.editor-form { min-width: 0; }
+.editor-body .preview { position: sticky; top: 66px; margin: 16px 18px 0 0; max-height: calc(92vh - 150px); }
+.editor-body .preview pre { flex: 1 1 auto; max-height: none; }
+@media (max-width: 1100px) {
+  .editor-body { grid-template-columns: 1fr; }
+  .editor-body .preview { position: static; margin: 0 18px; max-height: none; }
+  .editor-body .preview pre { max-height: 300px; }
+}
+.import-btn { border-color: rgba(79,140,255,.6); color: var(--chip-on-text); background: rgba(79,140,255,.12); }
+.import-btn:hover { border-color: var(--accent); background: rgba(79,140,255,.2); }
+.import-cta {
+  display: flex; align-items: center; gap: 12px; margin: 16px 18px 0; padding: 12px 14px;
+  border: 1px dashed rgba(79,140,255,.6); border-radius: 10px; background: rgba(79,140,255,.08);
+}
+.import-cta > div { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.import-cta small { font-size: 12.5px; }
+.import-cta code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.import-cta-icon { font-size: 24px; }
 .error { color: var(--red); padding: 8px 18px 0; min-height: 8px; white-space: pre-wrap; }
 .when { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
 .when label { flex: 0 0 auto; }
@@ -505,3 +534,18 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
   .row-icon { width: 38px; height: 38px; font-size: 20px; }
   .model-row .actions { max-width: none; justify-content: flex-start; }
 }
+
+/* model cards: endpoint copy, primary actions left and the rest right */
+.copy-mini {
+  margin-left: 6px; padding: 0 5px; border: 1px solid var(--border); border-radius: 5px;
+  background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; cursor: pointer; line-height: 1.5;
+}
+.copy-mini:hover { color: var(--text); border-color: var(--border-strong); }
+.kv dd code, .row-facts dd code { font-size: 12px; color: var(--badge-text); }
+.actions-gap { flex: 1 1 0; }
+.card .actions { padding-top: 10px; border-top: 1px solid var(--border); }
+.model-row .actions, .agent-card .actions { padding-top: 0; border-top: 0; }
+.model-row .actions-gap { display: none; }
+.card.is-ready { box-shadow: 0 0 0 1px rgba(34,197,139,.25), 0 4px 18px rgba(34,197,139,.08); }
+.card:not(.agent-card):not(.model-row) .card-title { font-size: 16px; }
+.btn.icon { padding: 4px 8px; }

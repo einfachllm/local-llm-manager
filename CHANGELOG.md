@@ -46,12 +46,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `GET /agent/v1/images` (older agents are reported as too old to list images).
 
 ### Changed
+- **Recipe editor:** the command preview sits in its own column beside the form and stays in view while
+  you scroll (stacked below it on narrow screens), shows docker's and the framework's flags in two colours,
+  and has a Copy button. Importing is easier to find: an "📋 Import docker run / script…" button on the
+  Recipes tab (shortcut `i`), a highlighted button in the editor head, and a prompt at the top of a new recipe.
+- **Model cards:** "Model" shows the mounted folder's name instead of a container path like `/model`
+  (full path in the tooltip), plus the `--served-model-name` clients use, the image (shortened) and a
+  copy button for the endpoint. Start/Stop stay on the left; Duplicate and Delete are icon buttons.
 - A stopped Docker container that exits with 137/143 (what `docker stop` usually produces) is now
   recognised as a clean stop only when the manager itself stopped it (recorded in a small state
   file next to the process logs). A container the kernel OOM-killed exits the same way but without
   that record, so it now shows **failed** instead of a misleading "stopped".
 
 ### Fixed
+- The command preview of an existing recipe showed an empty `local-llm-manager.recipe=` label; it now
+  shows the recipe's id, as `start` sets it.
 - The "KV" figure in a card's stats line no longer drops onto its own line (it picked up the layout of
   the card's fact list).
 - On phones, the tab bar wraps instead of making the page wider than the screen.

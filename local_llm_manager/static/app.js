@@ -447,6 +447,32 @@ function metricsHtml(r) {
 
 function fmtAge(s) { return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`; }
 
+// What a model card shows for "Model": a container path like /model says nothing, so follow the volume
+// it is mounted from and show that folder's name; the full path stays in the tooltip.
+function modelShown(r) {
+  const model = r.model || "";
+  if (r.runtime === "docker" && model.startsWith("/")) {
+    for (const line of (r.volumes || "").split("\n")) {
+      const [src, dst] = line.trim().split(":");
+      if (!src || !dst || !(model === dst || model.startsWith(`${dst.replace(/\/$/, "")}/`))) continue;
+      const host = src + model.slice(dst.replace(/\/$/, "").length);
+      return { label: host.replace(/\/+$/, "").split("/").pop() || model, title: `${model} ← ${host}` };
+    }
+  }
+  if (model.startsWith("/") || model.startsWith("~")) return { label: model.replace(/\/+$/, "").split("/").pop() || model, title: model };
+  return { label: model || "–", title: model };
+}
+// The name clients send as "model" (vLLM/SGLang --served-model-name), when the recipe sets one.
+function servedName(r) {
+  return (r.args || "").match(/(?:^|\s)--served-model-name(?:=|\s+)(\S+)/)?.[1]?.replace(/^['"]|['"]$/g, "") || "";
+}
+// "vllm/vllm-openai:nightly-3f1bcfd8…" → short enough for a card, full in the tooltip.
+function imageShort(image) {
+  const [repo, tag = "latest"] = image.split(/:(?=[^/]*$)/);
+  const t = tag.length > 18 ? `${tag.slice(0, 16)}…` : tag;
+  return `${repo.split("/").pop()}:${t}`;
+}
+
 function cardHtml(r) {
   const busy = state.busy.has(r.id);
   const running = RUNNING.includes(r.status);
@@ -472,21 +498,27 @@ function cardHtml(r) {
                <button class="btn small" data-act="restart" ${busy ? "disabled" : ""}>Restart</button>`
             : `<button class="btn small go" data-act="start" ${busy ? "disabled" : ""}>Start</button>
                <button class="btn small" data-act="switch" ${busy ? "disabled" : ""} title="Stop all other models on this host, free its memory, then start this one">Switch to</button>`}
+          <span class="actions-gap"></span>
           <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
           <button class="btn small ghost" data-act="edit">Edit</button>
-          <button class="btn small ghost" data-act="duplicate">Duplicate</button>
-          <button class="btn small ghost danger" data-act="delete" ${running ? "disabled" : ""}>Delete</button>`;
-  const endpoint = running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(maskEndpoint(url))}/v1</a>`
-    : `<span class="muted">${esc(maskEndpoint(url))}/v1</span>`;
+          <button class="btn small ghost icon" data-act="duplicate" title="Duplicate" aria-label="Duplicate">⧉</button>
+          <button class="btn small ghost danger icon" data-act="delete" ${running ? "disabled" : ""} title="${running ? "Stop it before deleting" : "Delete"}" aria-label="Delete">🗑</button>`;
+  const endpoint = (running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(maskEndpoint(url))}/v1</a>`
+    : `<span class="muted">${esc(maskEndpoint(url))}/v1</span>`)
+    + `<button class="copy-mini" data-act="copy" title="Copy the endpoint">copy</button>`;
+  const model = modelShown(r);
+  const served = servedName(r);
+  const facts = [
+    ["Model", `<span title="${esc(model.title)}">${esc(model.label)}</span>`],
+    served && served !== model.label && served !== r.model ? ["Served as", `<code>${esc(served)}</code>`] : null,
+    ["Endpoint", endpoint],
+    r.runtime === "docker" && r.image ? ["Image", `<span title="${esc(r.image)}">${esc(imageShort(r.image))}</span>`] : null,
+    r.est_memory_gb ? ["Memory", `~${r.est_memory_gb} GB`] : null,
+    r.container ? [r.runtime === "process" ? "Process" : "Container",
+      `<span title="${esc(r.container_name)}">${esc(r.container.status)}</span>`] : null,
+  ].filter(Boolean);
   if (view.layout !== "tiles") {
     // Row layout: the same facts as the tile, side by side; agents keep their own row style.
-    const facts = [
-      ["Model", esc(r.model || "–")],
-      ["Endpoint", endpoint],
-      [r.runtime === "process" ? "Name" : "Container", esc(r.container_name)],
-      r.est_memory_gb ? ["Est. memory", `${r.est_memory_gb} GB`] : null,
-      r.container ? [r.runtime === "process" ? "Process" : "Docker", esc(r.container.status)] : null,
-    ].filter(Boolean);
     return `
       <article class="card model-row is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
         <div class="row-icon" aria-hidden="true">🧠</div>
@@ -521,13 +553,7 @@ function cardHtml(r) {
         ${r.tags?.length ? `<div class="card-tags">${r.tags.map((t) =>
           `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}</div>` : ""}
         ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
-        <dl class="kv">
-          <dt>Model</dt><dd>${esc(r.model || "–")}</dd>
-          <dt>Endpoint</dt><dd>${endpoint}</dd>
-          <dt>${r.runtime === "process" ? "Name" : "Container"}</dt><dd>${esc(r.container_name)}</dd>
-          ${r.est_memory_gb ? `<dt>Est. memory</dt><dd>${r.est_memory_gb} GB</dd>` : ""}
-          ${r.container ? `<dt>${r.runtime === "process" ? "Process" : "Docker"}</dt><dd>${esc(r.container.status)}</dd>` : ""}
-        </dl>
+        <dl class="kv">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
         ${metricsHtml(r)}
         <div class="actions">${actions}</div>
       </article>`;
@@ -749,6 +775,10 @@ $("#recipes").addEventListener("click", async (ev) => {
     openLogs(r);
   } else if (act === "edit") {
     openRecipeEditor(r);
+  } else if (act === "copy") {
+    const ep = endpointUrl(r);
+    try { await navigator.clipboard.writeText(ep); toast("Endpoint copied", "ok"); }
+    catch { prompt("Copy the endpoint:", ep); }
   } else if (act === "duplicate") {
     try {
       const copy = await api(`/api/recipes/${id}/duplicate`, { method: "POST" });
@@ -971,6 +1001,8 @@ function openRecipeEditor(r, kind = "model", hostId = "") {
     // A new agent starts as a native process (e.g. `hermes gateway run`); Docker is one click away.
     applyFramework(kind === "agent" ? "process-custom" : mac ? "mlx" : "vllm", true);
   }
+  // A new recipe usually starts from a command that already works: offer importing it first.
+  $("#import-cta").classList.toggle("hidden", !!r);
   syncHostNetworkPorts();
   updatePortHint();
   updatePreview();
@@ -978,6 +1010,7 @@ function openRecipeEditor(r, kind = "model", hostId = "") {
 }
 
 $("#btn-new-recipe").addEventListener("click", () => openRecipeEditor(null));
+$("#btn-import-recipe").addEventListener("click", () => { openRecipeEditor(null); openImport(); });
 
 $("#sel-host").addEventListener("change", (e) => {
   updatePortHint();
@@ -1019,14 +1052,37 @@ recipeForm.addEventListener("input", () => {
   previewTimer = setTimeout(updatePreview, 250);
 });
 
+// One flag per line; docker's own flags (up to the image) and the framework's (after it) in two colours.
+function previewHtml(command, image) {
+  let inDocker = command.startsWith("docker ") && !!image;
+  return command.replace(/ (--?[a-zA-Z])/g, " \\\n  $1").split("\n").map((line) => {
+    const cont = / \\$/.test(line);
+    const body = cont ? line.slice(0, -2) : line;
+    const m = body.match(/^(\s*)(--?[\w.-]+)(.*)$/);
+    const html = m ? `${m[1]}<span class="${inDocker ? "dflag" : "flag"}">${esc(m[2])}</span>${esc(m[3])}` : esc(body);
+    if (inDocker && ` ${body} `.includes(` ${image} `)) inDocker = false;  // the image ends docker's flags
+    return html + (cont ? ' <span class="cont">\\</span>' : "");
+  }).join("\n");
+}
+
 async function updatePreview() {
+  const id = editingRecipe?.id;
   try {
-    const res = await api("/api/recipes/preview", { method: "POST", body: recipeFromForm() });
-    $("#recipe-preview").textContent = res.command.replace(/ (--?[a-zA-Z])/g, " \\\n  $1");
+    const res = await api(`/api/recipes/preview${id ? `?recipe_id=${id}` : ""}`, { method: "POST", body: recipeFromForm() });
+    $("#recipe-preview").dataset.command = res.command;
+    $("#recipe-preview").innerHTML = previewHtml(res.command, recipeForm.elements.image.value.trim());
   } catch (e) {
+    $("#recipe-preview").dataset.command = "";
     $("#recipe-preview").textContent = `(incomplete) ${e.message}`;
   }
 }
+
+$("#btn-copy-preview").addEventListener("click", async () => {
+  const cmd = $("#recipe-preview").dataset.command;
+  if (!cmd) return;
+  try { await navigator.clipboard.writeText(cmd); toast("Command copied", "ok"); }
+  catch { prompt("Copy the command:", cmd); }
+});
 
 recipeForm.addEventListener("submit", async (ev) => {
   ev.preventDefault();
@@ -1086,11 +1142,13 @@ async function runImportCheck() {
   return check;
 }
 
-$("#btn-import").addEventListener("click", () => {
+function openImport() {
   resetImportReport();
   $("#dlg-import").showModal();
   $("#import-text").focus();
-});
+}
+$("#btn-import").addEventListener("click", openImport);
+$("#import-cta [data-import]").addEventListener("click", openImport);
 
 $("#import-text").addEventListener("input", resetImportReport);
 
@@ -1134,6 +1192,7 @@ $("#form-import").addEventListener("submit", async (ev) => {
       ...(skipped.length ? [`• Not executed during import (${skipped.length}):`,
         ...skipped.slice(0, 12).map((s) => `    ${s}`), ...(skipped.length > 12 ? [`    … ${skipped.length - 12} more`] : [])] : []),
     ]);
+    $("#import-cta").classList.add("hidden");
     $("#dlg-import").close();
     updatePreview();
   } catch (e) {
@@ -1898,9 +1957,10 @@ document.addEventListener("keydown", (ev) => {
   if (TAB_KEYS[k]) { $(`.tab[data-tab="${TAB_KEYS[k]}"]`).click(); ev.preventDefault(); return; }
   if (k === "/") { $('.tab[data-tab="recipes"]').click(); $("#recipe-search").focus(); ev.preventDefault(); return; }
   if (k === "n" && state.tab === "recipes") { $("#btn-new-recipe").click(); ev.preventDefault(); return; }
+  if (k === "i" && state.tab === "recipes") { $("#btn-import-recipe").click(); ev.preventDefault(); return; }
   if (k === "t") { $("#btn-theme").click(); return; }
   if (k === "b") { $("#btn-blur").click(); return; }
-  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · n new recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
+  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · n new recipe · i import a docker run / script · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
 });
 
 /* ---------------- boot ---------------- */

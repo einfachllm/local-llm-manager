@@ -27,7 +27,10 @@
     <section id="tab-recipes" class="panel">
       <div class="panel-head">
         <h2>Recipes</h2>
-        <button class="btn primary" id="btn-new-recipe">+ New recipe</button>
+        <div class="sched-actions">
+          <button class="btn import-btn" id="btn-import-recipe" title="Create a recipe from a starter script or docker run command (shortcut: i)">📋 Import docker run / script…</button>
+          <button class="btn primary" id="btn-new-recipe">+ New recipe</button>
+        </div>
       </div>
       <div class="recipes-layout">
         <div id="recipes"></div>
@@ -174,12 +177,20 @@
   </main>
 
   <!-- Recipe editor -->
-  <dialog id="dlg-recipe" class="dialog wide">
+  <dialog id="dlg-recipe" class="dialog editor">
     <form id="form-recipe" method="dialog">
       <div class="dialog-head">
         <h3 id="recipe-title">Recipe</h3>
-        <button type="button" class="btn small" id="btn-import" title="Fill this form from a starter script or docker run command">Import script…</button>
+        <button type="button" class="btn small import-btn" id="btn-import" title="Fill this form from a starter script or docker run command">📋 Import docker run / script…</button>
         <button type="button" class="x" data-close>&times;</button>
+      </div>
+      <div class="editor-body">
+      <div class="editor-form">
+      <div class="import-cta hidden" id="import-cta">
+        <span class="import-cta-icon" aria-hidden="true">📋</span>
+        <div><b>Already have a <code>docker run</code> command or a start script?</b>
+          <small>Paste it and the form fills itself. It is checked first; nothing is executed.</small></div>
+        <button type="button" class="btn primary small" data-import>Import…</button>
       </div>
       <div class="note hidden" id="recipe-note"></div>
       <div class="form-grid">
@@ -223,9 +234,14 @@
         <label class="span2 docker-only">Extra docker run flags
           <input name="docker_args" class="mono"></label>
       </div>
-      <div class="preview">
-        <div class="preview-head">Command preview</div>
+      </div>
+      <aside class="preview">
+        <div class="preview-head">
+          <span>Command preview <small>updates as you type</small></span>
+          <button type="button" class="btn small ghost" id="btn-copy-preview" title="Copy the command">Copy</button>
+        </div>
         <pre id="recipe-preview" class="mono"></pre>
+      </aside>
       </div>
       <div class="error" id="recipe-error"></div>
       <div class="dialog-foot">
