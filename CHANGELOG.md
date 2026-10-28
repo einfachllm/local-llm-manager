@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Documentation site** (MkDocs + Material) with a Quick start and a Several machines guide, published to
+  GitHub Pages by a new `Docs` workflow: `main` updates the `dev` version, release tags add `stable`.
 - **Weights registry:** the Weights tab registers model weights with their path on each host. A recipe
   picks an entry under *Weights* and writes `{weights}` (in volumes, model, command, args or env); on
   start it becomes the path on the recipe's host, so a recipe moved to another host mounts the right

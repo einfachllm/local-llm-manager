@@ -9,6 +9,8 @@ silicon, or any Linux box - from any browser on your network:
 
 ![Model recipes, dark theme](docs/screenshots/recipes-dark.png)
 
+📖 **Documentation:** [einfachllm.github.io/local-llm-manager](https://einfachllm.github.io/local-llm-manager/) – start with the Quick start and Several machines.
+
 - **Recipes:** save how to start a model server (vLLM, SGLang, llama.cpp, TensorFold or any image / native binary),
   as a Docker container or as a native process. Or import an existing starter script / `docker run` command.
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).
