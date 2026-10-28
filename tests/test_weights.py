@@ -100,3 +100,65 @@ def test_recipes_on_registered_weights_leave_the_detected_list(client, tmp_path)
     client.post("/api/recipes", json=recipe_body(model="/model", volumes=VOLS, weights_id=w["id"]))
     client.post("/api/recipes", json=recipe_body(name="q", container_name="q", host_port=8101, model="Qwen/Qwen3-8B"))
     assert [m["model"] for m in client.get("/api/models").json()["models"]] == ["Qwen/Qwen3-8B"]
+
+
+# ---- step 2: search the hosts, adopt existing recipes ----------------------
+
+def test_scan_finds_model_folders_and_ggufs(tmp_path, monkeypatch):
+    from local_llm_manager.executor import scan_weight_dirs
+    (tmp_path / "Nemotron-VL").mkdir()
+    (tmp_path / "Nemotron-VL" / "config.json").write_text("{}")
+    (tmp_path / "Nemotron-VL" / "model-00001.safetensors").write_bytes(b"x" * 10)
+    (tmp_path / "Nemotron-VL" / "sub").mkdir()
+    (tmp_path / "Nemotron-VL" / "sub" / "config.json").write_text("{}")  # inside a model: not listed
+    (tmp_path / "gguf").mkdir()
+    (tmp_path / "gguf" / "qwen3-4b-Q4_K_M.gguf").write_bytes(b"x")
+    (tmp_path / ".cache").mkdir()
+    (tmp_path / ".cache" / "config.json").write_text("{}")
+    (tmp_path / "notes").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path))
+    found = {f["name"]: f for f in scan_weight_dirs(["~"])}
+    assert set(found) == {"Nemotron-VL", "qwen3-4b-Q4_K_M.gguf"}
+    assert found["Nemotron-VL"]["path"] == "~/Nemotron-VL" and found["Nemotron-VL"]["kind"] == "dir"
+    assert found["qwen3-4b-Q4_K_M.gguf"]["path"] == "~/gguf/qwen3-4b-Q4_K_M.gguf"
+
+
+def test_discover_suggests_paths_on_other_hosts(setup, tmp_path, monkeypatch):
+    from local_llm_manager import config
+    client, _, _, _, mac = setup
+    local = client.get("/api/hosts").json()[0]["id"]
+    models = tmp_path / "models"
+    for name in ("NVIDIA-Nemotron-VL", "Qwen3-8B"):
+        (models / name).mkdir(parents=True)
+        (models / name / "config.json").write_text("{}")
+    monkeypatch.setattr(config, "MODEL_DIRS", [str(models)])  # hub and agent run in this process
+    w = weight(client, name="Nemotron VL", **{str(local): str(models / "NVIDIA-Nemotron-VL")})
+
+    d = client.get("/api/weights/discover").json()
+    assert [h["count"] for h in d["hosts"]] == [2, 2]
+    [s] = d["suggestions"]
+    assert s["weight_id"] == w["id"] and s["host_id"] == mac["id"] and s["path"].endswith("NVIDIA-Nemotron-VL")
+    assert sorted((f["host_id"], f["name"]) for f in d["unregistered"]) == [(local, "Qwen3-8B"), (mac["id"], "Qwen3-8B")]
+
+
+def test_adopt_moves_recipes_onto_one_entry(setup, tmp_path):
+    client, _, _, mac_docker, mac = setup
+    vols = "~/models/Nemotron-VL:/model:ro\n/data/hf:/root/.cache/huggingface"
+    a = client.post("/api/recipes", json=recipe_body(model="/model", volumes=vols)).json()
+    b = client.post("/api/recipes", json=recipe_body(name="b", container_name="b", host_port=8101, host_id=mac["id"],
+                                                     model="/model", volumes="/nvme/Nemotron-VL:/model")).json()
+    hf = client.post("/api/recipes", json=recipe_body(name="c", container_name="c", host_port=8102)).json()
+
+    rows = {m["model"]: m for m in client.get("/api/models").json()["models"]}
+    assert rows["~/models/Nemotron-VL"]["adoptable"] and not rows["Qwen/Qwen3-8B"]["adoptable"]
+
+    assert client.post("/api/weights/adopt", json={"recipe_ids": [hf["id"]]}).status_code == 422
+    w = client.post("/api/weights/adopt", json={"recipe_ids": [a["id"]]}).json()
+    assert w["name"] == "Nemotron-VL"
+    w = client.post("/api/weights/adopt", json={"recipe_ids": [b["id"]]}).json()  # same folder name: same entry
+    assert w["locations"] == {str(a["host_id"]): "~/models/Nemotron-VL", str(mac["id"]): "/nvme/Nemotron-VL"}
+
+    a2 = client.get(f"/api/recipes/{a['id']}").json()
+    assert a2["weights_id"] == w["id"] and a2["volumes"].splitlines()[0] == "{weights}:/model:ro"
+    assert client.get(f"/api/recipes/{b['id']}").json()["volumes"] == "{weights}:/model"
+    assert [m["model"] for m in client.get("/api/models").json()["models"]] == ["Qwen/Qwen3-8B"]

@@ -108,6 +108,61 @@ def check_model_target(target: dict[str, str], model_dirs: list[str]) -> dict[st
     }
 
 
+def _contract_home(path: str) -> str:
+    """/home/me/models/x -> ~/models/x: the same layout on another machine (other user name) matches."""
+    home = os.path.expanduser("~").rstrip("/")
+    return "~" + path[len(home):] if home and (path == home or path.startswith(home + "/")) else path
+
+
+_WEIGHT_FILE_EXTS = (".safetensors", ".gguf", ".bin", ".pt", ".npz")
+SCAN_MAX_DEPTH = 3
+SCAN_MAX_RESULTS = 500
+
+
+def scan_weight_dirs(dirs: list[str]) -> list[dict[str, Any]]:
+    """Model folders (with config.json or weight files) and loose .gguf files under the given directories,
+    up to SCAN_MAX_DEPTH levels deep. Paths under the home directory are returned as ~/..., so the same
+    layout matches on machines with other user names. The Hugging Face cache is not listed: its snapshot
+    folders hold symlinks into the cache that a single mount cannot follow."""
+    found: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for d in dirs:
+        root = os.path.realpath(os.path.expanduser(d))
+        if not os.path.isdir(root):
+            continue
+        base_depth = root.rstrip("/").count("/")
+        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+            dirnames[:] = sorted(n for n in dirnames if not n.startswith("."))
+            weights = [f for f in filenames if f.lower().endswith(_WEIGHT_FILE_EXTS)]
+            if dirpath != root and ("config.json" in filenames or any(not f.endswith(".gguf") for f in weights)):
+                size = 0
+                for sub, _, files in os.walk(dirpath):
+                    for f in files:
+                        try:
+                            size += os.stat(os.path.join(sub, f)).st_size
+                        except OSError:
+                            pass
+                if dirpath not in seen:
+                    seen.add(dirpath)
+                    found.append({"path": _contract_home(dirpath), "name": os.path.basename(dirpath),
+                                  "kind": "dir", "size_gb": round(size / 1e9, 1)})
+                dirnames[:] = []  # a model folder: don't list its sub-folders as models too
+                continue
+            for f in sorted(filenames):
+                if f.lower().endswith(".gguf"):
+                    full = os.path.join(dirpath, f)
+                    try:
+                        size = os.stat(full).st_size
+                    except OSError:
+                        size = 0
+                    found.append({"path": _contract_home(full), "name": f, "kind": "file", "size_gb": round(size / 1e9, 1)})
+            if dirpath.rstrip("/").count("/") - base_depth >= SCAN_MAX_DEPTH:
+                dirnames[:] = []
+            if len(found) >= SCAN_MAX_RESULTS:
+                return found[:SCAN_MAX_RESULTS]
+    return found
+
+
 class ActionError(Exception):
     def __init__(self, message: str, status_code: int = 400):
         super().__init__(message)
@@ -322,6 +377,11 @@ class LocalExecutor:
         """Host-side existence check for resolved model targets (see resolve_model_target)."""
         return [check_model_target(it, config.MODEL_DIRS) for it in items]
 
+    async def scan_weights(self) -> dict[str, Any]:
+        """Model folders and .gguf files in this host's model dirs (DGXM_MODEL_DIR)."""
+        found = await asyncio.to_thread(scan_weight_dirs, config.MODEL_DIRS)
+        return {"dirs": config.MODEL_DIRS, "found": found}
+
     async def drop_caches(self) -> tuple[bool, str]:
         if sys.platform == "darwin":
             # macOS has no drop_caches, and a privileged container would only touch Docker's VM.
@@ -414,6 +474,14 @@ class RemoteExecutor:
         except ActionError as e:
             if e.status_code == 404:  # agents before this endpoint existed
                 raise ActionError(f"The agent on '{self.host['name']}' is too old to check models - update it", 502)
+            raise
+
+    async def scan_weights(self) -> dict[str, Any]:
+        try:
+            return await self._call("GET", "/weights/scan", timeout=60.0)
+        except ActionError as e:
+            if e.status_code == 404:  # agents before this endpoint existed
+                raise ActionError(f"The agent on '{self.host['name']}' is too old to search for weights - update it", 502)
             raise
 
     async def drop_caches(self) -> tuple[bool, str]:

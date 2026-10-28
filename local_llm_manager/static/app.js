@@ -1151,6 +1151,27 @@ function applyWeightsSelection() {
   f.volumes.value = lines.filter((l, j) => l.trim() || j < lines.length - 1).join("\n");
 }
 
+// After an import: if the model's own mount is the path a registered entry has on this host, switch the
+// recipe to that entry. Returns the entry's name, or "".
+function useRegisteredWeights() {
+  const f = recipeForm.elements;
+  if (f.runtime.value !== "docker" || f.weights_id.value) return "";
+  const dst = f.model.value.trim().replace(/\/+$/, "");
+  if (!dst.startsWith("/")) return "";
+  const lines = f.volumes.value.split("\n");
+  const i = lines.findIndex((l) => l.trim().split(":")[1]?.replace(/\/+$/, "") === dst);
+  if (i < 0) return "";
+  const src = lines[i].trim().split(":")[0].replace(/\/+$/, "");
+  const hostId = Number(f.host_id.value) || state.hosts.find((h) => h.is_local)?.id;
+  const w = state.weights.find((x) => (x.locations[hostId] || "").replace(/\/+$/, "") === src);
+  if (!w) return "";
+  const [, d, ...rest] = lines[i].trim().split(":");
+  lines[i] = ["{weights}", d, ...rest].join(":");
+  f.volumes.value = lines.join("\n");
+  f.weights_id.value = String(w.id);
+  return w.name;
+}
+
 let weightsCheckSeq = 0;
 async function updateWeightsStatus() {
   const box = $("#weights-status");
@@ -1242,19 +1263,85 @@ $("#weights").addEventListener("click", (ev) => {
 });
 $("#btn-new-weight").addEventListener("click", () => openWeightEditor(null));
 
+let discoverData = null;
+
+async function discoverWeights() {
+  const box = $("#weights-discover");
+  const btn = $("#btn-discover-weights");
+  box.classList.remove("hidden");
+  box.innerHTML = `<div class="muted">Searching the model folders on every host…</div>`;
+  btn.disabled = true;
+  try {
+    discoverData = await api("/api/weights/discover");
+    renderDiscover();
+  } catch (e) {
+    box.innerHTML = `<div class="bad">${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderDiscover() {
+  const d = discoverData;
+  const box = $("#weights-discover");
+  if (!d) { box.classList.add("hidden"); return; }
+  const host = (id) => esc(maskAddr(hostName(id)));
+  const size = (f) => f.size_gb ? ` <span class="muted">${f.size_gb} GB</span>` : "";
+  const hostsLine = d.hosts.map((h) => h.error
+    ? `<span class="bad" title="${esc(blurHostText(h.error, hostById(h.host_id)?.url))}">${host(h.host_id)}: ✗ ${esc(blurHostText(h.error, hostById(h.host_id)?.url))}</span>`
+    : `<span>${host(h.host_id)}: ${h.count} found in <code>${esc(h.dirs.join(", "))}</code></span>`).join(" · ");
+  const sugg = d.suggestions.length ? `<h4>Suggested paths <button class="btn small primary" data-use-all>Use all ${d.suggestions.length}</button></h4>
+      ${d.suggestions.map((s, i) => `<div class="discover-row"><b>${esc(s.name)}</b> on ${host(s.host_id)}: <code>${esc(s.path)}</code>${size(s)}
+        <button class="btn small" data-use="${i}">Use</button></div>`).join("")}` : "";
+  const unreg = d.unregistered.length ? `<h4>Found, not registered</h4>
+      ${d.unregistered.map((f, i) => `<div class="discover-row">${f.kind === "file" ? "📄" : "📁"} <b>${esc(f.name)}</b> on ${host(f.host_id)}: <code>${esc(f.path)}</code>${size(f)}
+        <button class="btn small" data-register="${i}">Register…</button></div>`).join("")}` : "";
+  box.innerHTML = `<div class="discover-head"><span class="muted">${hostsLine}</span><button type="button" class="x" data-close-discover title="Close">&times;</button></div>
+    ${sugg}${unreg}${!sugg && !unreg ? `<div class="muted">Nothing new: every folder found is registered and every entry has its paths. Folders are looked for in each host's <code>DGXM_MODEL_DIR</code>.</div>` : ""}`;
+}
+
+const normName = (n) => n.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+$("#btn-discover-weights").addEventListener("click", discoverWeights);
+$("#weights-discover").addEventListener("click", async (ev) => {
+  if (ev.target.closest("[data-close-discover]")) { discoverData = null; renderDiscover(); return; }
+  const use = ev.target.closest("[data-use]");
+  const all = ev.target.closest("[data-use-all]");
+  if (use || all) {
+    const list = all ? discoverData.suggestions : [discoverData.suggestions[Number(use.dataset.use)]];
+    try {
+      for (const s of list) await api(`/api/weights/${s.weight_id}/hosts/${s.host_id}`, { method: "PUT", body: { path: s.path } });
+      toast(`${list.length} path${list.length === 1 ? "" : "s"} set`, "ok");
+      await afterWeightsChange();
+    } catch (e) { toast(e.message, "bad"); }
+    return;
+  }
+  const reg = ev.target.closest("[data-register]");
+  if (reg) {
+    const f = discoverData.unregistered[Number(reg.dataset.register)];
+    // The same folder name on other hosts is most likely the same weights: fill those paths in too.
+    const locations = {};
+    for (const g of discoverData.unregistered) {
+      if (normName(g.name) === normName(f.name) && !(g.host_id in locations)) locations[g.host_id] = g.path;
+    }
+    locations[f.host_id] = f.path;
+    openWeightEditor(null, null, { name: f.name.replace(/\.gguf$/i, ""), locations });
+  }
+});
+
 let editingWeight = null;
 
-function openWeightEditor(w, focusHostId = null) {
+function openWeightEditor(w, focusHostId = null, prefill = null) {
   editingWeight = w || null;
   const form = $("#form-weight");
   form.reset();
   $("#weight-error").textContent = "";
   $("#weight-title").textContent = w ? `Weights – ${w.name}` : "Register weights";
-  form.elements.name.value = w?.name ?? "";
+  form.elements.name.value = w?.name ?? prefill?.name ?? "";
   form.elements.source.value = w?.source ?? "";
   $("#weight-paths").innerHTML = state.hosts.map((h) => `<label class="weight-path">
       <span>${esc(maskAddr(h.name))}${h.is_local ? " <small>this machine</small>" : ""}</span>
-      <input class="mono" data-host="${h.id}" value="${esc(w?.locations[h.id] ?? "")}" placeholder="~/models/…"></label>`).join("");
+      <input class="mono" data-host="${h.id}" value="${esc(w?.locations[h.id] ?? prefill?.locations?.[h.id] ?? "")}" placeholder="~/models/…"></label>`).join("");
   $("#btn-weight-delete").classList.toggle("hidden", !w);
   $("#dlg-weight").showModal();
   const focus = focusHostId && $(`#weight-paths input[data-host="${focusHostId}"]`);
@@ -1264,6 +1351,7 @@ function openWeightEditor(w, focusHostId = null) {
 async function afterWeightsChange() {
   await loadWeightsList();
   if (state.tab === "models") loadWeights();
+  if (discoverData) discoverWeights();  // the search results above the registry are stale now
   if ($("#dlg-recipe").open) updateWeightsStatus();
   renderRecipes();
 }
@@ -1377,11 +1465,14 @@ $("#form-import").addEventListener("submit", async (ev) => {
     // Scripts carry no tags; keep whatever the form already has.
     if (!r.tags?.length) r.tags = recipeFromForm().tags;
     fillRecipeForm(r);
+    const adopted = useRegisteredWeights();
     syncHostNetworkPorts();
+    updateWeightsStatus();
     const skipped = res.skipped_calls || [];
     const riskCount = res.check?.count ?? 0;
     showRecipeNote([
       "Imported – review the fields and the command preview, then save.",
+      ...(adopted ? [`• The model folder is the registered weights “${adopted}”: the volume now uses {weights}.`] : []),
       ...res.warnings.map((w) => `• ${w}`),
       ...(riskCount ? [`• Script check: ${riskCount} risk${riskCount === 1 ? "" : "s"} (confirmed)`] : []),
       ...(skipped.length ? [`• Not executed during import (${skipped.length}):`,
@@ -2090,7 +2181,8 @@ function renderModels() {
     const recipes = modelsView.host ? m.recipes.filter((r) => String(r.host_id) === modelsView.host) : m.recipes;
     const out = [`<tr>
       <td class="mono">${esc(m.model)}</td>
-      <td><button class="chip small" data-model-toggle="${esc(m.model)}" aria-expanded="${open}">${recipes.length} recipe${recipes.length === 1 ? "" : "s"} ${open ? "▾" : "▸"}</button></td>
+      <td><button class="chip small" data-model-toggle="${esc(m.model)}" aria-expanded="${open}">${recipes.length} recipe${recipes.length === 1 ? "" : "s"} ${open ? "▾" : "▸"}</button>
+        ${m.adoptable ? `<button class="btn small" data-adopt="${esc(m.model)}" title="Register this folder in the Weights registry and switch ${recipes.length === 1 ? "its recipe" : "these recipes"} to {weights}">→ Register</button>` : ""}</td>
       ${cols.map((h) => `<td class="img-cell">${modelCellHtml(m, m.hosts.find((x) => x.host_id === h.id))}</td>`).join("")}
     </tr>`];
     if (open) {
@@ -2110,7 +2202,22 @@ $("#models-search").addEventListener("input", (e) => { modelsView.search = e.tar
 $("#models-host").addEventListener("change", (e) => { modelsView.host = e.target.value; renderModels(); });
 $("#models-only-missing").addEventListener("click", () => { modelsView.onlyMissing = !modelsView.onlyMissing; renderModels(); });
 
-$("#models").addEventListener("click", (ev) => {
+$("#models").addEventListener("click", async (ev) => {
+  const adopt = ev.target.closest("[data-adopt]");
+  if (adopt) {
+    const m = modelsData.models.find((x) => x.model === adopt.dataset.adopt);
+    const name = prompt(`Register “${m.model}” as weights named:\n(its recipes then mount {weights}; set the path for other hosts in the registry)`,
+      m.model.replace(/\/+$/, "").split("/").pop());
+    if (name === null) return;
+    try {
+      const w = await api("/api/weights/adopt", { method: "POST", body: { recipe_ids: m.recipes.map((r) => r.id), name } });
+      toast(`Registered “${w.name}” – ${m.recipes.length} recipe${m.recipes.length === 1 ? "" : "s"} now use${m.recipes.length === 1 ? "s" : ""} {weights}`, "ok");
+      await loadRecipes();
+      await afterWeightsChange();
+      loadModels();
+    } catch (e) { toast(e.message, "bad"); }
+    return;
+  }
   const toggle = ev.target.closest("[data-model-toggle]");
   if (toggle) {
     const k = toggle.dataset.modelToggle;

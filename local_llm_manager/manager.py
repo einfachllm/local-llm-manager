@@ -16,7 +16,7 @@ from .docker import Docker, split_image
 from .executor import (RUNNING_STATES, ActionError, LocalExecutor, RemoteExecutor, agent_payload_recipe,
                        resolve_model_target)
 from .processes import ProcessRunner
-from .recipes import fill_weights, uses_weights
+from .recipes import WEIGHTS, fill_weights, model_mount, use_weights_mount, uses_weights
 
 __all__ = ["ActionError", "Manager"]
 
@@ -119,6 +119,8 @@ class Manager:
                                          "recipes": [], "host_ids": set()})
             g["recipes"].append({"id": r["id"], "name": r["name"], "host_id": r["host_id"]})
             g["host_ids"].add(r["host_id"])
+            # Can move onto a registry entry (adopt_weights) when every recipe mounts the folder itself.
+            g["adoptable"] = g.get("adoptable", True) and model_mount(r["model"], r.get("volumes", "")) is not None
 
         # Build per-host item lists: one resolved target per distinct reference on that host.
         by_host: dict[int, set[str]] = {}
@@ -208,6 +210,70 @@ class Manager:
             out.append({"id": w["id"], "name": w["name"], "source": w["source"], "recipe_ids": w["recipe_ids"],
                         "hosts": cells})
         return {"weights": out}
+
+    async def discover_weights(self) -> dict[str, Any]:
+        """Ask every host for the model folders in its model dirs. Returns, per host, what it found;
+        suggestions (a registered entry without a path on a host, and a folder there with the same name
+        as the entry's folder elsewhere, its name or its source repo); and found folders nobody registered."""
+        hosts = self.db.list_hosts()
+        weights = self.db.list_weights()
+
+        async def scan(host: dict) -> tuple[int, Optional[dict], Optional[str]]:
+            try:
+                return host["id"], await self.executor_for(host["id"]).scan_weights(), None
+            except ActionError as e:
+                return host["id"], None, e.message
+
+        scans = await asyncio.gather(*(scan(h) for h in hosts))
+        registered = {(hid, _norm_path(p)) for w in weights for hid, p in w["locations"].items()}
+        keys = {w["id"]: {_norm_name(n) for n in [w["name"], w["source"].rsplit("/", 1)[-1],
+                                                    *(p.rstrip("/").rsplit("/", 1)[-1] for p in w["locations"].values())] if n}
+                for w in weights}
+        out_hosts, suggestions, unregistered = [], [], []
+        for hid, res, err in scans:
+            found = (res or {}).get("found", [])
+            out_hosts.append({"host_id": hid, "error": err, "dirs": (res or {}).get("dirs", []), "count": len(found)})
+            for f in found:
+                if (hid, _norm_path(f["path"])) not in registered:
+                    unregistered.append({**f, "host_id": hid})
+            for w in weights:
+                if hid in w["locations"]:
+                    continue
+                match = next((f for f in found if _norm_name(f["name"]) in keys[w["id"]]), None)
+                if match:
+                    suggestions.append({"weight_id": w["id"], "name": w["name"], "host_id": hid,
+                                        "path": match["path"], "size_gb": match.get("size_gb")})
+        # Found folders matching a suggestion are not "unregistered" news as well.
+        suggested = {(s["host_id"], s["path"]) for s in suggestions}
+        unregistered = [f for f in unregistered if (f["host_id"], f["path"]) not in suggested]
+        return {"hosts": out_hosts, "suggestions": suggestions, "unregistered": unregistered}
+
+    def adopt_weights(self, recipe_ids: list[int], name: Optional[str] = None) -> dict[str, Any]:
+        """Move recipes whose model is a volume mount of its own onto a registry entry: the mount's host
+        side becomes {weights}, and its path is stored for the recipe's host. Recipes mounting the same
+        folder name share one entry (found by name, created when missing)."""
+        recipes = [self._get(rid) for rid in recipe_ids]
+        mounts = {}
+        for r in recipes:
+            m = model_mount(r.get("model", ""), r.get("volumes", ""))
+            if not m or WEIGHTS in m[1]:
+                raise ActionError(f"{r['name']}: its model is not mounted from a folder of its own "
+                                  f"(a volume like ~/models/x:{r.get('model') or '/model'})", 422)
+            mounts[r["id"]] = m
+        name = (name or "").strip() or mounts[recipes[0]["id"]][1].rstrip("/").rsplit("/", 1)[-1]
+        weight = next((w for w in self.db.list_weights() if w["name"].lower() == name.lower()), None)
+        wid = weight["id"] if weight else self.db.create_weight(name, "", {})
+        locations = dict(weight["locations"]) if weight else {}
+        for r in recipes:
+            index, path = mounts[r["id"]]
+            if r["host_id"] not in locations:
+                locations[r["host_id"]] = path
+                self.db.set_weight_location(wid, r["host_id"], path)
+            elif _norm_path(locations[r["host_id"]]) != _norm_path(path):
+                raise ActionError(f"{r['name']} mounts {path}, but '{name}' is already at "
+                                  f"{locations[r['host_id']]} on that host", 409)
+            self.db.update_recipe(r["id"], {**r, "volumes": use_weights_mount(r["volumes"], index), "weights_id": wid})
+        return self.db.get_weight(wid)
 
     # ---- status --------------------------------------------------------
 
@@ -474,6 +540,15 @@ class Manager:
             msg = f"{name}: {msg}"
         self.db.add_event(source, "drop_caches", ok, msg, target=name)
         return msg
+
+
+def _norm_name(name: str) -> str:
+    """Folder / model names compared loosely: "NVIDIA-Nemotron_VL" == "nvidia nemotron vl"."""
+    return "".join(c for c in name.lower() if c.isalnum())
+
+
+def _norm_path(path: str) -> str:
+    return path.strip().rstrip("/")
 
 
 def _created(image: dict) -> datetime:
