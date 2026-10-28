@@ -54,7 +54,7 @@ def test_images_overview_across_hosts(setup):  # noqa: F811
     a = client.post("/api/recipes", json=recipe_body(name="A", image="docker.io/vllm/vllm-openai:v0.11.0")).json()
     client.post("/api/recipes", json=recipe_body(name="B", image="vllm/vllm-openai:v0.11.0", host_port=8101))
     client.post("/api/recipes", json=recipe_body(name="C", image="vllm/vllm-openai:v0.11.0", host_id=mac["id"]))
-    client.post("/api/recipes", json={**recipe_body(name="N"), "runtime": "process", "framework": "mlx",
+    client.post("/api/recipes", json={**recipe_body(name="N"), "runtime": "process", "framework": "process-custom",
                                       "image": "", "command": "mlx_lm.server --port {port}"})
 
     data = client.get("/api/images").json()

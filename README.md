@@ -9,7 +9,7 @@ silicon, or any Linux box - from any browser on your network:
 
 ![Model recipes, dark theme](docs/screenshots/recipes-dark.png)
 
-- **Recipes:** save how to start a model server (vLLM, SGLang, TensorRT-LLM, llama.cpp, MLX or any image),
+- **Recipes:** save how to start a model server (vLLM, SGLang, llama.cpp, TensorFold or any image / native binary),
   as a Docker container or as a native process. Or import an existing starter script / `docker run` command.
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).
 - **Agents next to models:** run the programs that use your models - e.g. a [Hermes Agent](examples/hermes-agent/)

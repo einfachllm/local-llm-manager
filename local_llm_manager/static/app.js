@@ -994,12 +994,12 @@ function openRecipeEditor(r, kind = "model", hostId = "") {
   } else {
     hostId = hostId || view.host || state.hosts.find((h) => h.is_local)?.id;
     recipeForm.elements.host_id.value = hostId ?? "";
-    // On a Mac, containers have no GPU access, so native MLX is the sensible default.
+    // On a Mac, containers have no GPU access, so a native process is the sensible default.
     const mac = hostPlatform(hostId) === "darwin";
     recipeForm.elements.gpus.value = mac ? "" : "all";
     recipeForm.elements.host_port.value = nextFreePort(recipeForm.elements.host_id.value);
     // A new agent starts as a native process (e.g. `hermes gateway run`); Docker is one click away.
-    applyFramework(kind === "agent" ? "process-custom" : mac ? "mlx" : "vllm", true);
+    applyFramework(kind === "agent" || mac ? "process-custom" : "vllm", true);
   }
   // A new recipe usually starts from a command that already works: offer importing it first.
   $("#import-cta").classList.toggle("hidden", !!r);
@@ -1014,11 +1014,11 @@ $("#btn-import-recipe").addEventListener("click", () => { openRecipeEditor(null)
 
 $("#sel-host").addEventListener("change", (e) => {
   updatePortHint();
-  // New recipe moved to a Mac: switch to native MLX (Docker on macOS has no GPU access).
+  // New recipe moved to a Mac: switch to a native process (Docker on macOS has no GPU access).
   if (!editingRecipe && hostPlatform(e.target.value) === "darwin" && recipeForm.elements.runtime.value === "docker"
       && recipeForm.elements.kind.value !== "agent") {
     recipeForm.elements.gpus.value = "";
-    applyFramework("mlx", true);
+    applyFramework("process-custom", true);
     updatePreview();
   }
 });

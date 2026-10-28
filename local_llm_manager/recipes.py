@@ -10,7 +10,7 @@ from . import config
 # In `command`, these placeholders are substituted: {model}, {port} (container port; for native
 # processes the same as the host port), {host_port}, {name} (container / process name) and
 # {bind_host} (listen address, see bind_host()).
-# `runtime` is "docker" (run in a container) or "process" (run directly on the host, e.g. MLX on a Mac).
+# `runtime` is "docker" (run in a container) or "process" (run directly on the host, e.g. TensorFold).
 SPARK_DOCKER_ARGS = "--ipc=host --ulimit memlock=-1 --ulimit stack=67108864"
 HF_CACHE_VOLUME = "~/.cache/huggingface:/root/.cache/huggingface"
 
@@ -34,18 +34,6 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "container_port": 30000,
         "command": "python3 -m sglang.launch_server --model-path {model} --host {bind_host} --port {port}",
         "args": "--mem-fraction-static 0.4\n--context-length 32768",
-        "health_path": "/health",
-        "docker_args": SPARK_DOCKER_ARGS,
-        "volumes": HF_CACHE_VOLUME,
-        "env": "HF_TOKEN",
-    },
-    "trtllm": {
-        "runtime": "docker",
-        "label": "TensorRT-LLM",
-        "image": "nvcr.io/nvidia/tensorrt-llm/release:latest",
-        "container_port": 8000,
-        "command": "trtllm-serve {model} --host {bind_host} --port {port}",
-        "args": "",
         "health_path": "/health",
         "docker_args": SPARK_DOCKER_ARGS,
         "volumes": HF_CACHE_VOLUME,
@@ -75,25 +63,13 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "volumes": "",
         "env": "",
     },
-    "mlx": {
+    "tensorfold": {
         "runtime": "process",
-        "label": "MLX LM server",
+        "label": "TensorFold",
         "image": "",
         "container_port": 8080,
-        "command": "mlx_lm.server --model {model} --host {bind_host} --port {port}",
+        "command": "tensorfold serve {model} --host {bind_host} --port {port}",
         "args": "",
-        "health_path": "/v1/models",
-        "docker_args": "",
-        "volumes": "",
-        "env": "",
-    },
-    "llamacpp-native": {
-        "runtime": "process",
-        "label": "llama.cpp server (native)",
-        "image": "",
-        "container_port": 8080,
-        "command": "llama-server -m {model} --host {bind_host} --port {port}",
-        "args": "-ngl 999\n-c 32768",
         "health_path": "/health",
         "docker_args": "",
         "volumes": "",

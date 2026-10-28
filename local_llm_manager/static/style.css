@@ -141,7 +141,7 @@ main { padding: 24px; max-width: 1500px; margin: 0 auto; }
   padding: 2px 8px; border-radius: 6px; background: rgba(79,140,255,.15); color: var(--badge-text); white-space: nowrap;
 }
 .badge.sglang { background: rgba(167,123,243,.15); color: var(--purple); }
-.badge.trtllm { background: rgba(34,197,139,.15); color: var(--green); }
+.badge.tensorfold { background: rgba(34,197,139,.15); color: var(--green); }
 .badge.llamacpp, .badge.custom { background: rgba(240,180,41,.15); color: var(--yellow); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 13px; }
 .kv dt { color: var(--muted); }

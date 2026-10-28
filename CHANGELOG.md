@@ -7,6 +7,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **TensorFold preset** (native process): `tensorfold serve {model} --host {bind_host} --port {port}`,
+  health check on `/health`, port 8080. Importing a `tensorfold serve ...` script picks the preset up.
+
+### Changed
+- **Framework presets trimmed to what is actually used:** the TensorRT-LLM preset (Docker) and the
+  MLX / llama.cpp (native) presets are gone. The native-process section now offers **TensorFold** and
+  **Custom (native)**; imported `mlx_lm.server` / `llama-server` / `trtllm-serve` scripts and Mac
+  defaults now land on Custom (native). Existing recipes using a removed framework key need a one-time
+  framework re-save (the API rejects the old keys).
+
+### Added
 - **Weights tab:** a new "Weights" tab (shortcut `6`) lists every model referenced by model recipes and,
   per host, whether its weights are present locally - mirroring the Images tab. A recipe's `{model}` is
   resolved to a host path when it is a container path backed by a volume mount (e.g.
