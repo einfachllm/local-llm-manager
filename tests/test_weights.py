@@ -1,5 +1,7 @@
+import test_hosts
 from conftest import recipe_body
-from test_hosts import setup  # noqa: F401  (hub + one agent "mac")
+
+setup = test_hosts.setup  # the hub + one agent ("mac") fixture
 
 VOLS = "{weights}:/model:ro\n/data/hf:/root/.cache/huggingface"
 
