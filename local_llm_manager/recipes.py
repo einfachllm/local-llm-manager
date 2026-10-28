@@ -2,14 +2,15 @@
 
 import os
 import shlex
-from typing import Any
+from typing import Any, Optional
 
 from . import config
 
 # Defaults offered by the UI when a framework is picked. Every value stays editable per recipe.
 # In `command`, these placeholders are substituted: {model}, {port} (container port; for native
 # processes the same as the host port), {host_port}, {name} (container / process name) and
-# {bind_host} (listen address, see bind_host()).
+# {bind_host} (listen address, see bind_host()). {weights} - in model, volumes, command, args and env - is the
+# path of the recipe's registered weights on its host (see fill_weights()).
 # `runtime` is "docker" (run in a container) or "process" (run directly on the host, e.g. MLX on a Mac).
 SPARK_DOCKER_ARGS = "--ipc=host --ulimit memlock=-1 --ulimit stack=67108864"
 HF_CACHE_VOLUME = "~/.cache/huggingface:/root/.cache/huggingface"
@@ -155,6 +156,22 @@ def substitute(template: str, recipe: dict[str, Any]) -> str:
         .replace("{host_port}", str(recipe.get("host_port") or ""))
         .replace("{name}", recipe.get("container_name") or "")
     )
+
+
+# Stands for the path of the recipe's registered weights on the host it runs on (Weights tab).
+WEIGHTS = "{weights}"
+WEIGHT_FIELDS = ("model", "volumes", "command", "args", "env")
+
+
+def uses_weights(recipe: dict[str, Any]) -> bool:
+    return any(WEIGHTS in (recipe.get(f) or "") for f in WEIGHT_FIELDS)
+
+
+def fill_weights(recipe: dict[str, Any], path: Optional[str]) -> dict[str, Any]:
+    """A copy of the recipe with {weights} replaced by this host's path (left as is when there is none)."""
+    if not path or not uses_weights(recipe):
+        return recipe
+    return {**recipe, **{f: (recipe.get(f) or "").replace(WEIGHTS, path) for f in WEIGHT_FIELDS}}
 
 
 def split_args(text: str) -> list[str]:

@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Weights registry:** the Weights tab registers model weights with their path on each host. A recipe
+  picks an entry under *Weights* and writes `{weights}` (in volumes, model, command, args or env); on
+  start it becomes the path on the recipe's host, so a recipe moved to another host mounts the right
+  folder without edits. Picking an entry adds `{weights}:/model:ro` (or uses the model's existing
+  mount). The editor checks the selected host right away (✓ present / ✗ no path / ✗ not found), the
+  command preview shows the host's path, and starting is refused with a clear message when the host has
+  no path or nothing is there. Agents need no update: they receive the resolved paths.
 - **Weights tab:** a new "Weights" tab (shortcut `6`) lists every model referenced by model recipes and,
   per host, whether its weights are present locally - mirroring the Images tab. A recipe's `{model}` is
   resolved to a host path when it is a container path backed by a volume mount (e.g.

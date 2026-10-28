@@ -195,6 +195,17 @@ The editor's first choice, *This recipe runs*, sets what a recipe is:
   *Environment*) with ✓ or ✗ - whether the manager's environment on that host has it; values are never
   shown - and, for native agents, warns when the same command also runs outside the manager.
 
+### Weights on several machines
+
+Model weights are often in a different folder on each machine. Register them once in the **Weights** tab
+and set the path per host (e.g. `~/models/Nemotron-VL` on one Spark, `/mnt/nvme/nemotron-vl` on another).
+In a recipe, pick the entry under **Weights** and write `{weights}` where the path goes - usually the
+volume `{weights}:/model:ro` (picking an entry adds it), or the model itself for native recipes. When the
+recipe starts, `{weights}` becomes that host's path, so moving a recipe to another host needs no edits.
+The editor shows right away whether the weights are on the selected host, and starting is refused when a
+host has no path set or nothing at that path. `~` in a path is the home directory of the machine that runs
+the recipe.
+
 Not to be confused with **agent mode** ([Several machines](#several-machines)), which is how the manager itself runs on a second machine.
 "Models as: Rows / Tiles" in the filter rail switches models between wide rows (default) and cards.
 

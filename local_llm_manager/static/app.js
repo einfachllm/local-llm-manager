@@ -4,7 +4,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const state = { meta: null, recipes: [], schedules: [], hosts: [], busy: new Set(), tab: "recipes", blur: true, schedPaused: false };
+const state = { meta: null, recipes: [], schedules: [], hosts: [], weights: [], busy: new Set(), tab: "recipes", blur: true, schedPaused: false };
 try { state.blur = localStorage.getItem("llm.blur") !== "0"; } catch { /* storage unavailable */ }
 const STATUS_LABEL = { ready: "Ready", loading: "Loading model", starting: "Starting", stopped: "Stopped", failed: "Failed", offline: "Host offline" };
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -51,7 +51,7 @@ $$(".tab").forEach((btn) => btn.addEventListener("click", () => {
   if (state.tab === "activity") loadEvents();
   if (state.tab === "hosts") renderHosts();
   if (state.tab === "images") loadImages();
-  if (state.tab === "models") loadModels();
+  if (state.tab === "models") { loadWeights(); loadModels(); }
 }));
 
 $$("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
@@ -177,7 +177,7 @@ $("#btn-blur").addEventListener("click", () => {
   if (state.tab === "schedules") loadSchedules();
   if (state.tab === "activity") loadEvents();
   if (state.tab === "images") renderImages();
-  if (state.tab === "models") renderModels();
+  if (state.tab === "models") { renderWeights(); renderModels(); }
 });
 renderBlurToggle();
 
@@ -451,6 +451,11 @@ function fmtAge(s) { return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}
 // it is mounted from and show that folder's name; the full path stays in the tooltip.
 function modelShown(r) {
   const model = r.model || "";
+  const w = r.weights_id && state.weights.find((x) => x.id === r.weights_id);
+  if (w) {
+    const path = w.locations[r.host_id];
+    return { label: w.name, title: `Registered weights · ${path ? `on this host: ${path}` : "no path set on this host"}` };
+  }
   if (r.runtime === "docker" && model.startsWith("/")) {
     for (const line of (r.volumes || "").split("\n")) {
       const [src, dst] = line.trim().split(":");
@@ -814,6 +819,7 @@ function recipeFromForm() {
   data.est_memory_gb = data.est_memory_gb === "" ? null : Number(data.est_memory_gb);
   data.host_id = data.host_id ? Number(data.host_id) : null;
   data.tags = (data.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
+  data.weights_id = data.weights_id ? Number(data.weights_id) : null;
   return data;
 }
 
@@ -988,6 +994,7 @@ function openRecipeEditor(r, kind = "model", hostId = "") {
   recipeForm.elements.color.value = "";
   markSwatch();
   setKind(r ? kindOf(r) : kind, false);
+  renderWeightOptions();
   if (r) {
     fillRecipeForm(r);
     setKind(kindOf(r), false);
@@ -1003,6 +1010,7 @@ function openRecipeEditor(r, kind = "model", hostId = "") {
   }
   // A new recipe usually starts from a command that already works: offer importing it first.
   $("#import-cta").classList.toggle("hidden", !!r);
+  updateWeightsStatus();
   syncHostNetworkPorts();
   updatePortHint();
   updatePreview();
@@ -1014,6 +1022,7 @@ $("#btn-import-recipe").addEventListener("click", () => { openRecipeEditor(null)
 
 $("#sel-host").addEventListener("change", (e) => {
   updatePortHint();
+  updateWeightsStatus();
   // New recipe moved to a Mac: switch to native MLX (Docker on macOS has no GPU access).
   if (!editingRecipe && hostPlatform(e.target.value) === "darwin" && recipeForm.elements.runtime.value === "docker"
       && recipeForm.elements.kind.value !== "agent") {
@@ -1104,6 +1113,192 @@ recipeForm.addEventListener("submit", async (ev) => {
     }
   } catch (e) {
     $("#recipe-error").textContent = e.message;
+  }
+});
+
+/* ---------------- weights registry ---------------- */
+
+async function loadWeightsList() {
+  try { state.weights = (await api("/api/weights?check=false")).weights; } catch { return; }
+  renderWeightOptions();
+}
+
+function renderWeightOptions() {
+  const sel = $("#sel-weights");
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">None – paths are written in Volumes / Model</option>`
+    + state.weights.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join("");
+  sel.value = state.weights.some((w) => String(w.id) === cur) ? cur : "";
+}
+
+const usesWeightsField = (data) => ["model", "volumes", "command", "args", "env"].some((f) => (data[f] || "").includes("{weights}"));
+
+// Picking weights for a recipe that does not say where they go yet: mount them where the model is read.
+function applyWeightsSelection() {
+  const f = recipeForm.elements;
+  if (!f.weights_id.value || usesWeightsField(recipeFromForm())) return;
+  if (f.runtime.value === "process") { f.model.value = "{weights}"; return; }
+  if (!f.model.value.trim().startsWith("/")) f.model.value = "/model";
+  const dst = f.model.value.trim().replace(/\/+$/, "");
+  const lines = f.volumes.value.split("\n");
+  const i = lines.findIndex((l) => l.trim().split(":")[1]?.replace(/\/+$/, "") === dst);
+  if (i >= 0) {
+    const [, d, ...rest] = lines[i].trim().split(":");
+    lines[i] = ["{weights}", d, ...rest].join(":");
+  } else {
+    lines.unshift(`{weights}:${dst}:ro`);
+  }
+  f.volumes.value = lines.filter((l, j) => l.trim() || j < lines.length - 1).join("\n");
+}
+
+let weightsCheckSeq = 0;
+async function updateWeightsStatus() {
+  const box = $("#weights-status");
+  const f = recipeForm.elements;
+  const id = Number(f.weights_id.value);
+  const hostId = Number(f.host_id.value) || state.hosts.find((h) => h.is_local)?.id;
+  const seq = ++weightsCheckSeq;
+  const show = (cls, html) => { if (seq === weightsCheckSeq) { box.className = `port-hint ${cls}`; box.innerHTML = html; } };
+  if (!id) {
+    show(usesWeightsField(recipeFromForm()) ? "bad" : "", usesWeightsField(recipeFromForm())
+      ? "✗ This recipe uses {weights} but no weights are selected." : "");
+    return;
+  }
+  const host = esc(maskAddr(hostName(hostId)));
+  const fix = `<button type="button" class="link" data-edit-weight="${id}" data-host="${hostId}">set the path</button>`;
+  show("", `Checking ${host}…`);
+  try {
+    const c = await api(`/api/weights/${id}/hosts/${hostId}`);
+    if (c.state === "present") show("ok", `✓ on ${host}: <code>${esc(c.path)}</code>`);
+    else if (c.state === "unset") show("bad", `✗ No path for these weights on ${host} – ${fix}`);
+    else if (c.state === "missing") show("bad", `✗ Not found on ${host} at <code>${esc(c.location || c.path)}</code> – copy them there or ${fix}`);
+    else show("warn", `? ${host} could not check <code>${esc(c.path)}</code>${c.error ? ` (${esc(blurHostText(c.error, hostById(hostId)?.url))})` : ""}`);
+  } catch (e) {
+    show("warn", esc(e.message));
+  }
+}
+
+$("#sel-weights").addEventListener("change", () => {
+  applyWeightsSelection();
+  syncHostNetworkPorts();
+  updateWeightsStatus();
+  updatePreview();
+});
+$("#weights-status").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-edit-weight]");
+  if (b) openWeightEditor(state.weights.find((w) => w.id === Number(b.dataset.editWeight)), Number(b.dataset.host));
+});
+
+/* Weights tab: the registry, one column per host */
+
+let weightsData = null;
+
+async function loadWeights() {
+  const tbody = $("#weights");
+  if (!weightsData) tbody.innerHTML = `<tr><td class="empty">Asking the hosts…</td></tr>`;
+  try {
+    weightsData = await api("/api/weights");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  renderWeights();
+}
+
+function weightCellHtml(w, c) {
+  const host = hostById(c.host_id);
+  const title = c.state === "unknown" ? blurHostText(c.error || "not reachable", host?.url)
+    : c.state === "missing" ? `Not found at ${c.location || c.path}` : c.state === "present" ? c.location || c.path : "";
+  const icon = { present: `<span class="ok">✓</span>`, missing: `<span class="bad">✗</span>`, unknown: `<span class="muted">?</span>` }[c.state];
+  const body = c.path ? `${icon} <code>${esc(c.path)}</code>` : `<span class="muted">+ set path</span>`;
+  return `<button type="button" class="weight-cell ${c.state}" data-weight="${w.id}" data-host="${c.host_id}" title="${esc(title)}">${body}</button>`;
+}
+
+function renderWeights() {
+  if (!weightsData) return;
+  const hosts = state.hosts;
+  $("#weights-head").innerHTML = `<tr><th>Weights</th><th>Recipes</th>${hosts.map((h) => `<th>${esc(maskAddr(h.name))}</th>`).join("")}</tr>`;
+  const list = weightsData.weights;
+  if (!list.length) {
+    $("#weights").innerHTML = `<tr><td colspan="${2 + hosts.length}" class="empty">Nothing registered yet. “+ Register weights” adds an entry; then pick it in a recipe's Weights field.</td></tr>`;
+    return;
+  }
+  $("#weights").innerHTML = list.map((w) => `<tr>
+      <td><button type="button" class="link weight-name" data-weight="${w.id}" title="Edit name, source and paths">${esc(w.name)}</button>
+        ${w.source ? `<div class="muted mono weight-source">${esc(w.source)}</div>` : ""}</td>
+      <td>${w.recipe_ids.length ? w.recipe_ids.map((id) => {
+        const r = state.recipes.find((x) => x.id === id);
+        return r ? `<button class="chip small" data-recipe="${r.id}" title="Edit this recipe">${esc(r.name)}</button>` : "";
+      }).join(" ") : `<span class="muted">–</span>`}</td>
+      ${hosts.map((h) => `<td>${weightCellHtml(w, w.hosts.find((c) => c.host_id === h.id) || { host_id: h.id, state: "unset" })}</td>`).join("")}
+    </tr>`).join("");
+}
+
+$("#weights").addEventListener("click", (ev) => {
+  const r = ev.target.closest("[data-recipe]");
+  if (r) { const rec = state.recipes.find((x) => x.id === Number(r.dataset.recipe)); if (rec) openRecipeEditor(rec); return; }
+  const b = ev.target.closest("[data-weight]");
+  if (b) openWeightEditor(state.weights.find((w) => w.id === Number(b.dataset.weight)), Number(b.dataset.host) || null);
+});
+$("#btn-new-weight").addEventListener("click", () => openWeightEditor(null));
+
+let editingWeight = null;
+
+function openWeightEditor(w, focusHostId = null) {
+  editingWeight = w || null;
+  const form = $("#form-weight");
+  form.reset();
+  $("#weight-error").textContent = "";
+  $("#weight-title").textContent = w ? `Weights – ${w.name}` : "Register weights";
+  form.elements.name.value = w?.name ?? "";
+  form.elements.source.value = w?.source ?? "";
+  $("#weight-paths").innerHTML = state.hosts.map((h) => `<label class="weight-path">
+      <span>${esc(maskAddr(h.name))}${h.is_local ? " <small>this machine</small>" : ""}</span>
+      <input class="mono" data-host="${h.id}" value="${esc(w?.locations[h.id] ?? "")}" placeholder="~/models/…"></label>`).join("");
+  $("#btn-weight-delete").classList.toggle("hidden", !w);
+  $("#dlg-weight").showModal();
+  const focus = focusHostId && $(`#weight-paths input[data-host="${focusHostId}"]`);
+  (focus || form.elements.name).focus();
+}
+
+async function afterWeightsChange() {
+  await loadWeightsList();
+  if (state.tab === "models") loadWeights();
+  if ($("#dlg-recipe").open) updateWeightsStatus();
+  renderRecipes();
+}
+
+$("#form-weight").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const form = ev.target;
+  const locations = Object.fromEntries($$("#weight-paths input").map((i) => [i.dataset.host, i.value.trim()]).filter(([, v]) => v));
+  const body = { name: form.elements.name.value, source: form.elements.source.value, locations };
+  try {
+    const saved = editingWeight
+      ? await api(`/api/weights/${editingWeight.id}`, { method: "PUT", body })
+      : await api("/api/weights", { method: "POST", body });
+    $("#dlg-weight").close();
+    toast("Weights saved", "ok");
+    await afterWeightsChange();
+    // Registered from the recipe editor: pick the new entry there right away.
+    if (!editingWeight && $("#dlg-recipe").open && !recipeForm.elements.weights_id.value) {
+      recipeForm.elements.weights_id.value = String(saved.id);
+      $("#sel-weights").dispatchEvent(new Event("change"));
+    }
+  } catch (e) {
+    $("#weight-error").textContent = e.message;
+  }
+});
+
+$("#btn-weight-delete").addEventListener("click", async () => {
+  if (!editingWeight || !confirm(`Delete the weights entry “${editingWeight.name}”? The files stay where they are.`)) return;
+  try {
+    await api(`/api/weights/${editingWeight.id}`, { method: "DELETE" });
+    $("#dlg-weight").close();
+    toast("Weights entry deleted", "ok");
+    await afterWeightsChange();
+  } catch (e) {
+    $("#weight-error").textContent = e.message;
   }
 });
 
@@ -1976,6 +2171,7 @@ async function boot() {
   $("#swatches").innerHTML = state.meta.colors.map((c) =>
     `<button type="button" class="swatch" data-color="${c}" title="${c || "default"}" aria-label="${c || "default"} colour"></button>`).join("");
   await loadHosts();
+  await loadWeightsList();
   await loadStartTimes();
   await loadRecipes();
   setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); } }, 5000);

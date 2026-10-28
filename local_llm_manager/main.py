@@ -30,7 +30,7 @@ from .manager import ActionError, Manager
 from .processes import ProcessRunner
 from .agent import create_agent_app
 from .selfmetrics import Sink
-from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, build_run_argv, format_command,
+from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, build_run_argv, fill_weights, format_command,
                       format_process_command, split_args, uses_host_network)
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
 from .timeline import build_timeline
@@ -62,6 +62,7 @@ class RecipeIn(BaseModel):
     color: str = ""
     pinned: bool = False
     kind: str = "model"
+    weights_id: Optional[int] = None  # a registered weights entry; its per-host path fills {weights}
 
     @field_validator("kind")
     @classmethod
@@ -171,6 +172,27 @@ class ScheduleIn(BaseModel):
             except ValueError:
                 raise ValueError("run_at must be an ISO date-time, e.g. 2026-10-25T22:00")
         return self
+
+
+class WeightIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    source: str = Field(default="", max_length=300)
+    # host id -> path of these weights on that host; an empty path removes the host.
+    locations: dict[int, str] = {}
+
+    @model_validator(mode="after")
+    def check(self):
+        self.name, self.source = self.name.strip(), self.source.strip()
+        if not self.name:
+            raise ValueError("name is required")
+        for path in self.locations.values():
+            if ":" in path or "\n" in path:
+                raise ValueError("a path may not contain ':' or line breaks (it becomes a docker volume)")
+        return self
+
+
+class WeightPathIn(BaseModel):
+    path: str = Field(default="", max_length=1000)
 
 
 class HostIn(BaseModel):
@@ -543,6 +565,71 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         db.delete_host(host_id)
         return Response(status_code=204)
 
+    # ---- weights -------------------------------------------------------
+
+    def get_weight_or_404(weight_id: int) -> dict:
+        w = db.get_weight(weight_id)
+        if not w:
+            raise HTTPException(404, "Weights not found")
+        return w
+
+    def weight_locations(body: WeightIn) -> dict[int, str]:
+        for host_id in body.locations:
+            get_host_or_404(host_id)
+        return body.locations
+
+    @app.get("/api/weights")
+    async def list_weights(check: bool = True):
+        """Registered weights; with check (default) also whether each host's path exists."""
+        if not check:
+            return {"weights": db.list_weights()}
+        return await manager.weights_overview()
+
+    @app.post("/api/weights", status_code=201)
+    async def create_weight(body: WeightIn):
+        try:
+            wid = db.create_weight(body.name, body.source, weight_locations(body))
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, f"Weights named '{body.name}' already exist")
+        return db.get_weight(wid)
+
+    @app.put("/api/weights/{weight_id}")
+    async def update_weight(weight_id: int, body: WeightIn):
+        get_weight_or_404(weight_id)
+        try:
+            db.update_weight(weight_id, body.name, body.source, weight_locations(body))
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, f"Weights named '{body.name}' already exist")
+        return db.get_weight(weight_id)
+
+    @app.put("/api/weights/{weight_id}/hosts/{host_id}")
+    async def set_weight_path(weight_id: int, host_id: int, body: WeightPathIn):
+        """Set (or, with an empty path, remove) the path of one entry on one host."""
+        get_weight_or_404(weight_id)
+        get_host_or_404(host_id)
+        path = body.path.strip()
+        if ":" in path or "\n" in path:
+            raise HTTPException(422, "a path may not contain ':' or line breaks (it becomes a docker volume)")
+        db.set_weight_location(weight_id, host_id, path)
+        return await manager.check_weight(weight_id, host_id)
+
+    @app.get("/api/weights/{weight_id}/hosts/{host_id}")
+    async def check_weight(weight_id: int, host_id: int):
+        """Whether an entry has a path on a host and whether it exists there (the recipe editor asks
+        this when the host or the weights change)."""
+        get_weight_or_404(weight_id)
+        get_host_or_404(host_id)
+        return await manager.check_weight(weight_id, host_id)
+
+    @app.delete("/api/weights/{weight_id}", status_code=204)
+    async def delete_weight(weight_id: int):
+        w = get_weight_or_404(weight_id)
+        if w["recipe_ids"]:
+            n = len(w["recipe_ids"])
+            raise HTTPException(409, f"{n} recipe{'s use' if n != 1 else ' uses'} these weights: pick other weights there first")
+        db.delete_weight(weight_id)
+        return Response(status_code=204)
+
     # ---- recipes -------------------------------------------------------
 
     @app.get("/api/recipes")
@@ -556,6 +643,8 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     def recipe_data(body: RecipeIn) -> dict:
         data = body.model_dump()
         data["host_id"] = get_host_or_404(body.host_id)["id"] if body.host_id else db.local_host_id()
+        if body.weights_id is not None and not db.get_weight(body.weights_id):
+            raise HTTPException(422, "The selected weights do not exist (any more)")
         return data
 
     @app.post("/api/recipes", status_code=201)
@@ -602,6 +691,9 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         recipe = body.model_dump()
         if recipe_id is not None:
             recipe["id"] = recipe_id  # an edited recipe's label, as `start` would set it
+        # {weights} as it would be filled on the recipe's host (still shown as {weights} when unset there).
+        host_id = body.host_id or db.local_host_id()
+        recipe = fill_weights(recipe, db.weight_path(body.weights_id, host_id))
         if body.runtime == "process":
             return {"command": format_process_command(recipe)}
         return {"command": format_command(build_run_argv(recipe))}
