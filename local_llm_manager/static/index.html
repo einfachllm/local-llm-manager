@@ -16,7 +16,7 @@
       <button class="tab" data-tab="activity">Activity</button>
       <button class="tab" data-tab="hosts">Hosts</button>
       <button class="tab" data-tab="images">Images</button>
-      <button class="tab" data-tab="models">Models</button>
+      <button class="tab" data-tab="models" title="Whether each host has the model weights your recipes use">Weights</button>
     </nav>
     <button id="btn-blur" class="blur-toggle" title="Blur IP addresses and host names" aria-pressed="true">🙈 Blur</button>
     <button id="btn-theme" class="blur-toggle" title="Switch between dark and light theme">🌙 Dark</button>
@@ -149,12 +149,13 @@
 
     <section id="tab-models" class="panel hidden">
       <div class="panel-head">
-        <h2>Models</h2>
+        <h2>Weights</h2>
         <button class="btn ghost" id="btn-refresh-models">Refresh</button>
       </div>
-      <p class="hint">The model weights your model recipes reference and whether each host has them
-        locally (Hugging Face cache or the model folders from <code>DGXM_MODEL_DIR</code>, default
-        <code>~/models</code>). <b>✗ missing</b> means the weights are not on that host yet.</p>
+      <p class="hint">The model weights your model recipes reference and whether each host has them locally:
+        the host folder a container path like <code>/model</code> is mounted from (Volumes), the Hugging Face
+        cache for <code>org/name</code> ids, or a file in <code>DGXM_MODEL_DIR</code> (default <code>~/models</code>).
+        <b>✗ missing</b> means the weights are not on that host yet.</p>
       <div class="toolbar images-toolbar">
         <input id="models-search" type="search" placeholder="Search model or recipe…">
         <label class="inline">Host <select id="models-host"><option value="">All hosts</option></select></label>
