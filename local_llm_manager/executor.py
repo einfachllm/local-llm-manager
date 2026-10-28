@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 import platform
+import re
 import socket
 import sys
 from pathlib import Path
@@ -20,6 +21,91 @@ from .docker import Docker, try_drop_caches_locally
 from .processes import ProcessError, ProcessRunner
 from .recipes import (build_process_argv, build_run_argv, format_command, format_process_command, process_env,
                       secret_names)
+
+# Matches a Hugging Face repo id: exactly one "/" with no path-like characters on either side.
+_HF_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def _hf_cache_dir() -> Path:
+    root = os.environ.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface")
+    return Path(root) / "hub"
+
+
+def _volume_host_paths(volumes: str) -> dict[str, str]:
+    """container path -> host path, parsed from a recipe's volumes field (one `host:container[:mode]` per line)."""
+    out: dict[str, str] = {}
+    for line in (volumes or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Split on colons, keeping the container path as the second field.
+        parts = line.split(":")
+        if len(parts) >= 2:
+            host, cont = parts[0].strip(), parts[1].strip()
+            if host and cont:
+                out[cont] = host
+    return out
+
+
+_MODEL_FILE_EXTS = (".gguf", ".safetensors", ".pt", ".bin", ".onnx", ".mlx", ".npz", ".tar")
+
+
+def _resolve_model_path(model: str, volumes: str) -> Optional[str]:
+    """If `model` is a container path covered by a volume mount, return the corresponding raw host path."""
+    value = model.strip()
+    if not value.startswith("/"):
+        return None
+    mounts = _volume_host_paths(volumes)
+    # Exact match first, then the closest parent mount (e.g. model=/models/sub maps to a /models mount).
+    if value in mounts:
+        return mounts[value]
+    for cont, host in mounts.items():
+        if value.startswith(cont.rstrip("/") + "/"):
+            return host.rstrip("/") + value[len(cont.rstrip("/")):]
+    return None
+
+
+def resolve_model_target(model: str, volumes: str) -> dict[str, str]:
+    """Resolve a recipe's model value to a host-side target, without touching the filesystem.
+
+    kind "volume": the model is a container path backed by a volume mount (reference = the host
+    path from the mount); kind "hf": a Hugging Face repo id, checked against the local hub cache;
+    kind "local": a file path, resolved against the host's model dirs.
+    """
+    value = model.strip()
+    # Normalise HF URLs to bare repo ids.
+    for prefix in ("https://huggingface.co/", "hf.co/", "huggingface.co/"):
+        if value.startswith(prefix):
+            value = value[len(prefix):]
+            break
+    if host_path := _resolve_model_path(value, volumes):
+        return {"kind": "volume", "reference": host_path, "host_path": host_path}
+    if _HF_REPO_RE.match(value) and not value.lower().endswith(_MODEL_FILE_EXTS):
+        return {"kind": "hf", "reference": value, "repo": value}
+    return {"kind": "local", "reference": value, "path": value}
+
+
+def check_model_target(target: dict[str, str], model_dirs: list[str]) -> dict[str, Any]:
+    """Host-side existence check for a resolved model target (see resolve_model_target)."""
+    kind = target["kind"]
+    if kind == "hf":
+        expected = str(_hf_cache_dir() / ("models--" + target["repo"].replace("/", "--")))
+        found = expected if os.path.isdir(expected) else None
+    elif kind == "volume":
+        expected = os.path.expanduser(target["host_path"])
+        found = expected if os.path.exists(expected) else None
+    else:  # local: the raw path, or that file name inside one of the configured model dirs
+        candidates = [os.path.expanduser(target["path"])]
+        for d in model_dirs:
+            candidates.append(os.path.join(os.path.expanduser(d), target["path"]))
+        found = next((c for c in candidates if os.path.exists(c)), None)
+        expected = candidates[0]
+    return {
+        "reference": target["reference"],
+        "present": found is not None,
+        "location": found,
+        "expected": None if found else expected,
+    }
 
 
 class ActionError(Exception):
@@ -232,6 +318,10 @@ class LocalExecutor:
         except RuntimeError as e:
             raise ActionError(f"Cannot list Docker images: {e}", 502)
 
+    async def check_models(self, items: list[dict[str, str]]) -> list[dict[str, Any]]:
+        """Host-side existence check for resolved model targets (see resolve_model_target)."""
+        return [check_model_target(it, config.MODEL_DIRS) for it in items]
+
     async def drop_caches(self) -> tuple[bool, str]:
         if sys.platform == "darwin":
             # macOS has no drop_caches, and a privileged container would only touch Docker's VM.
@@ -314,6 +404,16 @@ class RemoteExecutor:
         except ActionError as e:
             if e.status_code == 404:  # agents before this endpoint existed
                 raise ActionError(f"The agent on '{self.host['name']}' is too old to list images - update it", 502)
+            raise
+
+    async def check_models(self, items: list[dict[str, str]]) -> list[dict[str, Any]]:
+        if not items:
+            return []
+        try:
+            return await self._call("POST", "/models/check", {"items": items}, timeout=30.0)
+        except ActionError as e:
+            if e.status_code == 404:  # agents before this endpoint existed
+                raise ActionError(f"The agent on '{self.host['name']}' is too old to check models - update it", 502)
             raise
 
     async def drop_caches(self) -> tuple[bool, str]:

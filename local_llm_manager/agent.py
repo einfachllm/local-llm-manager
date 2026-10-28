@@ -20,6 +20,7 @@ from .selfmetrics import Sink
 class AgentRequest(BaseModel):
     recipe: dict[str, Any] = {}
     recipes: list[dict[str, Any]] = []
+    items: list[dict[str, str]] = []
     tail: int = 500
 
 
@@ -116,6 +117,10 @@ def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
     @app.get("/agent/v1/images", dependencies=auth)
     async def images():
         return await ex.images()
+
+    @app.post("/agent/v1/models/check", dependencies=auth)
+    async def models_check(body: AgentRequest):
+        return await ex.check_models(body.items)
 
     @app.post("/agent/v1/drop-caches", dependencies=auth)
     async def drop_caches():
