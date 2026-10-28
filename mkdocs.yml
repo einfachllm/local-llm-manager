@@ -1,0 +1,59 @@
+site_name: Local LLM Manager
+site_description: Run, switch and schedule local LLM servers (vLLM, SGLang, llama.cpp, TensorFold) across your GPU machines.
+site_url: https://einfachllm.github.io/local-llm-manager/
+repo_name: einfachllm/local-llm-manager
+repo_url: https://github.com/einfachllm/local-llm-manager
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Quick start: quick-start.md
+  - Several machines: several-machines.md
+
+plugins:
+  - search
+
+extra:
+  version:
+    provider: mike
+    default: stable
