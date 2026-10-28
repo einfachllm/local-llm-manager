@@ -7,7 +7,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
-- **Models tab:** a new "Models" tab (shortcut `6`) lists every model referenced by model recipes and,
+- **Weights tab:** a new "Weights" tab (shortcut `6`) lists every model referenced by model recipes and,
   per host, whether its weights are present locally - mirroring the Images tab. A recipe's `{model}` is
   resolved to a host path when it is a container path backed by a volume mount (e.g.
   `/home/einfachllm/models/...`), to its Hugging Face hub-cache entry for `org/name` ids, or to a file
