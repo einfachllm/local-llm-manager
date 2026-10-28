@@ -13,7 +13,8 @@ import httpx
 
 from .db import Database
 from .docker import Docker, split_image
-from .executor import RUNNING_STATES, ActionError, LocalExecutor, RemoteExecutor, agent_payload_recipe
+from .executor import (RUNNING_STATES, ActionError, LocalExecutor, RemoteExecutor, agent_payload_recipe,
+                       resolve_model_target)
 from .processes import ProcessRunner
 
 __all__ = ["ActionError", "Manager"]
@@ -100,6 +101,52 @@ class Manager:
             images.append({**g, "hosts": hosts})
         native = sum(1 for r in self.db.list_recipes() if r.get("runtime") == "process")
         return {"images": images, "native_recipes": native}
+
+    async def models_overview(self) -> dict[str, Any]:
+        """Models referenced by model recipes: which recipes use each, and whether each of their
+        hosts has the weights locally (Hugging Face cache, a mounted host path, or a model dir)."""
+        groups: dict[str, dict[str, Any]] = {}
+        for r in self.db.list_recipes():
+            if r.get("kind", "model") != "model" or not (r.get("model") or "").strip():
+                continue
+            target = resolve_model_target(r["model"], r.get("volumes", ""))
+            ref = target["reference"]
+            g = groups.setdefault(ref, {"model": ref, "kind": target["kind"], "target": target,
+                                         "recipes": [], "host_ids": set()})
+            g["recipes"].append({"id": r["id"], "name": r["name"], "host_id": r["host_id"]})
+            g["host_ids"].add(r["host_id"])
+
+        # Build per-host item lists: one resolved target per distinct reference on that host.
+        by_host: dict[int, set[str]] = {}
+        for ref, g in groups.items():
+            for hid in g["host_ids"]:
+                by_host.setdefault(hid, set()).add(ref)
+
+        async def fetch(host: dict) -> tuple[int, list[dict[str, Any]], Optional[str]]:
+            items = [groups[ref]["target"] for ref in sorted(by_host[host["id"]])]
+            try:
+                return host["id"], await self.executor_for(host["id"]).check_models(items), None
+            except ActionError as e:
+                return host["id"], [], e.message
+
+        results = await asyncio.gather(*(fetch(h) for h in self.db.list_hosts() if h["id"] in by_host))
+        presence = {hid: {d["reference"]: d for d in data} for hid, data, _ in results if data is not None}
+        errors = {hid: err for hid, _, err in results if err}
+
+        models = []
+        for ref, g in sorted(groups.items()):
+            hosts = []
+            for hid in sorted(g.pop("host_ids")):
+                d = presence.get(hid, {}).get(ref)
+                if d is None:
+                    hosts.append({"host_id": hid, "state": "unknown", "error": errors.get(hid), "location": None})
+                elif d["present"]:
+                    hosts.append({"host_id": hid, "state": "present", "error": None, "location": d.get("location")})
+                else:
+                    hosts.append({"host_id": hid, "state": "missing", "error": None, "location": d.get("expected")})
+            g.pop("target")  # don't serialise the internal target dict
+            models.append({**g, "hosts": hosts})
+        return {"models": models}
 
     # ---- status --------------------------------------------------------
 

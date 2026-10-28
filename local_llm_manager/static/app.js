@@ -51,6 +51,7 @@ $$(".tab").forEach((btn) => btn.addEventListener("click", () => {
   if (state.tab === "activity") loadEvents();
   if (state.tab === "hosts") renderHosts();
   if (state.tab === "images") loadImages();
+  if (state.tab === "models") loadModels();
 }));
 
 $$("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
@@ -176,6 +177,7 @@ $("#btn-blur").addEventListener("click", () => {
   if (state.tab === "schedules") loadSchedules();
   if (state.tab === "activity") loadEvents();
   if (state.tab === "images") renderImages();
+  if (state.tab === "models") renderModels();
 });
 renderBlurToggle();
 
@@ -1764,9 +1766,114 @@ $("#images").addEventListener("click", async (ev) => {
   loadImages();
 });
 
+/* ---------------- models tab ---------------- */
+
+let modelsData = null;
+const modelsView = { search: "", host: "", onlyMissing: false, open: new Set() };
+
+async function loadModels() {
+  const tbody = $("#models");
+  if (!modelsData) tbody.innerHTML = `<tr><td colspan="3" class="empty">Asking the hosts…</td></tr>`;
+  try {
+    modelsData = await api("/api/models");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  renderModels();
+}
+
+function modelHosts() {
+  const used = new Set(modelsData.models.flatMap((m) => m.hosts.map((h) => h.host_id)));
+  return state.hosts.filter((h) => used.has(h.id));
+}
+
+const modelHasMissing = (m) => m.hosts.some((h) => h.state === "missing");
+
+function modelCellHtml(m, h) {
+  if (!h) return `<span class="muted" title="No recipe on this host uses this model">–</span>`;
+  if (h.state === "unknown") {
+    return `<span class="muted" title="${esc(blurHostText(h.error || "not reachable", hostById(h.host_id)?.url))}">? unknown</span>`;
+  }
+  if (h.state === "present") {
+    return `<span class="ok" title="${esc(h.location || "present on this host")}">✓ present</span>`;
+  }
+  return `<span class="bad" title="${esc(h.location ? `Not found at: ${h.location}` : "Not on this host yet")}">✗ missing</span>`;
+}
+
+function renderModels() {
+  if (!modelsData) return;
+  const hostSel = $("#models-host");
+  const hosts = modelHosts();
+  hostSel.innerHTML = `<option value="">All hosts</option>` + hosts.map((h) => `<option value="${h.id}">${esc(maskAddr(h.name))}</option>`).join("");
+  hostSel.value = hosts.some((h) => String(h.id) === modelsView.host) ? modelsView.host : "";
+  hostSel.closest("label").classList.toggle("hidden", hosts.length < 2);
+
+  const all = modelsData.models;
+  const nMissing = all.filter(modelHasMissing).length;
+  $("#models-only-missing").textContent = `✗ Missing on a host (${nMissing})`;
+  $("#models-only-missing").classList.toggle("on", modelsView.onlyMissing);
+  const nRecipes = new Set(all.flatMap((m) => m.recipes.map((r) => r.id))).size;
+  $("#models-summary").textContent = `${all.length} model${all.length === 1 ? "" : "s"} · ${nRecipes} recipe${nRecipes === 1 ? "" : "s"}`;
+
+  const cols = modelsView.host ? hosts.filter((h) => String(h.id) === modelsView.host) : hosts;
+  const q = modelsView.search.trim().toLowerCase();
+  const shown = all.filter((m) => {
+    const hs = modelsView.host ? m.hosts.filter((h) => String(h.host_id) === modelsView.host) : m.hosts;
+    if (modelsView.host && !hs.length) return false;
+    if (modelsView.onlyMissing && !hs.some((h) => h.state === "missing")) return false;
+    return !q || m.model.toLowerCase().includes(q) || m.recipes.some((r) => r.name.toLowerCase().includes(q));
+  });
+
+  $("#models-head").innerHTML = `<tr><th>Model</th><th>Recipes</th>${cols.map((h) => `<th>${esc(maskAddr(h.name))}</th>`).join("")}</tr>`;
+  const span = 2 + cols.length;
+  const tbody = $("#models");
+  if (!all.length) { tbody.innerHTML = `<tr><td colspan="${span}" class="empty">No model recipes with a model set yet.</td></tr>`; return; }
+  if (!shown.length) { tbody.innerHTML = `<tr><td colspan="${span}" class="empty">No model matches the filters.</td></tr>`; return; }
+
+  const rows = shown.map((m) => {
+    const open = modelsView.open.has(m.model);
+    const recipes = modelsView.host ? m.recipes.filter((r) => String(r.host_id) === modelsView.host) : m.recipes;
+    const out = [`<tr>
+      <td class="mono">${esc(m.model)}</td>
+      <td><button class="chip small" data-model-toggle="${esc(m.model)}" aria-expanded="${open}">${recipes.length} recipe${recipes.length === 1 ? "" : "s"} ${open ? "▾" : "▸"}</button></td>
+      ${cols.map((h) => `<td class="img-cell">${modelCellHtml(m, m.hosts.find((x) => x.host_id === h.id))}</td>`).join("")}
+    </tr>`];
+    if (open) {
+      const groups = new Map();
+      for (const r of recipes) (groups.get(r.host_id) ?? groups.set(r.host_id, []).get(r.host_id)).push(r);
+      const order = (hid) => state.hosts.findIndex((h) => h.id === hid);
+      out.push(`<tr class="img-recipes"><td></td><td colspan="${span - 1}">${[...groups].sort((a, b) => order(a[0]) - order(b[0])).map(([hid, rs]) =>
+        `<div>${multiHost() ? `<b>${esc(maskAddr(hostName(hid)))}</b> ` : ""}${rs.map((r) => `<button class="chip small" data-recipe="${r.id}" title="Edit this recipe">${esc(r.name)}</button>`).join(" ")}</div>`).join("")}</td></tr>`);
+    }
+    return out.join("");
+  });
+  tbody.innerHTML = rows.join("");
+}
+
+$("#btn-refresh-models").addEventListener("click", loadModels);
+$("#models-search").addEventListener("input", (e) => { modelsView.search = e.target.value; renderModels(); });
+$("#models-host").addEventListener("change", (e) => { modelsView.host = e.target.value; renderModels(); });
+$("#models-only-missing").addEventListener("click", () => { modelsView.onlyMissing = !modelsView.onlyMissing; renderModels(); });
+
+$("#models").addEventListener("click", (ev) => {
+  const toggle = ev.target.closest("[data-model-toggle]");
+  if (toggle) {
+    const k = toggle.dataset.modelToggle;
+    modelsView.open.has(k) ? modelsView.open.delete(k) : modelsView.open.add(k);
+    renderModels();
+    return;
+  }
+  const recipeBtn = ev.target.closest("[data-recipe]");
+  if (recipeBtn) {
+    const r = state.recipes.find((x) => x.id === Number(recipeBtn.dataset.recipe));
+    if (r) openRecipeEditor(r);
+  }
+});
+
 /* ---------------- keyboard shortcuts ---------------- */
 
-const TAB_KEYS = { "1": "recipes", "2": "schedules", "3": "activity", "4": "hosts", "5": "images" };
+const TAB_KEYS = { "1": "recipes", "2": "schedules", "3": "activity", "4": "hosts", "5": "images", "6": "models" };
 const CARD_KEYS = { s: "start", x: "stop", r: "restart", l: "logs", e: "edit" };
 
 document.addEventListener("keydown", (ev) => {
@@ -1793,7 +1900,7 @@ document.addEventListener("keydown", (ev) => {
   if (k === "n" && state.tab === "recipes") { $("#btn-new-recipe").click(); ev.preventDefault(); return; }
   if (k === "t") { $("#btn-theme").click(); return; }
   if (k === "b") { $("#btn-blur").click(); return; }
-  if (k === "?") { toast("Shortcuts: 1–5 tabs · / search · n new recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
+  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · n new recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
 });
 
 /* ---------------- boot ---------------- */
