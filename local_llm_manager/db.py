@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     host_id         INTEGER,
     pinned          INTEGER NOT NULL DEFAULT 0,
     kind            TEXT NOT NULL DEFAULT 'model',
+    weights_id      INTEGER,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
@@ -79,6 +80,22 @@ CREATE TABLE IF NOT EXISTS settings (
     value  TEXT NOT NULL
 );
 
+-- Model weights registered once, with where they live on each host (Weights tab). A recipe that selects
+-- an entry mounts that host's path wherever it writes {weights}, so moving it to another host needs no edits.
+CREATE TABLE IF NOT EXISTS weights (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    source      TEXT NOT NULL DEFAULT '',   -- e.g. the Hugging Face repo id, for reference
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS weight_locations (
+    weight_id  INTEGER NOT NULL REFERENCES weights(id) ON DELETE CASCADE,
+    host_id    INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+    path       TEXT NOT NULL,
+    PRIMARY KEY (weight_id, host_id)
+);
+
 CREATE TABLE IF NOT EXISTS start_times (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     recipe_id  INTEGER NOT NULL,
@@ -95,7 +112,7 @@ SCHEMA_VERSION = 1
 RECIPE_FIELDS = (
     "name", "description", "framework", "image", "model", "container_name", "host_port",
     "container_port", "command", "args", "env", "volumes", "docker_args", "gpus",
-    "health_path", "est_memory_gb", "tags", "color", "runtime", "host_id", "pinned", "kind",
+    "health_path", "est_memory_gb", "tags", "color", "runtime", "host_id", "pinned", "kind", "weights_id",
 )
 
 # Columns added after the first release, created on existing databases at startup.
@@ -110,6 +127,8 @@ MIGRATIONS = {
     ("recipes", "pinned"): "ALTER TABLE recipes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
     # "model" (an LLM server) or "agent" (a program using one, e.g. a Hermes gateway).
     ("recipes", "kind"): "ALTER TABLE recipes ADD COLUMN kind TEXT NOT NULL DEFAULT 'model'",
+    # Registered weights (Weights tab) whose per-host path fills {weights}; NULL = none.
+    ("recipes", "weights_id"): "ALTER TABLE recipes ADD COLUMN weights_id INTEGER",
 }
 
 SCHEDULE_FIELDS = ("name", "action", "recipe_id", "cron", "run_at", "enabled", "host_id")
@@ -351,6 +370,60 @@ class Database:
         local = host_id == self.local_host_id()
         sql = "SELECT COUNT(*) AS n FROM recipes WHERE host_id = ?" + (" OR host_id IS NULL" if local else "")
         return self._query(sql, (host_id,))[0]["n"]
+
+    # ---- weights -------------------------------------------------------
+
+    def list_weights(self) -> list[dict]:
+        """Every registered weights entry with `locations` {host_id: path} and the ids of the recipes using it."""
+        weights = self._query("SELECT * FROM weights ORDER BY name COLLATE NOCASE")
+        locs = self._query("SELECT * FROM weight_locations")
+        users = self._query("SELECT id, weights_id FROM recipes WHERE weights_id IS NOT NULL")
+        for w in weights:
+            w["locations"] = {l["host_id"]: l["path"] for l in locs if l["weight_id"] == w["id"]}
+            w["recipe_ids"] = [r["id"] for r in users if r["weights_id"] == w["id"]]
+        return weights
+
+    def get_weight(self, weight_id: int) -> Optional[dict]:
+        return next((w for w in self.list_weights() if w["id"] == weight_id), None)
+
+    def weight_path(self, weight_id: Optional[int], host_id: int) -> Optional[str]:
+        if not weight_id:
+            return None
+        rows = self._query("SELECT path FROM weight_locations WHERE weight_id = ? AND host_id = ?", (weight_id, host_id))
+        return rows[0]["path"] if rows else None
+
+    def _set_locations(self, weight_id: int, locations: dict[int, str]) -> None:
+        # Caller holds the lock. An empty path removes the host's entry.
+        self._conn.execute("DELETE FROM weight_locations WHERE weight_id = ?", (weight_id,))
+        for host_id, path in locations.items():
+            if path.strip():
+                self._conn.execute("INSERT INTO weight_locations (weight_id, host_id, path) VALUES (?, ?, ?)",
+                                   (weight_id, host_id, path.strip()))
+
+    def create_weight(self, name: str, source: str, locations: dict[int, str]) -> int:
+        with self._lock:
+            wid = self._conn.execute("INSERT INTO weights (name, source, created_at) VALUES (?, ?, ?)",
+                                     (name, source, now_iso())).lastrowid
+            self._set_locations(wid, locations)
+            self._conn.commit()
+            return wid
+
+    def update_weight(self, weight_id: int, name: str, source: str, locations: dict[int, str]) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE weights SET name = ?, source = ? WHERE id = ?", (name, source, weight_id))
+            self._set_locations(weight_id, locations)
+            self._conn.commit()
+
+    def set_weight_location(self, weight_id: int, host_id: int, path: str) -> None:
+        if path.strip():
+            self._execute("INSERT INTO weight_locations (weight_id, host_id, path) VALUES (?, ?, ?) "
+                          "ON CONFLICT(weight_id, host_id) DO UPDATE SET path = excluded.path",
+                          (weight_id, host_id, path.strip()))
+        else:
+            self._execute("DELETE FROM weight_locations WHERE weight_id = ? AND host_id = ?", (weight_id, host_id))
+
+    def delete_weight(self, weight_id: int) -> None:
+        self._execute("DELETE FROM weights WHERE id = ?", (weight_id,))
 
     # ---- events --------------------------------------------------------
 
