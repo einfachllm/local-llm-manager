@@ -480,6 +480,10 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     async def images():
         return await manager.images_overview()
 
+    @app.get("/api/models")
+    async def models():
+        return await manager.models_overview()
+
     @app.get("/api/system")
     async def system_info():
         return await system.snapshot()
