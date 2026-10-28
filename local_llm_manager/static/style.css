@@ -570,3 +570,12 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
 #weights-status .link { font-size: inherit; }
 .dialog-foot .actions-gap { flex: 1 1 0; }
 @media (max-width: 720px) { .weight-path { grid-template-columns: 1fr; gap: 4px; } }
+.discover {
+  margin-bottom: 16px; padding: 12px 14px; border: 1px solid rgba(79,140,255,.45); border-radius: var(--radius);
+  background: rgba(79,140,255,.06); font-size: 13px;
+}
+.discover-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.discover h4 { margin: 12px 0 6px; font-size: 13px; display: flex; align-items: center; gap: 10px; }
+.discover-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; border-top: 1px solid var(--border); }
+.discover-row code { word-break: break-all; }
+.discover-row .btn { margin-left: auto; }

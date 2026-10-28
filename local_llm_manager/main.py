@@ -191,6 +191,11 @@ class WeightIn(BaseModel):
         return self
 
 
+class AdoptIn(BaseModel):
+    recipe_ids: list[int] = Field(min_length=1)
+    name: str = Field(default="", max_length=120)
+
+
 class WeightPathIn(BaseModel):
     path: str = Field(default="", max_length=1000)
 
@@ -601,6 +606,19 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         except sqlite3.IntegrityError:
             raise HTTPException(409, f"Weights named '{body.name}' already exist")
         return db.get_weight(weight_id)
+
+    @app.get("/api/weights/discover")
+    async def discover_weights():
+        """Search every host's model dirs (DGXM_MODEL_DIR) and match the folders to registered weights."""
+        return await manager.discover_weights()
+
+    @app.post("/api/weights/adopt")
+    async def adopt_weights(body: AdoptIn):
+        """Put recipes that mount their model folder directly onto a registered weights entry."""
+        try:
+            return manager.adopt_weights(body.recipe_ids, body.name)
+        except ActionError as e:
+            raise HTTPException(e.status_code, e.message)
 
     @app.put("/api/weights/{weight_id}/hosts/{host_id}")
     async def set_weight_path(weight_id: int, host_id: int, body: WeightPathIn):

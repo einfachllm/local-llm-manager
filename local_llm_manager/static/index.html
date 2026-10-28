@@ -152,12 +152,14 @@
         <h2>Weights</h2>
         <div class="sched-actions">
           <button class="btn ghost" id="btn-refresh-models">Refresh</button>
+          <button class="btn" id="btn-discover-weights" title="Look for model folders in each host's DGXM_MODEL_DIR (default ~/models) and match them to the entries below">🔍 Search hosts</button>
           <button class="btn primary" id="btn-new-weight">+ Register weights</button>
         </div>
       </div>
       <p class="hint">Register model weights once and set <b>where they live on each host</b>. A recipe that picks
         them writes <code>{weights}</code> (e.g. the volume <code>{weights}:/model:ro</code>) and gets that host's
         path when it starts – so moving a recipe to another host needs no edits. Click a cell to set or change a path.</p>
+      <div id="weights-discover" class="discover hidden"></div>
       <div class="table-wrap"><table class="table images-matrix weights-matrix">
         <thead id="weights-head"></thead>
         <tbody id="weights"></tbody>
