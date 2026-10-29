@@ -19,6 +19,7 @@ import httpx
 from . import __version__, config, logstats, servermetrics, system
 from .docker import Docker, try_drop_caches_locally
 from .processes import ProcessError, ProcessRunner
+from .transfers import Tasks
 from .recipes import (build_process_argv, build_run_argv, format_command, format_process_command, process_env,
                       secret_names)
 
@@ -209,6 +210,7 @@ class LocalExecutor:
         self.docker = docker or Docker()
         self.procs = procs or ProcessRunner(config.PROC_DIR)
         self.rates = servermetrics.RateTracker()
+        self.transfers = Tasks(self.docker)
 
     def _stop_marker(self, name: str) -> Path:
         """File that records the container id the manager last stopped (`<name>.stopped`).
@@ -400,6 +402,19 @@ class LocalExecutor:
         found = await asyncio.to_thread(scan_weight_dirs, config.MODEL_DIRS)
         return {"dirs": config.MODEL_DIRS, "found": found}
 
+    async def start_transfer(self, kind: str, target: str, name: str = "") -> dict[str, Any]:
+        """Start pulling an image (kind "pull") or downloading weights (kind "download") in the background."""
+        try:
+            return dict(self.transfers.start_pull(target) if kind == "pull" else self.transfers.start_download(target, name))
+        except ValueError as e:
+            raise ActionError(str(e), 422)
+
+    async def transfer(self, task_id: str) -> dict[str, Any]:
+        task = self.transfers.get(task_id)
+        if task is None:
+            raise ActionError("Transfer not found: the manager on this host restarted since", 404)
+        return dict(task)
+
     async def drop_caches(self) -> tuple[bool, str]:
         if sys.platform == "darwin":
             # macOS has no drop_caches, and a privileged container would only touch Docker's VM.
@@ -501,6 +516,17 @@ class RemoteExecutor:
             if e.status_code == 404:  # agents before this endpoint existed
                 raise ActionError(f"The agent on '{self.host['name']}' is too old to search for weights - update it", 502)
             raise
+
+    async def start_transfer(self, kind: str, target: str, name: str = "") -> dict[str, Any]:
+        try:
+            return await self._call("POST", "/transfers", {"kind": kind, "target": target, "name": name}, timeout=30.0)
+        except ActionError as e:
+            if e.status_code == 404:  # agents before this endpoint existed
+                raise ActionError(f"The agent on '{self.host['name']}' is too old to pull or download - update it", 502)
+            raise
+
+    async def transfer(self, task_id: str) -> dict[str, Any]:
+        return await self._call("GET", f"/transfers/{task_id}", timeout=15.0)
 
     async def drop_caches(self) -> tuple[bool, str]:
         data = await self._call("POST", "/drop-caches", timeout=300.0)

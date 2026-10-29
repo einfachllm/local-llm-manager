@@ -6,11 +6,11 @@ LocalExecutor (Docker containers or native processes). Every request needs
 """
 
 import secrets
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import __version__, config
 from .executor import ActionError, LocalExecutor, host_info
@@ -22,6 +22,12 @@ class AgentRequest(BaseModel):
     recipes: list[dict[str, Any]] = []
     items: list[dict[str, str]] = []
     tail: int = 500
+
+
+class TransferRequest(BaseModel):
+    kind: Literal["pull", "download"]
+    target: str = Field(min_length=1, max_length=300)   # image reference, or Hugging Face model id
+    name: str = Field(default="", max_length=128)       # download: folder name in the model dir
 
 
 def require_token(request: Request) -> None:
@@ -125,6 +131,15 @@ def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
     @app.get("/agent/v1/weights/scan", dependencies=auth)
     async def weights_scan():
         return await ex.scan_weights()
+
+    @app.post("/agent/v1/transfers", dependencies=auth)
+    async def start_transfer(body: TransferRequest):
+        """Pull an image or download weights in the background; GET the returned id for its progress."""
+        return await ex.start_transfer(body.kind, body.target, body.name)
+
+    @app.get("/agent/v1/transfers/{task_id}", dependencies=auth)
+    async def transfer(task_id: str):
+        return await ex.transfer(task_id)
 
     @app.post("/agent/v1/drop-caches", dependencies=auth)
     async def drop_caches():

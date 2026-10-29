@@ -35,6 +35,7 @@ from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, build_run_argv, 
                       uses_host_network)
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
 from .timeline import build_timeline
+from .transfers import check_image, check_name, check_repo
 
 STATIC_DIR = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
@@ -225,6 +226,18 @@ class QuickIn(BaseModel):
 class RestartJobIn(BaseModel):
     recipe_ids: list[int] = Field(min_length=1, max_length=200)
     title: str = Field(default="", max_length=120)
+
+
+class PullJobIn(BaseModel):
+    image: str = Field(min_length=1, max_length=300)
+    host_ids: list[int] = Field(min_length=1, max_length=100)
+
+
+class DownloadJobIn(BaseModel):
+    repo: str = Field(min_length=1, max_length=200)   # Hugging Face model id, e.g. Qwen/Qwen3-8B
+    name: str = Field(default="", max_length=128)     # folder in each host's model dir; default: the repo name
+    host_ids: list[int] = Field(min_length=1, max_length=100)
+    weight_id: Optional[int] = None                   # register the paths on this entry (default: by name)
 
 
 class CopyIn(BaseModel):
@@ -808,6 +821,31 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         for rid in body.recipe_ids:
             get_recipe_or_404(rid)
         return manager.start_restart_job(body.recipe_ids, title=body.title)
+
+    @app.post("/api/jobs/pull", status_code=202)
+    async def pull_job(body: PullJobIn):
+        """`docker pull` the image on each host at the same time; each host pulls from the registry itself."""
+        try:
+            image = check_image(body.image)
+            return manager.start_transfer_job("pull", image, body.host_ids)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except ActionError as e:
+            raise HTTPException(e.status_code, e.message)
+
+    @app.post("/api/jobs/download", status_code=202)
+    async def download_job(body: DownloadJobIn):
+        """Download Hugging Face weights on each host into its model dir (DGXM_MODEL_DIR) and register the
+        folders in the Weights tab. Gated models need HF_TOKEN in that host's .env."""
+        if body.weight_id is not None:
+            get_weight_or_404(body.weight_id)
+        try:
+            repo, name = check_repo(body.repo), check_name(body.name) if body.name.strip() else ""
+            return manager.start_transfer_job("download", repo, body.host_ids, name, body.weight_id)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except ActionError as e:
+            raise HTTPException(e.status_code, e.message)
 
     @app.get("/api/jobs")
     async def list_jobs():

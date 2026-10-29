@@ -153,6 +153,7 @@
         <h2>Weights</h2>
         <div class="sched-actions">
           <button class="btn ghost" id="btn-refresh-models">Refresh</button>
+          <button class="btn" id="btn-download-weights" title="Download a Hugging Face model on several hosts at once and register it here">⬇ Download on hosts…</button>
           <button class="btn" id="btn-discover-weights" title="Look for model folders in each host's DGXM_MODEL_DIR (default ~/models) and match them to the entries below">🔍 Search hosts</button>
           <button class="btn primary" id="btn-new-weight">+ Register weights</button>
         </div>
@@ -315,6 +316,26 @@
         <button type="button" class="btn ghost" data-close>Cancel</button>
         <button type="button" class="btn" id="btn-quick-edit">Create &amp; edit</button>
         <button type="submit" class="btn primary" id="btn-quick-go">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Pull an image / download weights on several hosts -->
+  <dialog id="dlg-transfer" class="dialog">
+    <form id="form-transfer" method="dialog">
+      <div class="dialog-head"><h3 id="transfer-title">Pull on hosts</h3><button type="button" class="x" data-close>&times;</button></div>
+      <p class="hint copy-hint" id="transfer-hint"></p>
+      <div class="form-grid hf-only">
+        <label class="span2">Hugging Face model id<input name="repo" class="mono" placeholder="Qwen/Qwen3-8B"></label>
+        <label class="span2">Folder <small>in each host's model dir (<code>DGXM_MODEL_DIR</code>), empty = the model's name</small>
+          <input name="name" class="mono" placeholder="Qwen3-8B"></label>
+      </div>
+      <div id="transfer-hosts" class="copy-hosts"></div>
+      <div class="error" id="transfer-error"></div>
+      <div class="dialog-foot">
+        <span class="actions-gap"></span>
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary" id="btn-transfer-go">Start</button>
       </div>
     </form>
   </dialog>

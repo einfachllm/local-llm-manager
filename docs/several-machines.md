@@ -47,6 +47,13 @@ E.g. a company where every employee has their own DGX Spark: set the recipe up o
    the same time, also if you close the browser, and a panel shows the progress per machine. Cards show **✓ in sync** or **⟳ differs**,
    with **sync** to catch up.
 
+**Images and weights on every machine:** in the **Images** tab, **⤓ Pull…** on an image runs `docker pull`
+on the machines you tick (all at once). In the **Weights** tab, **⬇ Download on hosts…** downloads a
+Hugging Face model on each machine into its model folder and registers it there, so the copies find their
+weights. Each machine downloads by itself and keeps going if the hub's connection drops. It needs the
+`hf` command there (`pip install -U huggingface_hub`); gated models need `HF_TOKEN` in that machine's
+`.env`, private registries a `docker login` there.
+
 A copy keeps only its name, container name, host and pin; everything else follows the original. To change
 one copy for good, **unlink** it: it becomes a recipe of its own. Deleting the original unlinks its copies.
 

@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Pull and download on hosts:** "⤓ Pull…" on an image in the Images tab runs `docker pull` on the hosts
+  you tick, all at the same time; "⬇ Download on hosts…" in the Weights tab (or "⬇ Download…" on an entry)
+  downloads a Hugging Face model on each host into its `DGXM_MODEL_DIR` with `hf download` and registers
+  the folders in the Weights tab. Each host runs its transfer itself in the background, so a flaky
+  connection or a hub restart does not interrupt it; the hub follows the progress (pull output, GB so far)
+  in the jobs panel. Needs the `hf` CLI on each host (`pip install -U huggingface_hub`, or `DGXM_HF_BIN`);
+  gated models need `HF_TOKEN` in that host's `.env`. New endpoints `POST /api/jobs/pull`,
+  `POST /api/jobs/download` and, on agents, `POST /agent/v1/transfers` / `GET /agent/v1/transfers/{id}`.
 - **Background jobs:** restarting the copies of a recipe after a sync runs on the hub - all hosts at the
   same time, one after another on the same host - and keeps going when the browser is closed. A panel
   bottom left shows each copy (waiting / restarting / started / failed with the reason) and comes back after

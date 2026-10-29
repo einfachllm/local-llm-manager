@@ -604,3 +604,4 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
 .job-item { display: grid; grid-template-columns: 1.4em 1fr auto; gap: 6px; align-items: baseline; padding: 2px 0; }
 .job-item .muted { font-size: 12px; }
 .job-msg { grid-column: 2 / -1; font-size: 12px; overflow-wrap: anywhere; }
+.img-pull { margin-top: 4px; font-family: inherit; }

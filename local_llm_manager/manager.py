@@ -38,6 +38,8 @@ class Manager:
         # Background jobs (e.g. restarting the copies of a recipe on several hosts), newest last.
         self.jobs: dict[str, dict[str, Any]] = {}
         self._tasks: set[asyncio.Task] = set()
+        # Seconds between asking a host how its pull / download is going.
+        self.transfer_poll = 3.0
         # Self-metrics: (action, ok/error) -> how many times since the manager started.
         self.actions: Counter = Counter()
 
@@ -468,6 +470,80 @@ class Manager:
 
     # ---- background jobs: run on the hub, so closing the browser does not stop them -----------
 
+    def _new_job(self, kind: str, title: str, items: list[dict[str, Any]], runner) -> dict[str, Any]:
+        job = {"id": secrets.token_hex(4), "kind": kind, "title": title, "done": False, "items": items,
+               "created": datetime.now().astimezone().isoformat(timespec="seconds")}
+        self.jobs[job["id"]] = job
+        while len(self.jobs) > 20:  # keep the last few for the dashboard
+            self.jobs.pop(next(iter(self.jobs)))
+
+        async def run() -> None:
+            async def guarded(item: dict[str, Any]) -> None:
+                try:
+                    await runner(item)
+                except ActionError as e:
+                    item["state"], item["message"] = "failed", e.message
+                except Exception as e:  # keep the other items going
+                    log.exception("job %s: %s failed", job["id"], item.get("name") or item["host_id"])
+                    item["state"], item["message"] = "failed", f"{type(e).__name__}: {e}"
+
+            await asyncio.gather(*(guarded(i) for i in items))
+            job["done"] = True
+
+        task = asyncio.create_task(run())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return job
+
+    def start_transfer_job(self, kind: str, target: str, host_ids: list[int], name: str = "",
+                           weight_id: Optional[int] = None) -> dict[str, Any]:
+        """Pull an image ("pull") or download Hugging Face weights ("download") on several hosts at once.
+        Each host runs its transfer itself; the hub only follows it. A finished download is registered in
+        the Weights tab (entry weight_id, or one found / created by name)."""
+        for hid in host_ids:
+            self.executor_for(hid)  # 404 for unknown hosts before anything starts
+        items = [{"host_id": hid, "name": "", "state": "waiting", "message": "", "progress": ""}
+                 for hid in dict.fromkeys(host_ids)]
+        state: dict[str, Any] = {"weight_id": weight_id}
+
+        async def runner(item: dict[str, Any]) -> None:
+            ex = self.executor_for(item["host_id"])
+            task = await ex.start_transfer(kind, target, name)
+            item["state"] = "running"
+            lost = 0
+            while task["state"] == "running":
+                item["progress"] = task.get("progress", "")
+                await asyncio.sleep(self.transfer_poll)
+                try:
+                    task = await ex.transfer(task["id"])
+                    lost = 0
+                except ActionError as e:
+                    if e.status_code == 404:
+                        raise
+                    lost += 1  # the host is busy or the network hiccups: the transfer goes on there
+                    item["progress"] = f"no answer from the host ({lost}×), still waiting"
+                    if lost * self.transfer_poll > 600:
+                        raise ActionError(f"No answer from the host for 10 minutes: {e.message}", 502)
+            item["progress"] = task.get("progress", "")
+            if task["state"] != "ok":
+                raise ActionError(task["message"] or "failed", 502)
+            item["message"] = task["message"]
+            if kind == "download":
+                self._register_download(state, target, name, item["host_id"], task["path"])
+            item["state"] = "ok"
+
+        what = target if kind == "pull" else (name or target)
+        return self._new_job(kind, f"{'Pulling' if kind == 'pull' else 'Downloading'} {what}", items, runner)
+
+    def _register_download(self, state: dict[str, Any], repo: str, name: str, host_id: int, path: str) -> None:
+        """Set the downloaded folder as the host's path of the weights entry (created on the first host)."""
+        if not state["weight_id"]:
+            wname = name or repo.rsplit("/", 1)[-1]
+            w = next((w for w in self.db.list_weights() if w["name"].lower() == wname.lower()
+                      or (w["source"] and w["source"] == repo)), None)
+            state["weight_id"] = w["id"] if w else self.db.create_weight(wname, repo, {})
+        self.db.set_weight_location(state["weight_id"], host_id, path)
+
     def start_restart_job(self, recipe_ids: list[int], source: str = "user", title: str = "") -> dict[str, Any]:
         """Restart these recipes in the background: hosts in parallel, one after another on the same host.
         Returns the job; GET it again (jobs[id]) to follow its progress."""
@@ -475,34 +551,17 @@ class Manager:
         for rid in dict.fromkeys(recipe_ids):
             r = self._get(rid)
             items.append({"recipe_id": rid, "name": r["name"], "host_id": r["host_id"], "state": "waiting",
-                          "message": ""})
-        job = {"id": secrets.token_hex(4), "title": title or "Restart", "created": datetime.now().astimezone()
-               .isoformat(timespec="seconds"), "done": False, "items": items}
-        self.jobs[job["id"]] = job
-        while len(self.jobs) > 20:  # keep the last few for the dashboard
-            self.jobs.pop(next(iter(self.jobs)))
-        task = asyncio.create_task(self._run_restart_job(job, source))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
-        return job
+                          "message": "", "progress": ""})
 
-    async def _run_restart_job(self, job: dict[str, Any], source: str) -> None:
-        async def one(item: dict[str, Any]) -> None:
+        async def runner(item: dict[str, Any]) -> None:
             async def run(recipe: dict) -> str:
-                item["state"] = "restarting"  # "waiting" until this host's lock is free
+                item["state"] = "running"  # "waiting" until this host's lock is free
                 return await self._restart(recipe, source, force=False)
 
-            try:
-                item["message"] = await self._locked_recipe(item["recipe_id"], run, "restart")
-                item["state"] = "ok"
-            except ActionError as e:
-                item["state"], item["message"] = "failed", e.message
-            except Exception as e:  # keep the other items going
-                log.exception("restart job %s: %s failed", job["id"], item["name"])
-                item["state"], item["message"] = "failed", f"{type(e).__name__}: {e}"
+            item["message"] = await self._locked_recipe(item["recipe_id"], run, "restart")
+            item["state"] = "ok"
 
-        await asyncio.gather(*(one(i) for i in job["items"]))
-        job["done"] = True
+        return self._new_job("restart", title or "Restart", items, runner)
 
     # ---- internals (caller holds the host's lock) ----------------------
 

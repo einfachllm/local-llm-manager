@@ -30,6 +30,7 @@ Values marked *agent* matter only with `DGXM_MODE=agent`, *hub* only in the defa
 | Variable | Default | Description |
 |---|---|---|
 | `DGXM_MODEL_DIR` | `~/models` | Directories scanned for local model folders and `.gguf` files (Weights tab, "Search hosts", presence checks). Comma- or whitespace-separated, several allowed, searched up to three levels deep. |
+| `DGXM_HF_BIN` | `hf`, else `huggingface-cli` | Hugging Face CLI used by "Download on hosts" (Weights tab); downloads go into the first `DGXM_MODEL_DIR`. Gated models need `HF_TOKEN` in this machine's `.env`. |
 | `DGXM_DOCKER` | `docker` | Docker binary used to run Docker recipes - e.g. point it at `podman` where Docker is unavailable. |
 | `DGXM_DROP_CACHES_IMAGE` | `busybox:latest` | Image of the throwaway container that drops the page cache (`sync; echo 3 > /proc/sys/vm/drop_caches`) when the manager itself lacks permission. |
 | `DGXM_STOP_TIMEOUT` | `30` | Seconds a stop waits for a container / process to shut down cleanly before killing it. |

@@ -114,6 +114,33 @@ class Docker:
                            "created": _created_iso(i.get("CreatedAt", "")), "size": i.get("Size", "")})
         return images
 
+    async def pull(self, image: str, on_line=None, timeout: float = 4 * 3600) -> CommandResult:
+        """`docker pull`, passing each output line to on_line (progress) as it comes."""
+        try:
+            proc = await asyncio.create_subprocess_exec(self.binary, "pull", image, stdout=asyncio.subprocess.PIPE,
+                                                        stderr=asyncio.subprocess.STDOUT)
+        except FileNotFoundError:
+            return CommandResult(127, "", f"command not found: {self.binary}")
+        lines: list[str] = []
+
+        async def read() -> None:
+            assert proc.stdout is not None
+            while line := await proc.stdout.readline():
+                text = line.decode(errors="replace").rstrip()
+                lines[:] = (lines + [text])[-20:]
+                if on_line:
+                    on_line(text)
+
+        try:
+            await asyncio.wait_for(read(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return CommandResult(124, "", f"docker pull timed out after {timeout:.0f}s")
+        code = await proc.wait()
+        out = "\n".join(lines)
+        return CommandResult(code, out if code == 0 else "", "" if code == 0 else out)
+
     async def stop(self, name: str, timeout: int = config.STOP_TIMEOUT) -> CommandResult:
         return await run([self.binary, "stop", "-t", str(timeout), name], timeout=timeout + 30)
 

@@ -1288,7 +1288,8 @@ function renderWeights() {
   }
   $("#weights").innerHTML = list.map((w) => `<tr>
       <td><button type="button" class="link weight-name" data-weight="${w.id}" title="Edit name, source and paths">${esc(w.name)}</button>
-        ${w.source ? `<div class="muted mono weight-source">${esc(w.source)}</div>` : ""}</td>
+        ${w.source ? `<div class="muted mono weight-source">${esc(w.source)}</div>` : ""}
+        <button class="btn small ghost" data-download-weight="${w.id}" title="Download from Hugging Face on the hosts that don't have it">⬇ Download…</button></td>
       <td>${w.recipe_ids.length ? w.recipe_ids.map((id) => {
         const r = state.recipes.find((x) => x.id === id);
         return r ? `<button class="chip small" data-recipe="${r.id}" title="Edit this recipe">${esc(r.name)}</button>` : "";
@@ -1298,6 +1299,15 @@ function renderWeights() {
 }
 
 $("#weights").addEventListener("click", (ev) => {
+  const dl = ev.target.closest("[data-download-weight]");
+  if (dl) {
+    const w = weightsData.weights.find((x) => x.id === Number(dl.dataset.downloadWeight));
+    const path = w.hosts.map((c) => c.path).find(Boolean) || "";
+    const folder = path.replace(/\/+$/, "").split("/").pop() || (/^[\w.-]+$/.test(w.name) ? w.name : "");
+    openTransfer({ kind: "download", repo: w.source, name: folder, weight_id: w.id },
+      w.hosts.filter((c) => c.state !== "present").map((c) => c.host_id));
+    return;
+  }
   const r = ev.target.closest("[data-recipe]");
   if (r) { const rec = state.recipes.find((x) => x.id === Number(r.dataset.recipe)); if (rec) openRecipeEditor(rec); return; }
   const b = ev.target.closest("[data-weight]");
@@ -1549,17 +1559,80 @@ async function syncCopies(id) {
 
 const jobs = new Map();
 let jobTimer = null;
-const JOB_ICON = { waiting: `<span class="muted" title="Waiting for this host">⏸</span>`, restarting: "⏳",
+const JOB_ICON = { waiting: `<span class="muted" title="Waiting for this host">⏸</span>`, running: "⏳",
   ok: `<span class="ok">✓</span>`, failed: `<span class="bad">✗</span>` };
+const JOB_DONE = { restart: "started", pull: "pulled", download: "downloaded" };
+
+function jobItemState(j, i) {
+  if (i.state === "failed") return "failed";
+  if (i.state === "waiting") return "waiting";
+  if (i.state === "running") return j.kind === "restart" ? "restarting…" : esc(blurText(i.progress || "running…")).slice(0, 60);
+  return `${JOB_DONE[j.kind] ?? "done"}${j.kind === "download" && i.progress ? ` · ${esc(i.progress)}` : ""}`;
+}
+
+// A job that changes what hosts have: refresh what the open tab shows once it is done.
+function afterJob(j) {
+  loadRecipes();
+  if (j.kind === "download") afterWeightsChange();
+  if (j.kind === "pull" && state.tab === "images") loadImages();
+}
+
+function showJob(job) {
+  jobs.set(job.id, job);
+  renderJobs();
+  pollJobs();
+}
 
 async function startRestartJob(ids, title) {
   try {
-    const job = await api("/api/jobs/restart", { method: "POST", body: { recipe_ids: ids, title } });
-    jobs.set(job.id, job);
-    renderJobs();
-    pollJobs();
+    showJob(await api("/api/jobs/restart", { method: "POST", body: { recipe_ids: ids, title } }));
   } catch (e) { toast(e.message, "bad"); }
 }
+
+/* Pull an image / download weights on several hosts: each host does it itself, the panel shows progress. */
+
+let transferSpec = null;
+
+// spec: { kind: "pull", image } or { kind: "download", repo, name, weight_id }; `missing` = host ids to tick.
+function openTransfer(spec, missing = []) {
+  transferSpec = spec;
+  const form = $("#form-transfer");
+  form.reset();
+  $("#transfer-error").textContent = "";
+  const pull = spec.kind === "pull";
+  $("#transfer-title").textContent = pull ? "Pull on hosts" : "Download on hosts";
+  $("#transfer-hint").innerHTML = pull
+    ? `Each host runs <code>docker pull ${esc(spec.image)}</code> itself (private registries: <code>docker login</code> there once).`
+    : `Each host downloads the model from Hugging Face itself (needs <code>hf</code> there: <code>pip install -U huggingface_hub</code>; gated models: <code>HF_TOKEN</code> in its <code>.env</code>). The folders are registered in the Weights tab.`;
+  $$(".hf-only", form).forEach((el) => el.classList.toggle("hidden", pull));
+  form.elements.repo.value = spec.repo ?? "";
+  form.elements.name.value = spec.name ?? "";
+  $("#transfer-hosts").innerHTML = state.hosts.map((h) => `<label class="copy-host">
+      <input type="checkbox" value="${h.id}" ${missing.includes(h.id) ? "checked" : ""} ${h.online ? "" : "disabled"}>
+      <span class="copy-host-name">${esc(maskAddr(h.name))}</span>
+      <span class="copy-host-check muted">${!h.online ? "offline" : missing.includes(h.id) ? "missing here" : "has it already / not checked"}</span></label>`).join("");
+  $("#dlg-transfer").showModal();
+}
+
+$("#form-transfer").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const f = ev.target.elements;
+  const host_ids = $$("#transfer-hosts input:checked").map((i) => Number(i.value));
+  if (!host_ids.length) { $("#transfer-error").textContent = "Pick at least one host."; return; }
+  try {
+    const job = transferSpec.kind === "pull"
+      ? await api("/api/jobs/pull", { method: "POST", body: { image: transferSpec.image, host_ids } })
+      : await api("/api/jobs/download", { method: "POST", body: { repo: f.repo.value.trim(), name: f.name.value.trim(),
+        host_ids, weight_id: transferSpec.weight_id ?? null } });
+    $("#dlg-transfer").close();
+    showJob(job);
+  } catch (e) {
+    $("#transfer-error").textContent = e.message;
+  }
+});
+
+$("#btn-download-weights").addEventListener("click", () =>
+  openTransfer({ kind: "download" }, state.hosts.filter((h) => h.online).map((h) => h.id)));
 
 function renderJobs() {
   $("#jobs").innerHTML = [...jobs.values()].map((j) => {
@@ -1569,8 +1642,9 @@ function renderJobs() {
         ${esc(j.title)} <span class="muted">${done} / ${j.items.length}</span>
         ${j.done ? `<button type="button" class="x" data-close-job="${esc(j.id)}" title="Close">&times;</button>` : ""}</div>
       ${j.items.map((i) => `<div class="job-item">${JOB_ICON[i.state] ?? ""}
-        <span>${esc(recipeTitle({ ...i, copy_of: 1 }))}${multiHost() ? ` <span class="muted">⌂ ${esc(maskAddr(hostName(i.host_id)))}</span>` : ""}</span>
-        <span class="muted">${i.state === "failed" ? "failed" : i.state === "waiting" ? "waiting" : i.state === "restarting" ? "restarting…" : "started"}</span>
+        <span>${i.name ? `${esc(recipeTitle({ ...i, copy_of: 1 }))}${multiHost() ? ` <span class="muted">⌂ ${esc(maskAddr(hostName(i.host_id)))}</span>` : ""}`
+          : `⌂ ${esc(maskAddr(hostName(i.host_id)))}`}</span>
+        <span class="muted">${jobItemState(j, i)}</span>
         ${i.state === "failed" ? `<span class="job-msg bad">${esc(blurText(i.message))}</span>` : ""}</div>`).join("")}
     </div>`;
   }).join("");
@@ -1586,8 +1660,10 @@ async function pollJobs() {
       jobs.set(j.id, fresh);
       if (fresh.done) {
         const failed = fresh.items.filter((i) => i.state === "failed").length;
-        toast(`${fresh.title}: ${failed ? `${failed} failed` : "all started"}`, failed ? "bad" : "ok");
-        loadRecipes();
+        toast(`${fresh.title}: ${failed ? `${failed} failed` : `all ${JOB_DONE[fresh.kind] ?? "done"}`}`, failed ? "bad" : "ok");
+        afterJob(fresh);
+        // Successful jobs close themselves; failed ones stay until closed, so the reason can be read.
+        if (!failed) setTimeout(() => { jobs.delete(fresh.id); renderJobs(); }, 30000);
       }
     } catch { jobs.delete(j.id); }  // the manager restarted: the job is gone
   }
@@ -2396,7 +2472,8 @@ function renderImages() {
       const open = imagesView.open.has(key);
       const recipes = imagesView.host ? img.recipes.filter((r) => String(r.host_id) === imagesView.host) : img.recipes;
       rows.push(`<tr>
-        <td class="mono img-ref">${tagsInUse > 1 ? "" : `${esc(repo)}<br>`}<b>:${esc(img.tag)}</b></td>
+        <td class="mono img-ref">${tagsInUse > 1 ? "" : `${esc(repo)}<br>`}<b>:${esc(img.tag)}</b>
+          <button class="btn small ghost img-pull" data-pull="${esc(key)}" title="docker pull this image on several hosts at once">⤓ Pull…</button></td>
         <td><button class="chip small" data-toggle="${esc(key)}" aria-expanded="${open}">${recipes.length} recipe${recipes.length === 1 ? "" : "s"} ${open ? "▾" : "▸"}</button></td>
         ${cols.map((h) => `<td class="img-cell">${imageCellHtml(img, img.hosts.find((x) => x.host_id === h.id))}</td>`).join("")}
       </tr>`);
@@ -2419,6 +2496,12 @@ $("#images-only-newer").addEventListener("click", () => { imagesView.onlyNewer =
 $("#images-only-missing").addEventListener("click", () => { imagesView.onlyMissing = !imagesView.onlyMissing; renderImages(); });
 
 $("#images").addEventListener("click", async (ev) => {
+  const pull = ev.target.closest("[data-pull]");
+  if (pull) {
+    const img = imagesData.images.find((i) => imgKey(i) === pull.dataset.pull);
+    if (img) openTransfer({ kind: "pull", image: img.image }, img.hosts.filter((h) => h.state !== "present").map((h) => h.host_id));
+    return;
+  }
   const toggle = ev.target.closest("[data-toggle]");
   if (toggle) {
     const k = toggle.dataset.toggle;

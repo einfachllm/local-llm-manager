@@ -36,6 +36,8 @@ MODEL_DIRS = [d.strip() for d in os.environ.get("DGXM_MODEL_DIR", "~/models").re
 
 # Docker binary and timeouts.
 DOCKER_BIN = os.environ.get("DGXM_DOCKER", "docker")
+# Hugging Face CLI for "Download on hosts" (default: `hf`, else `huggingface-cli`, whichever is on PATH).
+HF_BIN = os.environ.get("DGXM_HF_BIN", "")
 STOP_TIMEOUT = int(os.environ.get("DGXM_STOP_TIMEOUT", "30"))
 
 # Image used to drop the page cache when the manager itself lacks permission
