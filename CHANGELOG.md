@@ -88,6 +88,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `GET /agent/v1/images` (older agents are reported as too old to list images).
 
 ### Changed
+- **One lock per host instead of one for the whole hub:** start, stop, restart and switch on one machine
+  no longer wait for a slow action on another one (e.g. a start pulling a large image). Actions on the same
+  machine still run one after another. "Stop all" and "Free memory" on every host now run on all hosts at
+  once, and a host that is offline no longer stops the others from being handled.
 - **Framework presets trimmed to what is actually used:** the TensorRT-LLM preset (Docker) and the
   MLX / llama.cpp (native) presets are gone. The native-process section now offers **TensorFold** and
   **Custom (native)**; imported `mlx_lm.server` / `llama-server` / `trtllm-serve` scripts and Mac
