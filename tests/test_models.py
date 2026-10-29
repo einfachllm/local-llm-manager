@@ -98,7 +98,7 @@ def test_local_executor_check_models_shapes_results(monkeypatch, tmp_path):
     out = asyncio.run(ex.check_models([resolve_model_target("Qwen/Qwen3-8B", "")]))
     assert out == [
         {"reference": "Qwen/Qwen3-8B", "present": False, "location": None,
-         "expected": str(tmp_path / "empty" / "models--Qwen--Qwen3-8B")}
+         "expected": str(tmp_path / "empty" / "models--Qwen--Qwen3-8B"), "size_gb": None}
     ]
 
 

@@ -50,10 +50,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Activity-log retention:** events and start-time measurements older than `DGXM_RETENTION_DAYS`
   (default 90 days, `0` = keep all) are pruned on start-up, and the database records its schema version
   (`PRAGMA user_version`).
+- [Configuration reference](docs/configuration.md): every `.env` key in one place - dashboard and network,
+  hub/agent modes, models and recipes, storage, scheduler and monitoring, and how secret names are passed
+  through to recipes.
+- `examples/recipes`: paste-ready recipes for **Recipes → Import** - starting with
+  `qwen38-flash-next-fp4.sh` (vLLM with b12x flags and tool calling on a DGX Spark); add your own as
+  further `.sh` files.
 - `examples/hermes-agent`: guide to run Hermes Agent (Telegram, local faster-whisper STT and Piper TTS) on an
   LLM recipe, with the Hermes gateway as a native-process recipe, tool-calling flags and security notes.
-- `examples/telegram-voice-bot`: a Telegram bot (voice and text) with a local Whisper server via Docker
-  Compose, using an LLM recipe of this manager. User allow-list, conversation memory, outbound-only.
+  The Docker variant now covers the container-network traps: `base_url` must use `host.docker.internal`
+  (not `127.0.0.1`), `config.yaml` wins over recipe environment, and `model.key_env` must name the secret
+  the recipe actually passes.
 - **Images** tab (shortcut `5`): a matrix of the Docker images used by recipes (rows, tags of one image grouped
   together) and the hosts (columns): `✓ 23d` when the host has the image, `✗ missing`, and `⬆ tag` when a newer
   tag of the same image is already on that host - one click switches that host's recipes to it. Search, host

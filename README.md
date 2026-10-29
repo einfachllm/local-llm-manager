@@ -42,9 +42,8 @@ download them.
 
 ## Examples
 
-- [Telegram voice bot](examples/telegram-voice-bot/): talk to your own LLM from Telegram by voice or text.
-  Whisper runs next to it via Docker Compose; the LLM is a recipe in this manager, so **Switch to** changes
-  the bot's model.
+- [Importable recipes](examples/recipes/): paste-ready model recipes - e.g. Qwen3.8-Flash-Next-FP4 with
+  vLLM on a DGX Spark - into **Recipes → Import**, no field-typing needed.
 - [Hermes Agent](examples/hermes-agent/): a full personal agent on Telegram with local speech-to-text and
   text-to-speech, running on a model from this manager; the Hermes gateway itself is an agent recipe (native
   process or Docker).
@@ -268,7 +267,10 @@ service after changes (`sudo systemctl restart local-llm-manager`, or rerun the 
 
 Less common: `DGXM_HEALTH_HOST` (`DGXM_PUBLISH_IP`, else `127.0.0.1`), `DGXM_PROC_DIR` (`<db folder>/processes`),
 `DGXM_DROP_CACHES_IMAGE` (`busybox:latest`), `DGXM_RETENTION_DAYS` (`90`, activity-log and start-time
-retention in days; `0` keeps everything).
+retention in days; `0` keeps everything), `DGXM_DOCKER` (`docker`, e.g. for Podman), `DGXM_SCHEDULER_TICK`
+(`10` s), `DGXM_ONCE_GRACE_SECONDS` (`600`, grace for missed one-shot schedules).
+
+**Full reference with every key, default and mode:** [docs/configuration.md](docs/configuration.md).
 
 Everything in the UI is also available as a JSON API; see `http://<machine>:8090/docs`.
 
