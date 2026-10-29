@@ -1231,7 +1231,8 @@ function weightCellHtml(w, c) {
   const title = c.state === "unknown" ? blurHostText(c.error || "not reachable", host?.url)
     : c.state === "missing" ? `Not found at ${c.location || c.path}` : c.state === "present" ? c.location || c.path : "";
   const icon = { present: `<span class="ok">✓</span>`, missing: `<span class="bad">✗</span>`, unknown: `<span class="muted">?</span>` }[c.state];
-  const body = c.path ? `${icon} <code>${esc(c.path)}</code>` : `<span class="muted">+ set path</span>`;
+  const size = c.state === "present" && c.size_gb != null ? `<span class="muted" title="Size on this host">${c.size_gb} GB</span>` : "";
+  const body = c.path ? `${icon} <code>${esc(c.path)}</code>${size}` : `<span class="muted">+ set path</span>`;
   return `<button type="button" class="weight-cell ${c.state}" data-weight="${w.id}" data-host="${c.host_id}" title="${esc(title)}">${body}</button>`;
 }
 

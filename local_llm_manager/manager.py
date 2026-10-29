@@ -206,7 +206,8 @@ class Manager:
                 d = found.get(path) if path else None
                 state = "unset" if not path else "unknown" if d is None else "present" if d["present"] else "missing"
                 cells.append({"host_id": h["id"], "state": state, "path": path, "error": err if state == "unknown" else None,
-                              "location": (d.get("location") or d.get("expected")) if d else None})
+                              "location": (d.get("location") or d.get("expected")) if d else None,
+                              "size_gb": d.get("size_gb") if (d and d.get("present")) else None})
             out.append({"id": w["id"], "name": w["name"], "source": w["source"], "recipe_ids": w["recipe_ids"],
                         "hosts": cells})
         return {"weights": out}

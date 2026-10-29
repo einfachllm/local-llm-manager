@@ -105,6 +105,7 @@ def check_model_target(target: dict[str, str], model_dirs: list[str]) -> dict[st
         "present": found is not None,
         "location": found,
         "expected": None if found else expected,
+        "size_gb": _size_gb(found) if found else None,
     }
 
 
@@ -112,6 +113,23 @@ def _contract_home(path: str) -> str:
     """/home/me/models/x -> ~/models/x: the same layout on another machine (other user name) matches."""
     home = os.path.expanduser("~").rstrip("/")
     return "~" + path[len(home):] if home and (path == home or path.startswith(home + "/")) else path
+
+
+def _size_gb(path: str) -> Optional[float]:
+    """Total size in GB of a file or directory (summed over its contents), or None when unreadable."""
+    try:
+        if os.path.isdir(path):
+            total = 0
+            for dirpath, _, files in os.walk(path):
+                for f in files:
+                    try:
+                        total += os.stat(os.path.join(dirpath, f)).st_size
+                    except OSError:
+                        pass
+            return round(total / 1e9, 1)
+        return round(os.path.getsize(path) / 1e9, 1)
+    except OSError:
+        return None
 
 
 _WEIGHT_FILE_EXTS = (".safetensors", ".gguf", ".bin", ".pt", ".npz")
