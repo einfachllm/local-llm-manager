@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     pinned          INTEGER NOT NULL DEFAULT 0,
     kind            TEXT NOT NULL DEFAULT 'model',
     weights_id      INTEGER,
+    copy_of         INTEGER,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
@@ -129,6 +130,9 @@ MIGRATIONS = {
     ("recipes", "kind"): "ALTER TABLE recipes ADD COLUMN kind TEXT NOT NULL DEFAULT 'model'",
     # Registered weights (Weights tab) whose per-host path fills {weights}; NULL = none.
     ("recipes", "weights_id"): "ALTER TABLE recipes ADD COLUMN weights_id INTEGER",
+    # The recipe this one is a copy of on another host ("Copy to hosts"); NULL = an original. Not in
+    # RECIPE_FIELDS: editing a copy keeps the link, set_copy_of() changes it.
+    ("recipes", "copy_of"): "ALTER TABLE recipes ADD COLUMN copy_of INTEGER",
 }
 
 SCHEDULE_FIELDS = ("name", "action", "recipe_id", "cron", "run_at", "enabled", "host_id")
@@ -262,6 +266,11 @@ class Database:
 
     def delete_recipe(self, recipe_id: int) -> None:
         self._execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
+        # Copies of a deleted original become originals of their own.
+        self._execute("UPDATE recipes SET copy_of = NULL WHERE copy_of = ?", (recipe_id,))
+
+    def set_copy_of(self, recipe_id: int, original_id: Optional[int]) -> None:
+        self._execute("UPDATE recipes SET copy_of = ? WHERE id = ?", (original_id, recipe_id))
 
     # ---- schedules -----------------------------------------------------
 

@@ -478,6 +478,32 @@ function imageShort(image) {
   return `${repo.split("/").pop()}:${t}`;
 }
 
+// A copy is named "<original> · <host>": with Blur on, its host part is masked like everywhere else.
+function recipeTitle(r) {
+  const host = hostName(r.host_id);
+  return state.blur && r.copy_of && host ? r.name.split(host).join(maskAddr(host)) : r.name;
+}
+
+// Copies on other hosts: on the original how many and whether all match, on a copy whether it matches.
+function copiesFact(r) {
+  if (r.copy_of) {
+    const o = state.recipes.find((x) => x.id === r.copy_of);
+    const same = !r.differs?.length;
+    return ["Copy of", `${esc(o?.name ?? "?")} ${same ? `<span class="ok" title="Same settings as the original">✓ in sync</span>`
+      : `<span class="warn" title="Differs in: ${esc(r.differs.join(", "))}">⟳ differs</span>
+         <button class="copy-mini" data-act="sync" title="Take the original's settings">sync</button>`}
+      <button class="copy-mini" data-act="unlink" title="Make this an original of its own: syncing no longer changes it">unlink</button>`];
+  }
+  if (!r.copies?.length) return null;
+  const copies = r.copies.map((id) => state.recipes.find((x) => x.id === id)).filter(Boolean);
+  const stale = copies.filter((c) => c.differs?.length);
+  const where = copies.map((c) => maskAddr(hostName(c.host_id))).join(", ");
+  return ["Copies", `<span title="${esc(where)}">on ${copies.length} host${copies.length === 1 ? "" : "s"}</span> ${stale.length
+    ? `<span class="warn" title="Differ: ${esc(stale.map((c) => maskAddr(hostName(c.host_id))).join(", "))}">⟳ ${stale.length} differ${stale.length === 1 ? "s" : ""}</span>
+       <button class="copy-mini" data-act="sync" title="Give all copies this recipe's settings">sync all</button>`
+    : `<span class="ok">✓ in sync</span>`}`];
+}
+
 function cardHtml(r) {
   const busy = state.busy.has(r.id);
   const running = RUNNING.includes(r.status);
@@ -507,6 +533,7 @@ function cardHtml(r) {
           <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
           <button class="btn small ghost" data-act="edit">Edit</button>
           <button class="btn small ghost icon" data-act="duplicate" title="Duplicate" aria-label="Duplicate">⧉</button>
+          ${multiHost() ? `<button class="btn small ghost icon" data-act="copyto" title="Copy to other hosts – kept in sync with this one" aria-label="Copy to other hosts">⇉</button>` : ""}
           <button class="btn small ghost danger icon" data-act="delete" ${running ? "disabled" : ""} title="${running ? "Stop it before deleting" : "Delete"}" aria-label="Delete">🗑</button>`;
   const endpoint = (running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(maskEndpoint(url))}/v1</a>`
     : `<span class="muted">${esc(maskEndpoint(url))}/v1</span>`)
@@ -519,6 +546,7 @@ function cardHtml(r) {
     ["Endpoint", endpoint],
     r.runtime === "docker" && r.image ? ["Image", `<span title="${esc(r.image)}">${esc(imageShort(r.image))}</span>`] : null,
     r.est_memory_gb ? ["Memory", `~${r.est_memory_gb} GB`] : null,
+    copiesFact(r),
     r.container ? [r.runtime === "process" ? "Process" : "Container",
       `<span title="${esc(r.container_name)}">${esc(r.container.status)}</span>`] : null,
   ].filter(Boolean);
@@ -529,7 +557,7 @@ function cardHtml(r) {
         <div class="row-icon" aria-hidden="true">🧠</div>
         <div class="row-main">
           <div class="row-title">
-            <span class="card-title">${esc(r.name)}</span>
+            <span class="card-title">${esc(recipeTitle(r))}</span>
             <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
             ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
@@ -547,7 +575,7 @@ function cardHtml(r) {
   return `
       <article class="card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
         <div class="card-head">
-          <div class="card-title">${esc(r.name)}</div>
+          <div class="card-title">${esc(recipeTitle(r))}</div>
           <div class="card-head-right">
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
             <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
@@ -580,7 +608,7 @@ function agentCardHtml(r) {
         <div class="agent-icon" aria-hidden="true">🤖</div>
         <div class="agent-main">
           <div class="agent-title-row">
-            <span class="card-title">${esc(r.name)}</span>
+            <span class="card-title">${esc(recipeTitle(r))}</span>
             <span class="badge agent" title="An agent: uses a model, kept running by “Switch to”">Agent · ${r.runtime === "process" ? "native" : "Docker"}</span>
             ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
@@ -595,6 +623,7 @@ function agentCardHtml(r) {
             ${(r.tags || []).map((t) =>
               `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}
           </div>
+          ${copiesFact(r) ? `<div class="agent-copies">${copiesFact(r)[0]}: ${copiesFact(r)[1]}</div>` : ""}
           ${dups.length ? `<div class="agent-warn">⚠ ${dups.length === 1 ? "Another copy" : `${dups.length} other copies`} of this command
             ${dups.length === 1 ? "runs" : "run"} outside the manager (pid ${dups.map(Number).join(", ")}). Two gateways on one bot
             token lose messages: kill ${dups.length === 1 ? "it" : "them"}, then restart this recipe.</div>` : ""}
@@ -607,6 +636,7 @@ function agentCardHtml(r) {
           <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
           <button class="btn small ghost" data-act="edit">Edit</button>
           <button class="btn small ghost" data-act="duplicate">Duplicate</button>
+          ${multiHost() ? `<button class="btn small ghost" data-act="copyto" title="Copy to other hosts – kept in sync with this one">Copy to hosts</button>` : ""}
           <button class="btn small ghost danger" data-act="delete" ${running ? "disabled" : ""}>Delete</button>
         </div>
       </article>`;
@@ -790,6 +820,13 @@ $("#recipes").addEventListener("click", async (ev) => {
       await loadRecipes();
       openRecipeEditor(copy);
     } catch (e) { toast(e.message, "bad"); }
+  } else if (act === "copyto") {
+    openCopyTo(r);
+  } else if (act === "sync") {
+    await syncCopies(r.id);
+  } else if (act === "unlink") {
+    if (!confirm(`Unlink “${r.name}” from its original? It keeps its settings, and syncing no longer changes it.`)) return;
+    try { await api(`/api/recipes/${id}/unlink`, { method: "POST" }); await loadRecipes(); } catch (e) { toast(e.message, "bad"); }
   } else if (act === "pin") {
     try {
       await api(`/api/recipes/${id}`, { method: "PUT", body: recipeBodyFrom(r, { pinned: !r.pinned }) });
@@ -1105,6 +1142,10 @@ recipeForm.addEventListener("submit", async (ev) => {
     }
     $("#dlg-recipe").close();
     toast("Recipe saved", "ok");
+    const copies = editingRecipe ? state.recipes.filter((x) => x.copy_of === editingRecipe.id) : [];
+    if (copies.length && confirm(`“${saved.name}” has ${copies.length} cop${copies.length === 1 ? "y" : "ies"} on other hosts. Update ${copies.length === 1 ? "it" : "them"} too?`)) {
+      await syncCopies(saved.id);
+    }
     const wasRunning = editingRecipe && ["ready", "loading", "starting"].includes(editingRecipe.status);
     if (wasRunning && confirm("This model is running. Restart it now so the changes take effect?")) {
       await runAction(saved.id, `/api/recipes/${saved.id}/restart`);
@@ -1487,6 +1528,70 @@ $("#form-import").addEventListener("submit", async (ev) => {
   } finally {
     btn.disabled = false;
     btn.textContent = "Import";
+  }
+});
+
+/* ---------------- copies on other hosts ---------------- */
+
+async function syncCopies(id) {
+  try {
+    const res = await api(`/api/recipes/${id}/sync`, { method: "POST" });
+    toast(`${res.updated.length} cop${res.updated.length === 1 ? "y" : "ies"} updated`, "ok");
+    await loadRecipes();
+    const running = res.running.map((rid) => state.recipes.find((x) => x.id === rid)).filter(Boolean);
+    if (running.length && confirm(`Running with the old settings: ${running.map((x) => `“${x.name}”`).join(", ")}.\n\nRestart ${running.length === 1 ? "it" : "them"} now?`)) {
+      for (const x of running) await runAction(x.id, `/api/recipes/${x.id}/restart`);
+    }
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+let copyFrom = null;
+
+async function openCopyTo(r) {
+  copyFrom = r.copy_of ? state.recipes.find((x) => x.id === r.copy_of) || r : r;
+  $("#copy-title").textContent = `Copy “${copyFrom.name}” to other hosts`;
+  $("#copy-error").textContent = "";
+  const hosts = state.hosts.filter((h) => h.id !== copyFrom.host_id);
+  const box = $("#copy-hosts");
+  box.innerHTML = hosts.map((h) => `<label class="copy-host"><input type="checkbox" value="${h.id}">
+      <span class="copy-host-name">${esc(maskAddr(h.name))}${h.online ? "" : " <small>(offline)</small>"}</span>
+      <span class="copy-host-check muted" data-check="${h.id}">checking…</span></label>`).join("")
+    || `<div class="muted">No other hosts: add them in the Hosts tab.</div>`;
+  $("#dlg-copy").showModal();
+  if (!hosts.length) return;
+  try {
+    const res = await api(`/api/recipes/${copyFrom.id}/copies/check`, { method: "POST", body: { host_ids: hosts.map((h) => h.id) } });
+    for (const c of res.hosts) {
+      const bits = [];
+      if (c.existing_copy) bits.push(`<span class="ok">has a copy – will be updated</span>`);
+      const w = c.weights;
+      if (w) bits.push(w.state === "present" ? `<span class="ok">✓ weights</span>`
+        : w.state === "unset" ? `<span class="bad">✗ weights: no path – set it in the Weights tab</span>`
+        : w.state === "missing" ? `<span class="bad">✗ weights not at ${esc(w.location || w.path)}</span>` : `<span class="muted">? weights</span>`);
+      if (c.image) bits.push(c.image === "present" ? `<span class="ok">✓ image</span>`
+        : c.image === "missing" ? `<span class="warn">image not there yet – pulled on first start</span>` : `<span class="muted">? image</span>`);
+      if (c.port_users.length) bits.push(`<span class="warn">port ${copyFrom.host_port} also used by ${esc(c.port_users.join(", "))}</span>`);
+      if (c.error) bits.push(`<span class="muted">${esc(blurHostText(c.error, hostById(c.host_id)?.url))}</span>`);
+      const cell = box.querySelector(`[data-check="${c.host_id}"]`);
+      if (cell) cell.innerHTML = bits.join(" · ") || `<span class="ok">✓ ready</span>`;
+      if (cell && c.existing_copy) cell.closest("label").querySelector("input").checked = true;
+    }
+  } catch (e) {
+    $("#copy-error").textContent = e.message;
+  }
+}
+
+$("#form-copy").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const ids = $$("#copy-hosts input:checked").map((i) => Number(i.value));
+  if (!ids.length) { $("#copy-error").textContent = "Pick at least one host."; return; }
+  try {
+    const res = await api(`/api/recipes/${copyFrom.id}/copies`, { method: "POST", body: { host_ids: ids } });
+    $("#dlg-copy").close();
+    toast(`${res.created.length} cop${res.created.length === 1 ? "y" : "ies"} created${res.updated.length ? `, ${res.updated.length} updated` : ""}`, "ok");
+    await loadRecipes();
+  } catch (e) {
+    $("#copy-error").textContent = e.message;
   }
 });
 

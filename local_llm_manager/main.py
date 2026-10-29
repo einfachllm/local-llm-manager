@@ -31,7 +31,8 @@ from .processes import ProcessRunner
 from .agent import create_agent_app
 from .selfmetrics import Sink
 from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, build_run_argv, fill_weights, format_command,
-                      format_process_command, quick_recipe, slug, split_args, uses_host_network)
+                      annotate_copies, format_process_command, quick_recipe, slug, split_args, synced_copy,
+                      uses_host_network)
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
 from .timeline import build_timeline
 
@@ -219,6 +220,10 @@ class QuickIn(BaseModel):
         if not self.base_recipe_id and self.framework not in FRAMEWORKS:
             raise ValueError("pick the settings: an existing recipe or an engine preset")
         return self
+
+
+class CopyIn(BaseModel):
+    host_ids: list[int] = Field(min_length=1)
 
 
 class WeightPathIn(BaseModel):
@@ -677,7 +682,7 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
 
     @app.get("/api/recipes")
     async def list_recipes():
-        return await manager.recipes_with_status()
+        return annotate_copies(await manager.recipes_with_status())
 
     @app.get("/api/recipes/{recipe_id}")
     async def get_recipe(recipe_id: int):
@@ -728,6 +733,74 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         r["name"] = f"{r['name']} (copy {i})"
         r["container_name"] = f"{r['container_name']}-copy{i}"
         return db.get_recipe(db.create_recipe(r))
+
+    # ---- copies on other hosts: the same recipe on several machines, kept in sync -------------
+
+    def original_of(recipe_id: int) -> dict:
+        """The recipe copies are made from: the recipe itself, or the original a copy came from."""
+        r = get_recipe_or_404(recipe_id)
+        return (db.get_recipe(r["copy_of"]) if r.get("copy_of") else None) or r
+
+    def copy_hosts(original: dict, host_ids: list[int]) -> list[int]:
+        for hid in host_ids:
+            get_host_or_404(hid)
+        if original["host_id"] in host_ids:
+            raise HTTPException(422, "The original already runs on that host: pick other hosts")
+        return list(dict.fromkeys(host_ids))
+
+    @app.post("/api/recipes/{recipe_id}/copies/check")
+    async def check_copies(recipe_id: int, body: CopyIn):
+        """Per host: are the weights and the image there, who else uses the port, is there a copy already."""
+        original = original_of(recipe_id)
+        return {"original_id": original["id"], "hosts": await manager.copy_check(original, copy_hosts(original, body.host_ids))}
+
+    @app.post("/api/recipes/{recipe_id}/copies", status_code=201)
+    async def create_copies(recipe_id: int, body: CopyIn):
+        """Put a copy of the recipe on each host (a host that has one already gets it updated). Copies keep
+        their own name, container name and host; everything else follows the original on "Sync"."""
+        original = original_of(recipe_id)
+        created, updated = [], []
+        for hid in copy_hosts(original, body.host_ids):
+            recipes = db.list_recipes()
+            existing = next((x for x in recipes if x["host_id"] == hid and x.get("copy_of") == original["id"]), None)
+            if existing:
+                db.update_recipe(existing["id"], synced_copy(existing, original))
+                updated.append(db.get_recipe(existing["id"]))
+                continue
+            host = db.get_host(hid)["name"]
+            names, containers = {x["name"].lower() for x in recipes}, {x["container_name"] for x in recipes}
+            name, container, i = f"{original['name']} · {host}", f"{original['container_name']}-{slug(host)}", 2
+            while name.lower() in names or container in containers:
+                name, container = f"{original['name']} · {host} {i}", f"{original['container_name']}-{slug(host)}-{i}"
+                i += 1
+            rid = db.create_recipe(synced_copy({"name": name, "container_name": container, "host_id": hid,
+                                                "pinned": False}, original))
+            db.set_copy_of(rid, original["id"])
+            created.append(db.get_recipe(rid))
+        return {"created": created, "updated": updated}
+
+    @app.post("/api/recipes/{recipe_id}/sync")
+    async def sync_copies(recipe_id: int):
+        """Give copies the original's current settings: all copies of an original, or just this copy.
+        Running ones keep running with the old settings until restarted (listed in `running`)."""
+        r = get_recipe_or_404(recipe_id)
+        original = original_of(recipe_id)
+        targets = [r] if original["id"] != r["id"] else [x for x in db.list_recipes() if x.get("copy_of") == r["id"]]
+        statuses = {x["id"]: x["status"] for x in await manager.recipes_with_status()}
+        updated, running = [], []
+        for c in targets:
+            db.update_recipe(c["id"], synced_copy(c, original))
+            updated.append(c["id"])
+            if statuses.get(c["id"]) in ("ready", "loading", "starting"):
+                running.append(c["id"])
+        return {"updated": updated, "running": running}
+
+    @app.post("/api/recipes/{recipe_id}/unlink")
+    async def unlink_copy(recipe_id: int):
+        """Make a copy an original of its own: syncing no longer changes it."""
+        get_recipe_or_404(recipe_id)
+        db.set_copy_of(recipe_id, None)
+        return db.get_recipe(recipe_id)
 
     @app.post("/api/recipes/quick")
     async def quick(body: QuickIn):

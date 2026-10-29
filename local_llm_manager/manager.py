@@ -103,6 +103,32 @@ class Manager:
         native = sum(1 for r in self.db.list_recipes() if r.get("runtime") == "process")
         return {"images": images, "native_recipes": native}
 
+    async def copy_check(self, recipe: dict, host_ids: list[int]) -> list[dict[str, Any]]:
+        """What copying a recipe to other hosts would meet there: whether its weights and image are on
+        each host, other recipes on the same port, and a copy that is there already."""
+        repo, tag = split_image(recipe.get("image") or "") if recipe.get("runtime") == "docker" else ("", "")
+        recipes = self.db.list_recipes()
+
+        async def one(hid: int) -> dict[str, Any]:
+            out: dict[str, Any] = {"host_id": hid, "weights": None, "image": None, "error": None,
+                                   "port_users": [x["name"] for x in recipes if x["host_id"] == hid
+                                                  and x["host_port"] == recipe["host_port"]
+                                                  and x["id"] != recipe["id"] and x.get("copy_of") != recipe["id"]],
+                                   "existing_copy": next((x["id"] for x in recipes if x["host_id"] == hid
+                                                          and x.get("copy_of") == recipe["id"]), None)}
+            if recipe.get("weights_id"):
+                out["weights"] = await self.check_weight(recipe["weights_id"], hid)
+            if repo:
+                try:
+                    images = await self.executor_for(hid).images()
+                    out["image"] = "present" if any(i["repository"] == repo and i["tag"] == tag for i in images) \
+                        else "missing"
+                except ActionError as e:
+                    out["image"], out["error"] = "unknown", e.message
+            return out
+
+        return list(await asyncio.gather(*(one(h) for h in host_ids)))
+
     async def models_overview(self) -> dict[str, Any]:
         """Models referenced by model recipes that are not on registered weights: which recipes use each,
         and whether each of their hosts has the weights locally (Hugging Face cache, a mounted host path,

@@ -319,6 +319,22 @@
     </form>
   </dialog>
 
+  <!-- Copy a recipe to other hosts -->
+  <dialog id="dlg-copy" class="dialog">
+    <form id="form-copy" method="dialog">
+      <div class="dialog-head"><h3 id="copy-title">Copy to other hosts</h3><button type="button" class="x" data-close>&times;</button></div>
+      <p class="hint copy-hint">Each host gets its own copy with the same settings and port. Change the original later and
+        <b>sync</b> passes the change on to every copy. The weights path comes from the Weights tab, per host.</p>
+      <div id="copy-hosts" class="copy-hosts"></div>
+      <div class="error" id="copy-error"></div>
+      <div class="dialog-foot">
+        <span class="actions-gap"></span>
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Copy</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Weights entry -->
   <dialog id="dlg-weight" class="dialog">
     <form id="form-weight" method="dialog">

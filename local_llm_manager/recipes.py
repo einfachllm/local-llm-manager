@@ -373,3 +373,37 @@ def quick_recipe(base: dict[str, Any], *, name: str, weights: bool, model: str =
     if copied and base.get("id"):
         notes.append(f"Copied from “{base.get('name')}”, check they fit the new model: {', '.join(copied)}")
     return r, notes
+
+
+# ---- copies on other hosts ("Copy to hosts", "Sync copies") ------------------------------------------
+
+# What a copy keeps of its own; everything else follows the original when the copies are synced.
+COPY_OWN_FIELDS = ("name", "container_name", "host_id", "pinned")
+COPY_SYNC_FIELDS = ("description", "framework", "image", "model", "host_port", "container_port", "command",
+                    "args", "env", "volumes", "docker_args", "gpus", "health_path", "est_memory_gb", "tags",
+                    "color", "runtime", "kind", "weights_id")
+
+
+def synced_copy(copy: dict[str, Any], original: dict[str, Any]) -> dict[str, Any]:
+    """The copy with the original's settings (its own name, container name, host and pin kept)."""
+    return {**copy, **{f: original.get(f) for f in COPY_SYNC_FIELDS}}
+
+
+def copy_differs(copy: dict[str, Any], original: dict[str, Any]) -> list[str]:
+    """Fields in which a copy no longer matches its original."""
+    return [f for f in COPY_SYNC_FIELDS if (copy.get(f) or None) != (original.get(f) or None)]
+
+
+def annotate_copies(recipes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Adds `copies` (ids) to originals and `differs` (fields) to copies, for the dashboard."""
+    by_id = {r["id"]: r for r in recipes}
+    for r in recipes:
+        r["copies"] = []
+    for r in recipes:
+        original = by_id.get(r.get("copy_of"))
+        if original:
+            original["copies"].append(r["id"])
+            r["differs"] = copy_differs(r, original)
+        else:
+            r["copy_of"] = None
+    return recipes

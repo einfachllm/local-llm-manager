@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Copy to other hosts** (⇉ on a card): one recipe on several machines - e.g. every employee's DGX
+  Spark. The dialog checks per host whether the weights and the Docker image are there and who else uses
+  the port; each host gets a copy `<recipe> · <host>` with the same settings and port. Copies stay linked:
+  cards show **✓ in sync** / **⟳ differs**, saving the original offers to update every copy (and to restart
+  running ones), **sync** catches one up, **unlink** makes a copy a recipe of its own. New endpoints
+  `POST /api/recipes/{id}/copies[/check]`, `/sync`, `/unlink`; recipes get a `copy_of` column.
 - **⚡ Quick recipe** (shortcut `q`): a new model recipe in one dialog - pick the weights (found on the
   host, registered, or a Hugging Face id) and the settings to copy (a recipe that already works, or an
   engine default), optionally the context length. Image, flags, env and caches come from the base; the

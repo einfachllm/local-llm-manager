@@ -164,6 +164,7 @@ main { padding: 24px; max-width: 1500px; margin: 0 auto; }
 .table td.msg { white-space: pre-wrap; word-break: break-word; max-width: 560px; font-size: 13px; }
 .ok { color: var(--green); }
 .bad { color: var(--red); }
+.warn { color: var(--yellow); }
 .empty { color: var(--muted); padding: 24px; text-align: center; }
 
 /* dialogs */
@@ -584,3 +585,11 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
 .quick-notes { margin: 4px 18px 10px; padding-left: 18px; font-size: 13px; color: var(--muted); }
 .quick-notes:empty { display: none; }
 .quick-preview pre { max-height: 220px; }
+
+/* Copy to other hosts */
+.copy-hint { margin: 12px 18px 0; }
+.copy-hosts { display: flex; flex-direction: column; gap: 6px; padding: 12px 18px; }
+.copy-host { display: grid; grid-template-columns: auto minmax(90px, auto) 1fr; gap: 10px; align-items: baseline;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.copy-host-check { font-size: 12px; }
+.agent-copies { margin-top: 6px; font-size: 13px; color: var(--muted); }

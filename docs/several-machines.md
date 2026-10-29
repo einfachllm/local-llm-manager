@@ -33,6 +33,22 @@ they run.
 !!! info "Keep versions in sync"
     Upgrade the hub and all agents to the same version.
 
+## The same recipe on several machines
+
+E.g. a company where every employee has their own DGX Spark: set the recipe up once, then roll it out.
+
+1. On the recipe's card click **⇉** (*Copy to other hosts*) and tick the machines. For each one the dialog
+   checks first whether the weights (Weights tab) and the Docker image are there, and whether another
+   recipe uses the same port.
+2. **Copy**: every machine gets its own copy, named `<recipe> · <host>`, with the same settings and port -
+   so every employee has the same endpoint `http://<their-spark>:<port>/v1` and the same model name.
+3. Later, edit the **original** (new image, other flags) and save: the manager offers to update all copies.
+   Running copies are listed and can be restarted right away. Cards show **✓ in sync** or **⟳ differs**,
+   with **sync** to catch up.
+
+A copy keeps only its name, container name, host and pin; everything else follows the original. To change
+one copy for good, **unlink** it: it becomes a recipe of its own. Deleting the original unlinks its copies.
+
 ## Network access
 
 | From | To | Why |
