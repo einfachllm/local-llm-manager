@@ -593,3 +593,14 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
   padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
 .copy-host-check { font-size: 12px; }
 .agent-copies { margin-top: 6px; font-size: 13px; color: var(--muted); }
+
+/* Background jobs (e.g. restarting copies on several hosts): run on the hub, shown bottom left */
+.jobs { position: fixed; left: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 100;
+  max-width: min(420px, calc(100vw - 36px)); }
+.job { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.25); font-size: 13px; }
+.job-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 600; }
+.job-head .x { margin-left: auto; }
+.job-item { display: grid; grid-template-columns: 1.4em 1fr auto; gap: 6px; align-items: baseline; padding: 2px 0; }
+.job-item .muted { font-size: 12px; }
+.job-msg { grid-column: 2 / -1; font-size: 12px; overflow-wrap: anywhere; }

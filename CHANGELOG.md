@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Background jobs:** restarting the copies of a recipe after a sync runs on the hub - all hosts at the
+  same time, one after another on the same host - and keeps going when the browser is closed. A panel
+  bottom left shows each copy (waiting / restarting / started / failed with the reason) and comes back after
+  a reload. New endpoints `POST /api/jobs/restart`, `GET /api/jobs`, `GET /api/jobs/{id}`.
 - **Copy to other hosts** (⇉ on a card): one recipe on several machines - e.g. every employee's DGX
   Spark. The dialog checks per host whether the weights and the Docker image are there and who else uses
   the port; each host gets a copy `<recipe> · <host>` with the same settings and port. Copies stay linked:

@@ -1540,9 +1540,73 @@ async function syncCopies(id) {
     await loadRecipes();
     const running = res.running.map((rid) => state.recipes.find((x) => x.id === rid)).filter(Boolean);
     if (running.length && confirm(`Running with the old settings: ${running.map((x) => `“${x.name}”`).join(", ")}.\n\nRestart ${running.length === 1 ? "it" : "them"} now?`)) {
-      for (const x of running) await runAction(x.id, `/api/recipes/${x.id}/restart`);
+      await startRestartJob(running.map((x) => x.id), "Restarting copies");
     }
   } catch (e) { toast(e.message, "bad"); }
+}
+
+/* Background jobs: they run on the hub (closing the browser does not stop them); this only shows them. */
+
+const jobs = new Map();
+let jobTimer = null;
+const JOB_ICON = { waiting: `<span class="muted" title="Waiting for this host">⏸</span>`, restarting: "⏳",
+  ok: `<span class="ok">✓</span>`, failed: `<span class="bad">✗</span>` };
+
+async function startRestartJob(ids, title) {
+  try {
+    const job = await api("/api/jobs/restart", { method: "POST", body: { recipe_ids: ids, title } });
+    jobs.set(job.id, job);
+    renderJobs();
+    pollJobs();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+function renderJobs() {
+  $("#jobs").innerHTML = [...jobs.values()].map((j) => {
+    const done = j.items.filter((i) => i.state === "ok" || i.state === "failed").length;
+    return `<div class="job" data-job="${esc(j.id)}">
+      <div class="job-head">${j.done ? (j.items.some((i) => i.state === "failed") ? `<span class="bad">✗</span>` : `<span class="ok">✓</span>`) : "⏳"}
+        ${esc(j.title)} <span class="muted">${done} / ${j.items.length}</span>
+        ${j.done ? `<button type="button" class="x" data-close-job="${esc(j.id)}" title="Close">&times;</button>` : ""}</div>
+      ${j.items.map((i) => `<div class="job-item">${JOB_ICON[i.state] ?? ""}
+        <span>${esc(recipeTitle({ ...i, copy_of: 1 }))}${multiHost() ? ` <span class="muted">⌂ ${esc(maskAddr(hostName(i.host_id)))}</span>` : ""}</span>
+        <span class="muted">${i.state === "failed" ? "failed" : i.state === "waiting" ? "waiting" : i.state === "restarting" ? "restarting…" : "started"}</span>
+        ${i.state === "failed" ? `<span class="job-msg bad">${esc(blurText(i.message))}</span>` : ""}</div>`).join("")}
+    </div>`;
+  }).join("");
+}
+
+async function pollJobs() {
+  clearTimeout(jobTimer);
+  const open = [...jobs.values()].filter((j) => !j.done);
+  if (!open.length) return;
+  for (const j of open) {
+    try {
+      const fresh = await api(`/api/jobs/${j.id}`);
+      jobs.set(j.id, fresh);
+      if (fresh.done) {
+        const failed = fresh.items.filter((i) => i.state === "failed").length;
+        toast(`${fresh.title}: ${failed ? `${failed} failed` : "all started"}`, failed ? "bad" : "ok");
+        loadRecipes();
+      }
+    } catch { jobs.delete(j.id); }  // the manager restarted: the job is gone
+  }
+  renderJobs();
+  jobTimer = setTimeout(pollJobs, 1500);
+}
+
+$("#jobs").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-close-job]");
+  if (b) { jobs.delete(b.dataset.closeJob); renderJobs(); }
+});
+
+// After a reload: show jobs that are still running on the hub.
+async function resumeJobs() {
+  try {
+    for (const j of await api("/api/jobs")) if (!j.done) jobs.set(j.id, j);
+  } catch { return; }
+  renderJobs();
+  pollJobs();
 }
 
 let copyFrom = null;
@@ -2560,6 +2624,7 @@ async function boot() {
   await loadWeightsList();
   await loadStartTimes();
   await loadRecipes();
+  resumeJobs();
   setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); } }, 5000);
   // Keep the ⏳ elapsed counter ticking between the 5 s polls.
   setInterval(() => { if (!document.hidden && startWatch.size) renderRecipes(); }, 1000);

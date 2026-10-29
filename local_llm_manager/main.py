@@ -222,6 +222,11 @@ class QuickIn(BaseModel):
         return self
 
 
+class RestartJobIn(BaseModel):
+    recipe_ids: list[int] = Field(min_length=1, max_length=200)
+    title: str = Field(default="", max_length=120)
+
+
 class CopyIn(BaseModel):
     host_ids: list[int] = Field(min_length=1)
 
@@ -794,6 +799,26 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             if statuses.get(c["id"]) in ("ready", "loading", "starting"):
                 running.append(c["id"])
         return {"updated": updated, "running": running}
+
+    # ---- background jobs: keep running on the hub when the browser is closed -------------------
+
+    @app.post("/api/jobs/restart", status_code=202)
+    async def restart_job(body: RestartJobIn):
+        """Restart several recipes (e.g. the copies of one) in the background: hosts in parallel."""
+        for rid in body.recipe_ids:
+            get_recipe_or_404(rid)
+        return manager.start_restart_job(body.recipe_ids, title=body.title)
+
+    @app.get("/api/jobs")
+    async def list_jobs():
+        return list(reversed(manager.jobs.values()))
+
+    @app.get("/api/jobs/{job_id}")
+    async def get_job(job_id: str):
+        job = manager.jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "Job not found (jobs are kept until the manager restarts)")
+        return job
 
     @app.post("/api/recipes/{recipe_id}/unlink")
     async def unlink_copy(recipe_id: int):

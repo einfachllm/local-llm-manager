@@ -43,7 +43,8 @@ E.g. a company where every employee has their own DGX Spark: set the recipe up o
 2. **Copy**: every machine gets its own copy, named `<recipe> · <host>`, with the same settings and port -
    so every employee has the same endpoint `http://<their-spark>:<port>/v1` and the same model name.
 3. Later, edit the **original** (new image, other flags) and save: the manager offers to update all copies.
-   Running copies are listed and can be restarted right away. Cards show **✓ in sync** or **⟳ differs**,
+   Running copies are listed and can be restarted right away: the hub restarts them on all machines at
+   the same time, also if you close the browser, and a panel shows the progress per machine. Cards show **✓ in sync** or **⟳ differs**,
    with **sync** to catch up.
 
 A copy keeps only its name, container name, host and pin; everything else follows the original. To change

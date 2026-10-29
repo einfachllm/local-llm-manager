@@ -5,6 +5,8 @@ executors (executor.py) do the actual work on this machine or on a remote agent.
 """
 
 import asyncio
+import logging
+import secrets
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional
@@ -18,6 +20,8 @@ from .executor import (RUNNING_STATES, ActionError, LocalExecutor, RemoteExecuto
 from .processes import ProcessRunner
 from .recipes import WEIGHTS, fill_weights, model_mount, use_weights_mount, uses_weights
 
+log = logging.getLogger(__name__)
+
 __all__ = ["ActionError", "Manager"]
 
 
@@ -28,8 +32,12 @@ class Manager:
         self.local = LocalExecutor(docker, procs)
         # Only for tests: route remote calls to an in-process agent app.
         self.remote_transport = remote_transport
-        # Serialises mutating operations so the scheduler and UI don't race.
-        self.lock = asyncio.Lock()
+        # One lock per host: actions on the same machine (scheduler, UI, bulk jobs) run one after another,
+        # while a slow start on one host (e.g. pulling an image) does not hold up the others.
+        self._host_locks: dict[int, asyncio.Lock] = {}
+        # Background jobs (e.g. restarting the copies of a recipe on several hosts), newest last.
+        self.jobs: dict[str, dict[str, Any]] = {}
+        self._tasks: set[asyncio.Task] = set()
         # Self-metrics: (action, ok/error) -> how many times since the manager started.
         self.actions: Counter = Counter()
 
@@ -369,90 +377,138 @@ class Manager:
     def _count(self, action: str, ok: bool) -> None:
         self.actions[(action, "ok" if ok else "error")] += 1
 
-    async def start(self, recipe_id: int, source: str = "user", force: bool = False) -> str:
-        async with self.lock:
+    def host_lock(self, host_id: int) -> asyncio.Lock:
+        return self._host_locks.setdefault(host_id, asyncio.Lock())
+
+    async def _on_hosts(self, host_id: Optional[int], fn) -> list[str]:
+        """Run fn(host_id) under that host's lock: on one host, or on every host at the same time. Hosts
+        that fail don't stop the others; their errors are raised together at the end."""
+        host_ids = [host_id] if host_id is not None else [h["id"] for h in self.db.list_hosts()]
+
+        async def one(hid: int) -> str:
+            async with self.host_lock(hid):
+                return await fn(hid)
+
+        results = await asyncio.gather(*(one(h) for h in host_ids), return_exceptions=True)
+        errors = [r for r in results if isinstance(r, BaseException)]
+        if errors:
+            for e in errors:
+                if not isinstance(e, ActionError):
+                    raise e
+            if len(errors) == 1 and host_id is not None:
+                raise errors[0]
+            done = [r for r in results if isinstance(r, str) and r]
+            raise ActionError("; ".join([*(e.message for e in errors), *done]), errors[0].status_code)
+        return [r for r in results if r]
+
+    async def _locked_recipe(self, recipe_id: int, fn, action: str) -> str:
+        """fn(recipe) under the lock of the recipe's host (read again once the lock is held)."""
+        host_id = self._get(recipe_id)["host_id"]
+        async with self.host_lock(host_id):
             try:
-                result = await self._start(self._get(recipe_id), source, force)
+                result = await fn(self._get(recipe_id))
             except ActionError:
-                self._count("start", False)
+                self._count(action, False)
                 raise
-            self._count("start", True)
+            self._count(action, True)
             return result
 
+    async def start(self, recipe_id: int, source: str = "user", force: bool = False) -> str:
+        return await self._locked_recipe(recipe_id, lambda r: self._start(r, source, force), "start")
+
     async def stop(self, recipe_id: int, source: str = "user") -> str:
-        async with self.lock:
-            try:
-                result = await self._stop(self._get(recipe_id), source)
-            except ActionError:
-                self._count("stop", False)
-                raise
-            self._count("stop", True)
-            return result
+        return await self._locked_recipe(recipe_id, lambda r: self._stop(r, source), "stop")
 
     async def restart(self, recipe_id: int, source: str = "user", force: bool = False) -> str:
         """Stop, remove and re-create the container/process so edits to the recipe take effect."""
-        async with self.lock:
-            recipe = self._get(recipe_id)
-            try:
-                await self._stop(recipe, source, record=False)
-                result = await self._start(recipe, source, force, action="restart")
-            except ActionError:
-                self._count("restart", False)
-                raise
-            self._count("restart", True)
-            return result
+        return await self._locked_recipe(recipe_id, lambda r: self._restart(r, source, force), "restart")
 
     async def stop_all(self, source: str = "user", except_id: Optional[int] = None,
                        host_id: Optional[int] = None) -> str:
-        async with self.lock:
-            try:
-                result = await self._stop_all(source, except_id, host_id)
-            except ActionError:
-                self._count("stop_all", False)
-                raise
-            self._count("stop_all", True)
-            return result
+        try:
+            msgs = await self._on_hosts(host_id, lambda hid: self._stop_all(source, except_id, hid))
+        except ActionError:
+            self._count("stop_all", False)
+            raise
+        self._count("stop_all", True)
+        stopped = [m for m in msgs if m.startswith("Stopped")]
+        return "; ".join(stopped) if stopped else msgs[0] if host_id is not None else "No other models running"
 
     async def switch(self, recipe_id: int, source: str = "user", drop_caches: bool = True) -> str:
         """Stop every other model on the same host, free memory there, then start this one.
 
         Agents on the host keep running: they use a model rather than compete with it for memory.
         """
-        async with self.lock:
-            recipe = self._get(recipe_id)
-            try:
-                if recipe.get("kind") == "agent":
-                    msg = f"{recipe['name']} is an agent: start it instead of switching to it"
-                    self.db.add_event(source, "switch", False, msg, recipe["id"], self._target(recipe))
-                    raise ActionError(msg, 409)
-                msgs = [await self._stop_all(source, except_id=recipe_id, host_id=recipe["host_id"],
-                                             keep_agents=True)]
-                if drop_caches:
-                    msgs.append(await self._drop_caches(source, recipe["host_id"]))
-                msgs.append(await self._start(recipe, source, force=False, action="switch"))
-                result = "; ".join(m for m in msgs if m)
-            except ActionError:
-                self._count("switch", False)
-                raise
-            self._count("switch", True)
-            return result
+        async def run(recipe: dict) -> str:
+            if recipe.get("kind") == "agent":
+                msg = f"{recipe['name']} is an agent: start it instead of switching to it"
+                self.db.add_event(source, "switch", False, msg, recipe["id"], self._target(recipe))
+                raise ActionError(msg, 409)
+            msgs = [await self._stop_all(source, except_id=recipe_id, host_id=recipe["host_id"], keep_agents=True)]
+            if drop_caches:
+                msgs.append(await self._drop_caches(source, recipe["host_id"]))
+            msgs.append(await self._start(recipe, source, force=False, action="switch"))
+            return "; ".join(m for m in msgs if m)
+
+        return await self._locked_recipe(recipe_id, run, "switch")
 
     async def free_memory(self, source: str = "user", host_id: Optional[int] = None) -> str:
         """Stop all models and drop the page cache, on one host or (host_id None) on all of them."""
-        async with self.lock:
-            try:
-                msgs = [await self._stop_all(source, host_id=host_id)]
-                host_ids = [host_id] if host_id is not None else [h["id"] for h in self.db.list_hosts()]
-                for hid in host_ids:
-                    msgs.append(await self._drop_caches(source, hid))
-                result = "; ".join(m for m in msgs if m)
-            except ActionError:
-                self._count("free_memory", False)
-                raise
-            self._count("free_memory", True)
-            return result
+        async def run(hid: int) -> str:
+            msgs = [await self._stop_all(source, host_id=hid), await self._drop_caches(source, hid)]
+            return "; ".join(m for m in msgs if m)
 
-    # ---- internals (caller holds the lock) -----------------------------
+        try:
+            msgs = await self._on_hosts(host_id, run)
+        except ActionError:
+            self._count("free_memory", False)
+            raise
+        self._count("free_memory", True)
+        return "; ".join(msgs)
+
+    # ---- background jobs: run on the hub, so closing the browser does not stop them -----------
+
+    def start_restart_job(self, recipe_ids: list[int], source: str = "user", title: str = "") -> dict[str, Any]:
+        """Restart these recipes in the background: hosts in parallel, one after another on the same host.
+        Returns the job; GET it again (jobs[id]) to follow its progress."""
+        items = []
+        for rid in dict.fromkeys(recipe_ids):
+            r = self._get(rid)
+            items.append({"recipe_id": rid, "name": r["name"], "host_id": r["host_id"], "state": "waiting",
+                          "message": ""})
+        job = {"id": secrets.token_hex(4), "title": title or "Restart", "created": datetime.now().astimezone()
+               .isoformat(timespec="seconds"), "done": False, "items": items}
+        self.jobs[job["id"]] = job
+        while len(self.jobs) > 20:  # keep the last few for the dashboard
+            self.jobs.pop(next(iter(self.jobs)))
+        task = asyncio.create_task(self._run_restart_job(job, source))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return job
+
+    async def _run_restart_job(self, job: dict[str, Any], source: str) -> None:
+        async def one(item: dict[str, Any]) -> None:
+            async def run(recipe: dict) -> str:
+                item["state"] = "restarting"  # "waiting" until this host's lock is free
+                return await self._restart(recipe, source, force=False)
+
+            try:
+                item["message"] = await self._locked_recipe(item["recipe_id"], run, "restart")
+                item["state"] = "ok"
+            except ActionError as e:
+                item["state"], item["message"] = "failed", e.message
+            except Exception as e:  # keep the other items going
+                log.exception("restart job %s: %s failed", job["id"], item["name"])
+                item["state"], item["message"] = "failed", f"{type(e).__name__}: {e}"
+
+        await asyncio.gather(*(one(i) for i in job["items"]))
+        job["done"] = True
+
+    # ---- internals (caller holds the host's lock) ----------------------
+
+    async def _restart(self, recipe: dict, source: str, force: bool) -> str:
+        await self._stop(recipe, source, record=False)
+        return await self._start(recipe, source, force, action="restart")
 
     def _host_name(self, host_id: int) -> str:
         host = self.db.get_host(host_id)
