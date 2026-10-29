@@ -11,9 +11,8 @@ Telegram ⇄ Hermes gateway (recipe, native process)
               └─ LLM: http://127.0.0.1:8101/v1               (recipe, vLLM/SGLang/llama.cpp/MLX)
 ```
 
-Compared to the [Telegram voice bot](../telegram-voice-bot/) you need no separate Whisper server or bot
-code - Hermes brings speech in and out itself - but you get a full agent that can run commands, so read
-[Security](#security) first.
+Hermes brings speech in and out itself - no separate Whisper server, no bot code - but you get a full
+agent that can run commands, so read [Security](#security) first.
 
 Both the LLM and the Hermes gateway are recipes in this manager: you see their status and logs in the
 dashboard, a schedule can stop them at night, and **Switch to** changes the agent's model.
@@ -135,6 +134,21 @@ No typing needed: [`docker-recipe.example.sh`](docker-recipe.example.sh) is an i
 exactly this command - paste it into **Recipes → Import**, clear the pre-filled *Health path*, adjust
 `HERMES_UID/GID`, create.
 
+One difference to the native install matters most: **inside the container, `127.0.0.1` is the container
+itself**, not your host. The `~/.hermes` config you mount must therefore point at the LLM through the
+Docker bridge:
+
+```yaml
+model:
+  base_url: http://host.docker.internal:8101/v1   # NOT 127.0.0.1 - the LLM runs on the host
+  key_env: MY_LLM_API_KEY                          # the name the recipe really passes through
+```
+
+The `base_url` in `config.yaml` **wins over environment variables**: a `OPENAI_BASE_URL` handed in by the
+recipe is ignored as long as `base_url` stands there. If you change one of them, restart the agent (Hermes
+reads both at startup). Symptom of the mismatch: endless "connection error" on Telegram although the model
+and the key are correct.
+
 ## Gotchas worth knowing
 
 - `hermes config set` **saves nothing** while `config.yaml` has a parse error (a duplicated key, bad
@@ -145,6 +159,10 @@ exactly this command - paste it into **Recipes → Import**, clear the pre-fille
 - Hermes' own update/restart logic can spawn a detached standalone gateway next to your recipe; two
   gateways polling one bot token means lost messages. If replies go missing, look for a second
   `gateway run` process, kill it, restart the recipe.
+- In the **Docker** variant, `base_url: http://127.0.0.1:...` (which works natively) fails with a
+  connection error: inside the container that address is the container itself. Use
+  `http://host.docker.internal:<port>/v1` (see the Docker section above); if the name does not resolve,
+  the bridge gateway `http://172.17.0.1:<port>/v1` also reaches the host.
 
 ## Voice quality and speed
 
