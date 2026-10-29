@@ -19,7 +19,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from . import __version__, config, system
 from .db import Database, normalize_tags
@@ -31,7 +31,7 @@ from .processes import ProcessRunner
 from .agent import create_agent_app
 from .selfmetrics import Sink
 from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, build_run_argv, fill_weights, format_command,
-                      format_process_command, split_args, uses_host_network)
+                      format_process_command, quick_recipe, slug, split_args, uses_host_network)
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
 from .timeline import build_timeline
 
@@ -194,6 +194,31 @@ class WeightIn(BaseModel):
 class AdoptIn(BaseModel):
     recipe_ids: list[int] = Field(min_length=1)
     name: str = Field(default="", max_length=120)
+
+
+class QuickIn(BaseModel):
+    """A recipe made from an existing recipe's (or a preset's) settings and other weights."""
+    host_id: Optional[int] = None
+    base_recipe_id: Optional[int] = None   # copy this recipe's engine settings ...
+    framework: str = ""                    # ... or start from this preset
+    weights_id: Optional[int] = None       # the model: registered weights,
+    path: str = Field(default="", max_length=1000)   # a folder / .gguf on the host (registered on save),
+    model: str = Field(default="", max_length=300)   # or a Hugging Face id
+    name: str = Field(default="", max_length=100)
+    context: Optional[int] = Field(default=None, ge=256, le=10_000_000)
+    port: Optional[int] = Field(default=None, ge=1, le=65535)
+    save: bool = True                      # False: only return the draft and its command
+
+    @model_validator(mode="after")
+    def check(self):
+        self.path, self.model, self.name = self.path.strip(), self.model.strip(), self.name.strip()
+        if sum(bool(x) for x in (self.weights_id, self.path, self.model)) != 1:
+            raise ValueError("pick the model: registered weights, a path on the host or a Hugging Face id")
+        if ":" in self.path or "\n" in self.path:
+            raise ValueError("a path may not contain ':' or line breaks (it becomes a docker volume)")
+        if not self.base_recipe_id and self.framework not in FRAMEWORKS:
+            raise ValueError("pick the settings: an existing recipe or an engine preset")
+        return self
 
 
 class WeightPathIn(BaseModel):
@@ -703,6 +728,87 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         r["name"] = f"{r['name']} (copy {i})"
         r["container_name"] = f"{r['container_name']}-copy{i}"
         return db.get_recipe(db.create_recipe(r))
+
+    @app.post("/api/recipes/quick")
+    async def quick(body: QuickIn):
+        """Create a model recipe in one step: the settings of an existing recipe (or a preset), other
+        weights, a name, port and served model name filled in. With save=false only the draft."""
+        host_id = get_host_or_404(body.host_id)["id"] if body.host_id else db.local_host_id()
+        recipes = db.list_recipes()
+        if body.base_recipe_id:
+            base = get_recipe_or_404(body.base_recipe_id)
+        else:
+            preset = FRAMEWORKS[body.framework]
+            base = {**preset, "framework": body.framework, "model": "",
+                    "gpus": "all" if preset["runtime"] == "docker" else ""}
+
+        # The model: registered weights, a found folder (registered when saving) or a Hugging Face id.
+        weight, path = None, ""
+        if body.weights_id:
+            weight = db.get_weight(body.weights_id)
+            if not weight:
+                raise HTTPException(422, "The selected weights do not exist (any more)")
+            path = weight["locations"].get(host_id, "")
+        elif body.path:
+            path = body.path
+            weight = next((w for w in db.list_weights()
+                           if w["locations"].get(host_id, "").rstrip("/") == path.rstrip("/")), None)
+        folder = path.rstrip("/").rsplit("/", 1)[-1]
+        default_name = (weight["name"] if weight else re.sub(r"\.gguf$", "", folder, flags=re.I) if path
+                        else body.model.rstrip("/").rsplit("/", 1)[-1])
+        names = {r["name"].lower() for r in recipes}
+        name, i = body.name or default_name, 2
+        while name.lower() in names:
+            name, i = f"{body.name or default_name} {i}", i + 1
+        try:
+            r, notes = quick_recipe(base, name=name, weights=bool(path or weight), model=body.model,
+                                    context=body.context)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
+        # Same port as the base recipe on this host: "Switch to" swaps the two, the endpoint stays.
+        if body.port:
+            port = body.port
+        elif base.get("id") and base.get("host_id") == host_id:
+            port = base["host_port"]
+            notes.append(f"Port {port} as “{base['name']}”: Switch to swaps them, the endpoint stays the same.")
+        else:
+            used, port = {x["host_port"] for x in recipes if x["host_id"] == host_id}, 8100
+            while port in used:
+                port += 1
+        containers, container, i = {x["container_name"] for x in recipes}, slug(name), 2
+        while container in containers:
+            container, i = f"{slug(name)}-{i}", i + 1
+        r.update(host_id=host_id, host_port=port, container_name=container,
+                 description=f"Settings from {base['name'] if base.get('id') else base['label']}.")
+        try:
+            data = recipe_data(RecipeIn(**r))
+        except ValidationError as e:
+            raise HTTPException(422, "; ".join(err["msg"] for err in e.errors()))
+
+        preview = fill_weights(data, path or None)
+        command = (format_process_command(preview) if data["runtime"] == "process"
+                   else format_command(build_run_argv(preview)))
+        if path and not weight:
+            notes.insert(0, f"“{folder}” will be registered in the Weights tab.")
+        elif weight and not path:
+            notes.insert(0, "These weights have no path on this host yet: set it in the Weights tab.")
+        if not body.save:
+            return {"recipe": data, "command": command, "notes": notes}
+
+        if path and not weight:
+            wname, i = re.sub(r"\.gguf$", "", folder, flags=re.I) or "model", 2
+            existing = {w["name"].lower(): w for w in db.list_weights()}
+            # The same name without a path here is most likely the same weights on another host.
+            while wname.lower() in existing and host_id in existing[wname.lower()]["locations"]:
+                wname, i = f"{folder} {i}", i + 1
+            if wname.lower() in existing:
+                weight = existing[wname.lower()]
+                db.set_weight_location(weight["id"], host_id, path)
+            else:
+                weight = db.get_weight(db.create_weight(wname, "", {host_id: path}))
+        data["weights_id"] = weight["id"] if weight else None
+        return {"recipe": db.get_recipe(db.create_recipe(data)), "command": command, "notes": notes}
 
     @app.post("/api/recipes/preview")
     async def preview(body: RecipeIn, recipe_id: Optional[int] = None):

@@ -11,6 +11,8 @@ silicon, or any Linux box - from any browser on your network:
 
 📖 **Documentation:** [einfachllm.github.io/local-llm-manager](https://einfachllm.github.io/local-llm-manager/) – start with the Quick start and Several machines.
 
+- **⚡ Quick recipe:** pick the weights and a recipe that already works (or an engine default) - the new
+  model gets the same image, flags and caches, its own name and endpoint, in one click.
 - **Recipes:** save how to start a model server (vLLM, SGLang, llama.cpp, TensorFold or any image / native binary),
   as a Docker container or as a native process. Or import an existing starter script / `docker run` command.
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).

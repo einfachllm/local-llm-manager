@@ -142,7 +142,7 @@ main { padding: 24px; max-width: 1500px; margin: 0 auto; }
 }
 .badge.sglang { background: rgba(167,123,243,.15); color: var(--purple); }
 .badge.tensorfold { background: rgba(34,197,139,.15); color: var(--green); }
-.badge.llamacpp, .badge.custom { background: rgba(240,180,41,.15); color: var(--yellow); }
+.badge.llamacpp, .badge.llamacpp-native, .badge.custom { background: rgba(240,180,41,.15); color: var(--yellow); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 13px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; text-align: right; word-break: break-all; }
@@ -579,3 +579,8 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
 .discover-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; border-top: 1px solid var(--border); }
 .discover-row code { word-break: break-all; }
 .discover-row .btn { margin-left: auto; }
+
+/* Quick recipe */
+.quick-notes { margin: 4px 18px 10px; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.quick-notes:empty { display: none; }
+.quick-preview pre { max-height: 220px; }

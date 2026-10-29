@@ -1490,6 +1490,178 @@ $("#form-import").addEventListener("submit", async (ev) => {
   }
 });
 
+/* ---------------- quick recipe ---------------- */
+
+// Weights on the host + the settings of a recipe that already works (or a preset) = a new recipe.
+const quickForm = $("#form-quick");
+let quickFound = [];      // model folders / .gguf files on the hosts nobody registered yet
+let quickBaseTouched = false;
+let quickModelTouched = false;
+let quickTimer = null;
+let quickSeq = 0;
+
+const isGguf = (ref) => /\.gguf$/i.test(ref);
+
+function quickModelRef() {
+  const v = quickForm.elements.model_ref.value;
+  if (v !== "other") return v;
+  const t = quickForm.elements.other.value.trim();
+  return !t ? "" : /^[/~]/.test(t) ? `f:${t}` : `h:${t}`;
+}
+
+function renderQuickModels() {
+  const hostId = Number(quickForm.elements.host_id.value);
+  const cur = quickForm.elements.model_ref.value;
+  const reg = state.weights.filter((w) => w.locations[hostId]);
+  const found = quickFound.filter((f) => f.host_id === hostId);
+  const size = (f) => f.size_gb ? ` – ${f.size_gb} GB` : "";
+  quickForm.elements.model_ref.innerHTML = [
+    reg.length ? `<optgroup label="Registered weights">${reg.map((w) =>
+      `<option value="w:${w.id}">${esc(w.name)}</option>`).join("")}</optgroup>` : "",
+    found.length ? `<optgroup label="Found on this host">${found.map((f) =>
+      `<option value="f:${esc(f.path)}">${f.kind === "file" ? "📄" : "📁"} ${esc(f.name)}${size(f)}</option>`).join("")}</optgroup>` : "",
+    `<optgroup label="Other"><option value="other">Hugging Face id or another path…</option></optgroup>`,
+  ].join("");
+  const keep = quickModelTouched && [...quickForm.elements.model_ref.options].some((o) => o.value === cur);
+  quickForm.elements.model_ref.value = keep ? cur : quickForm.elements.model_ref.options[0].value;
+  $("#quick-other-row").classList.toggle("hidden", quickForm.elements.model_ref.value !== "other");
+}
+
+function renderQuickBases() {
+  const hostId = Number(quickForm.elements.host_id.value);
+  const cur = quickForm.elements.base.value;
+  const models = state.recipes.filter((r) => kindOf(r) === "model").sort(byName);
+  const opt = (r) => `<option value="r:${r.id}">${esc(r.name)} (${esc(state.meta.frameworks[r.framework]?.label ?? r.framework)})</option>`;
+  const here = models.filter((r) => r.host_id === hostId);
+  const elsewhere = models.filter((r) => r.host_id !== hostId);
+  const mac = hostPlatform(hostId) === "darwin";
+  const presets = Object.entries(state.meta.frameworks)
+    .filter(([k, v]) => !k.endsWith("custom") && (!mac || v.runtime === "process"));
+  quickForm.elements.base.innerHTML = [
+    here.length ? `<optgroup label="Recipes on this host">${here.map(opt).join("")}</optgroup>` : "",
+    elsewhere.length ? `<optgroup label="Recipes on other hosts">${elsewhere.map(opt).join("")}</optgroup>` : "",
+    `<optgroup label="Engine defaults">${presets.map(([k, v]) => `<option value="p:${k}">${esc(v.label)}</option>`).join("")}</optgroup>`,
+  ].join("");
+  if ([...quickForm.elements.base.options].some((o) => o.value === cur)) quickForm.elements.base.value = cur;
+}
+
+// The settings that most likely fit: a recipe on this host for the same kind of weights, else a preset.
+function suggestQuickBase() {
+  if (quickBaseTouched) return;
+  const hostId = Number(quickForm.elements.host_id.value);
+  const gguf = isGguf(quickModelRef());
+  const mac = hostPlatform(hostId) === "darwin";
+  const llama = (fw) => fw.startsWith("llamacpp");
+  const fits = (r) => kindOf(r) === "model" && r.host_id === hostId && (gguf ? llama(r.framework)
+    : !llama(r.framework) && (!mac || r.runtime === "process"));
+  const recent = state.recipes.filter(fits).sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""))[0];
+  quickForm.elements.base.value = recent ? `r:${recent.id}`
+    : `p:${gguf ? (mac ? "llamacpp-native" : "llamacpp") : mac ? "mlx" : "vllm"}`;
+}
+
+function quickBody(save) {
+  const f = quickForm.elements;
+  const ref = quickModelRef();
+  const base = f.base.value;
+  const body = { host_id: Number(f.host_id.value) || null, name: f.name.value.trim(), save,
+    context: f.context.value ? Number(f.context.value) : null };
+  if (base.startsWith("r:")) body.base_recipe_id = Number(base.slice(2));
+  else body.framework = base.slice(2);
+  if (ref.startsWith("w:")) body.weights_id = Number(ref.slice(2));
+  else if (ref.startsWith("f:")) body.path = ref.slice(2);
+  else if (ref.startsWith("h:")) body.model = ref.slice(2);
+  return body;
+}
+
+async function updateQuickPreview() {
+  const seq = ++quickSeq;
+  $("#quick-error").textContent = "";
+  if (!quickModelRef()) {
+    $("#quick-preview").textContent = "Pick the model first.";
+    $("#quick-notes").innerHTML = "";
+    return;
+  }
+  try {
+    const res = await api("/api/recipes/quick", { method: "POST", body: quickBody(false) });
+    if (seq !== quickSeq) return;
+    const r = res.recipe;
+    $("#quick-notes").innerHTML = [
+      `<b>${esc(r.name)}</b> on port <b>${r.host_port}</b> – endpoint <code>${esc(maskEndpoint(endpointUrl(r)))}</code>`,
+      ...res.notes.map(esc),
+    ].map((n) => `<li>${n}</li>`).join("");
+    $("#quick-preview").innerHTML = previewHtml(res.command, r.image);
+  } catch (e) {
+    if (seq !== quickSeq) return;
+    $("#quick-notes").innerHTML = "";
+    $("#quick-preview").textContent = `(incomplete) ${e.message}`;
+  }
+}
+
+function scheduleQuickPreview() {
+  clearTimeout(quickTimer);
+  quickTimer = setTimeout(updateQuickPreview, 250);
+}
+
+async function openQuick() {
+  quickForm.reset();
+  quickBaseTouched = false;
+  quickModelTouched = false;
+  $("#quick-error").textContent = "";
+  $("#quick-host").innerHTML = state.hosts.map((h) =>
+    `<option value="${h.id}">${esc(maskAddr(h.name))}${h.online ? "" : " (offline)"}</option>`).join("");
+  $("#quick-host-row").classList.toggle("hidden", !multiHost());
+  quickForm.elements.host_id.value = view.host || state.hosts.find((h) => h.is_local)?.id || "";
+  renderQuickModels();
+  renderQuickBases();
+  suggestQuickBase();
+  $("#dlg-quick").showModal();
+  updateQuickPreview();
+  // Unregistered folders take a round trip to every host: fill them in when they arrive.
+  try {
+    quickFound = (await api("/api/weights/discover")).unregistered;
+    if (!$("#dlg-quick").open) return;
+    renderQuickModels();
+    suggestQuickBase();
+    updateQuickPreview();
+  } catch { /* the registered weights and "Other" still work */ }
+}
+
+$("#btn-quick-recipe").addEventListener("click", openQuick);
+$("#quick-host").addEventListener("change", () => {
+  renderQuickModels();
+  renderQuickBases();
+  suggestQuickBase();
+  updateQuickPreview();
+});
+$("#quick-model").addEventListener("change", () => {
+  quickModelTouched = true;
+  $("#quick-other-row").classList.toggle("hidden", quickForm.elements.model_ref.value !== "other");
+  if (quickForm.elements.model_ref.value === "other") quickForm.elements.other.focus();
+  suggestQuickBase();
+  updateQuickPreview();
+});
+$("#quick-base").addEventListener("change", () => { quickBaseTouched = true; updateQuickPreview(); });
+quickForm.addEventListener("input", (ev) => {
+  if (ev.target.name === "other") suggestQuickBase();
+  if (["other", "context", "name"].includes(ev.target.name)) scheduleQuickPreview();
+});
+
+async function createQuick(edit) {
+  try {
+    const res = await api("/api/recipes/quick", { method: "POST", body: quickBody(true) });
+    $("#dlg-quick").close();
+    toast(`“${res.recipe.name}” created${edit ? "" : " – press Start on its card"}`, "ok");
+    await loadWeightsList();
+    await loadRecipes();
+    if (edit) openRecipeEditor(state.recipes.find((r) => r.id === res.recipe.id) || res.recipe);
+  } catch (e) {
+    $("#quick-error").textContent = e.message;
+  }
+}
+
+quickForm.addEventListener("submit", (ev) => { ev.preventDefault(); createQuick(false); });
+$("#btn-quick-edit").addEventListener("click", () => createQuick(true));
+
 /* ---------------- logs ---------------- */
 
 let logSource = null;
@@ -2261,9 +2433,10 @@ document.addEventListener("keydown", (ev) => {
   if (k === "/") { $('.tab[data-tab="recipes"]').click(); $("#recipe-search").focus(); ev.preventDefault(); return; }
   if (k === "n" && state.tab === "recipes") { $("#btn-new-recipe").click(); ev.preventDefault(); return; }
   if (k === "i" && state.tab === "recipes") { $("#btn-import-recipe").click(); ev.preventDefault(); return; }
+  if (k === "q" && state.tab === "recipes") { $("#btn-quick-recipe").click(); ev.preventDefault(); return; }
   if (k === "t") { $("#btn-theme").click(); return; }
   if (k === "b") { $("#btn-blur").click(); return; }
-  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · n new recipe · i import a docker run / script · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
+  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · q quick recipe · n new recipe · i import a docker run / script · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
 });
 
 /* ---------------- boot ---------------- */

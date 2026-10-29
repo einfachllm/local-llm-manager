@@ -7,6 +7,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **⚡ Quick recipe** (shortcut `q`): a new model recipe in one dialog - pick the weights (found on the
+  host, registered, or a Hugging Face id) and the settings to copy (a recipe that already works, or an
+  engine default), optionally the context length. Image, flags, env and caches come from the base; the
+  model is mounted via `{weights}`, the served model name follows the new name, and a recipe on the same
+  host keeps its port so **Switch to** swaps the two. Found folders are registered in the Weights tab on
+  create; flags that belong to one model (parsers, quantization, `--hf-overrides`, …) are pointed out.
+  The dialog shows the resulting command before anything is saved (new `POST /api/recipes/quick`).
+- **Native presets** "llama.cpp server (native)" (`llama-server`) and "MLX (native, Apple silicon)"
+  (`mlx_lm.server`).
 - **Documentation site** (MkDocs + Material) with a Quick start and a Several machines guide, published to
   GitHub Pages by a new `Docs` workflow: `main` updates the `dev` version, release tags add `stable`.
 - **Weights registry:** the Weights tab registers model weights with their path on each host. A recipe
