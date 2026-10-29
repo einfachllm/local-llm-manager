@@ -1,7 +1,7 @@
 # Configuration reference
 
 Everything is set in the **`.env` file in the install folder** (used by `install.sh`, `install-macos.sh`,
-`run.sh` and Docker Compose). Copy [`.env.example`](../.env.example) to `.env`; the installers do this for
+`run.sh` and Docker Compose). Copy [`.env.example`](https://github.com/einfachllm/local-llm-manager/blob/main/.env.example) to `.env`; the installers do this for
 you and fill in secrets. Restart the service after changes (`sudo systemctl restart local-llm-manager`,
 or rerun the installer).
 
@@ -65,7 +65,7 @@ TELEGRAM_BOT_TOKEN=123456:ABC…       # used by the Hermes gateway recipe, for 
 ```
 
 Any variable name works: put the value in `.env`, list the name in the recipe. `HF_TOKEN` is the
-canonical example (Hugging Face downloads); see [examples/hermes-agent](../examples/hermes-agent/README.md)
+canonical example (Hugging Face downloads); see [examples/hermes-agent](https://github.com/einfachllm/local-llm-manager/blob/main/examples/hermes-agent/README.md)
 for a real setup.
 
 > Note for containers talking to models on the host: `127.0.0.1` inside a container is the container
@@ -75,6 +75,6 @@ for a real setup.
 
 ## See also
 
-- [`.env.example`](../.env.example) - the starter file with the few keys that matter on first install.
-- [examples/hermes-agent](../examples/hermes-agent/README.md) - LLM + agent recipes with passed-through secrets.
+- [`.env.example`](https://github.com/einfachllm/local-llm-manager/blob/main/.env.example) - the starter file with the few keys that matter on first install.
+- [examples/hermes-agent](https://github.com/einfachllm/local-llm-manager/blob/main/examples/hermes-agent/README.md) - LLM + agent recipes with passed-through secrets.
 - OpenAPI docs of the JSON API: `http://<machine>:8090/docs`.

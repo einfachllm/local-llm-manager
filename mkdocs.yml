@@ -49,6 +49,7 @@ nav:
   - Home: index.md
   - Quick start: quick-start.md
   - Several machines: several-machines.md
+  - Configuration: configuration.md
 
 plugins:
   - search
