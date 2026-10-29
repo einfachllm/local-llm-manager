@@ -5,13 +5,16 @@ Both executors have the same async interface, so the Manager does not care where
 """
 
 import asyncio
+import ipaddress
 import logging
 import os
 import platform
 import re
 import socket
 import sys
+import time
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any, AsyncIterator, Optional
 
 import httpx
@@ -19,6 +22,7 @@ import httpx
 from . import __version__, config, logstats, servermetrics, system
 from .docker import Docker, try_drop_caches_locally
 from .processes import ProcessError, ProcessRunner
+from .shares import HashCache, Shares
 from .transfers import Tasks
 from .recipes import (build_process_argv, build_run_argv, format_command, format_process_command, process_env,
                       secret_names)
@@ -210,7 +214,10 @@ class LocalExecutor:
         self.docker = docker or Docker()
         self.procs = procs or ProcessRunner(config.PROC_DIR)
         self.rates = servermetrics.RateTracker()
-        self.transfers = Tasks(self.docker)
+        # Checksums of model files, shared by shares (this machine as a copy source) and copies (as target).
+        cache = HashCache(self.procs.dir.parent / "hash-cache.json")
+        self.shares = Shares(cache)
+        self.transfers = Tasks(self.docker, cache)
 
     def _stop_marker(self, name: str) -> Path:
         """File that records the container id the manager last stopped (`<name>.stopped`).
@@ -402,12 +409,26 @@ class LocalExecutor:
         found = await asyncio.to_thread(scan_weight_dirs, config.MODEL_DIRS)
         return {"dirs": config.MODEL_DIRS, "found": found}
 
-    async def start_transfer(self, kind: str, target: str, name: str = "") -> dict[str, Any]:
-        """Start pulling an image (kind "pull") or downloading weights (kind "download") in the background."""
+    async def start_transfer(self, kind: str, target: str, name: str = "",
+                             share: Optional[dict] = None) -> dict[str, Any]:
+        """Start in the background: pulling an image ("pull"), downloading Hugging Face weights ("download"),
+        or copying another machine's share ("copy": target is its address, share its id and ticket)."""
         try:
-            return dict(self.transfers.start_pull(target) if kind == "pull" else self.transfers.start_download(target, name))
+            if kind == "pull":
+                return dict(self.transfers.start_pull(target))
+            if kind == "copy":
+                share = share or {}
+                return dict(self.transfers.start_copy(target, share.get("id", ""), share.get("ticket", ""), name))
+            return dict(self.transfers.start_download(target, name))
         except ValueError as e:
             raise ActionError(str(e), 422)
+
+    async def create_share(self, path: str) -> dict[str, Any]:
+        """Let another machine copy this path (read-only, with a ticket, for a few hours)."""
+        try:
+            return self.shares.create(path)
+        except FileNotFoundError as e:
+            raise ActionError(str(e), 404)
 
     async def transfer(self, task_id: str) -> dict[str, Any]:
         task = self.transfers.get(task_id)
@@ -517,12 +538,23 @@ class RemoteExecutor:
                 raise ActionError(f"The agent on '{self.host['name']}' is too old to search for weights - update it", 502)
             raise
 
-    async def start_transfer(self, kind: str, target: str, name: str = "") -> dict[str, Any]:
+    async def start_transfer(self, kind: str, target: str, name: str = "",
+                             share: Optional[dict] = None) -> dict[str, Any]:
         try:
-            return await self._call("POST", "/transfers", {"kind": kind, "target": target, "name": name}, timeout=30.0)
+            return await self._call("POST", "/transfers", {"kind": kind, "target": target, "name": name,
+                                                           "share": share or {}}, timeout=30.0)
         except ActionError as e:
-            if e.status_code == 404:  # agents before this endpoint existed
-                raise ActionError(f"The agent on '{self.host['name']}' is too old to pull or download - update it", 502)
+            # Agents from before this endpoint (404), or before copies (422: "copy" not an allowed kind).
+            if e.status_code == 404 or (e.status_code == 422 and "Input should be" in e.message):
+                raise ActionError(f"The agent on '{self.host['name']}' is too old for this - update it", 502)
+            raise
+
+    async def create_share(self, path: str) -> dict[str, Any]:
+        try:
+            return await self._call("POST", "/shares", {"path": path}, timeout=60.0)
+        except ActionError as e:
+            if e.status_code == 404 and e.message == "Not Found":  # agents before shares existed
+                raise ActionError(f"The agent on '{self.host['name']}' is too old to share - update it", 502)
             raise
 
     async def transfer(self, task_id: str) -> dict[str, Any]:
@@ -531,6 +563,47 @@ class RemoteExecutor:
     async def drop_caches(self) -> tuple[bool, str]:
         data = await self._call("POST", "/drop-caches", timeout=300.0)
         return data["ok"], data["message"]
+
+
+TAILSCALE_NETS = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+
+
+_transport_cache: dict[str, tuple[float, str]] = {}
+
+
+def transport_of(url: str) -> str:
+    """transport_for(url), remembered for 5 minutes (the dashboard asks every few seconds)."""
+    hit = _transport_cache.get(url)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    kind = transport_for(url)
+    _transport_cache[url] = (time.monotonic() + 300, kind)
+    return kind
+
+
+def transport_for(url: str) -> str:
+    """How traffic to this address travels: "https", "tailscale" (WireGuard-encrypted: a *.ts.net name or
+    an address Tailscale hands out), "local" (this machine) or "plain" (unencrypted HTTP on the network)."""
+    if not url:
+        return "local"
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme == "https":
+        return "https"
+    if host.endswith(".ts.net"):
+        return "tailscale"
+    try:
+        addrs = {ipaddress.ip_address(host)}
+    except ValueError:
+        try:
+            addrs = {ipaddress.ip_address(a[4][0].split("%")[0]) for a in socket.getaddrinfo(host, None)}
+        except (OSError, ValueError):
+            return "plain"
+    if addrs and all(a.is_loopback for a in addrs):
+        return "local"
+    if addrs and all(any(a in net for net in TAILSCALE_NETS) for a in addrs):
+        return "tailscale"
+    return "plain"
 
 
 def port_in_use(port: int) -> bool:

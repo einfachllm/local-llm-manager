@@ -47,12 +47,24 @@ E.g. a company where every employee has their own DGX Spark: set the recipe up o
    the same time, also if you close the browser, and a panel shows the progress per machine. Cards show **✓ in sync** or **⟳ differs**,
    with **sync** to catch up.
 
-**Images and weights on every machine:** in the **Images** tab, **⤓ Pull…** on an image runs `docker pull`
-on the machines you tick (all at once). In the **Weights** tab, **⬇ Download on hosts…** downloads a
-Hugging Face model on each machine into its model folder and registers it there, so the copies find their
-weights. Each machine downloads by itself and keeps going if the hub's connection drops. It needs the
-`hf` command there (`pip install -U huggingface_hub`); gated models need `HF_TOKEN` in that machine's
-`.env`, private registries a `docker login` there.
+**Images and weights on every machine:**
+
+- **Images:** in the **Images** tab, **⤓ Pull…** on an image runs `docker pull` on the machines you tick,
+  all at once (private registries: `docker login` on each machine once).
+- **Weights from Hugging Face:** in the **Weights** tab, **⬇ Download on hosts…**. By default only the first
+  ticked machine downloads; the others then copy from it over your network, so the model comes over the
+  internet once. Needs the `hf` command there (`pip install -U huggingface_hub`); gated models need
+  `HF_TOKEN` in that machine's `.env`.
+- **Weights already on a machine** (e.g. from your SSD): **⇉ Copy…** on the weights entry. Machines copy
+  straight from each other - the hub only arranges it - like a snowball: each machine that has the weights
+  serves one copy at a time and every finished machine joins in, so 5 machines are done in 3 rounds.
+  Every file is checked with SHA-256, files a machine already has are skipped, an interrupted copy
+  continues where it stopped, and free disk space is checked first. The jobs panel shows GB, MB/s and
+  the time left per machine.
+
+The machines must reach each other at the addresses in the Hosts tab. To copy *from* the hub's own
+machine, open the dashboard by its network name (not `localhost`) or set `DGXM_PUBLIC_URL`. Use Tailscale
+names as addresses so copies are encrypted - the copy dialog warns about hosts reached over plain HTTP.
 
 A copy keeps only its name, container name, host and pin; everything else follows the original. To change
 one copy for good, **unlink** it: it becomes a recipe of its own. Deleting the original unlinks its copies.

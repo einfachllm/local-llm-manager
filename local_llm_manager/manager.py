@@ -15,7 +15,7 @@ import httpx
 
 from .db import Database
 from .docker import Docker, split_image
-from .executor import (RUNNING_STATES, ActionError, LocalExecutor, RemoteExecutor, agent_payload_recipe,
+from .executor import (RUNNING_STATES, transport_of, ActionError, LocalExecutor, RemoteExecutor, agent_payload_recipe,
                        resolve_model_target)
 from .processes import ProcessRunner
 from .recipes import WEIGHTS, fill_weights, model_mount, use_weights_mount, uses_weights
@@ -38,6 +38,7 @@ class Manager:
         # Background jobs (e.g. restarting the copies of a recipe on several hosts), newest last.
         self.jobs: dict[str, dict[str, Any]] = {}
         self._tasks: set[asyncio.Task] = set()
+        self.local.transfers.transport = remote_transport  # copies from other machines (tests: in-process)
         # Seconds between asking a host how its pull / download is going.
         self.transfer_poll = 3.0
         # Self-metrics: (action, ok/error) -> how many times since the manager started.
@@ -61,7 +62,8 @@ class Manager:
 
         async def one(host: dict) -> dict[str, Any]:
             out = {"id": host["id"], "name": host["name"], "url": host["url"], "is_local": not host["url"],
-                   "has_token": bool(host["token"]), "online": False, "info": None, "system": None, "error": None}
+                   "has_token": bool(host["token"]), "online": False, "info": None, "system": None, "error": None,
+                   "transport": await asyncio.to_thread(transport_of, host["url"])}
             try:
                 ex = self.executor_for(host["id"])
                 out["info"], out["system"] = await asyncio.gather(ex.info(), ex.system())
@@ -470,7 +472,9 @@ class Manager:
 
     # ---- background jobs: run on the hub, so closing the browser does not stop them -----------
 
-    def _new_job(self, kind: str, title: str, items: list[dict[str, Any]], runner) -> dict[str, Any]:
+    def _new_job(self, kind: str, title: str, items: list[dict[str, Any]], runner=None, whole=None) -> dict[str, Any]:
+        """A background job: runner(item) for every item at once, or whole(items) deciding the order itself.
+        Errors end up on their item; the job always finishes."""
         job = {"id": secrets.token_hex(4), "kind": kind, "title": title, "done": False, "items": items,
                "created": datetime.now().astimezone().isoformat(timespec="seconds")}
         self.jobs[job["id"]] = job
@@ -478,62 +482,95 @@ class Manager:
             self.jobs.pop(next(iter(self.jobs)))
 
         async def run() -> None:
-            async def guarded(item: dict[str, Any]) -> None:
-                try:
-                    await runner(item)
-                except ActionError as e:
-                    item["state"], item["message"] = "failed", e.message
-                except Exception as e:  # keep the other items going
-                    log.exception("job %s: %s failed", job["id"], item.get("name") or item["host_id"])
-                    item["state"], item["message"] = "failed", f"{type(e).__name__}: {e}"
-
-            await asyncio.gather(*(guarded(i) for i in items))
-            job["done"] = True
+            try:
+                if whole:
+                    await whole(items)
+                else:
+                    await asyncio.gather(*(self._guarded(job, i, runner) for i in items))
+            finally:
+                for i in items:
+                    if i["state"] in ("waiting", "running"):
+                        i["state"], i["message"] = "failed", i["message"] or "not done"
+                job["done"] = True
 
         task = asyncio.create_task(run())
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return job
 
-    def start_transfer_job(self, kind: str, target: str, host_ids: list[int], name: str = "",
-                           weight_id: Optional[int] = None) -> dict[str, Any]:
-        """Pull an image ("pull") or download Hugging Face weights ("download") on several hosts at once.
-        Each host runs its transfer itself; the hub only follows it. A finished download is registered in
-        the Weights tab (entry weight_id, or one found / created by name)."""
+    @staticmethod
+    async def _guarded(job: dict[str, Any], item: dict[str, Any], coro_fn) -> None:
+        try:
+            await coro_fn(item)
+        except ActionError as e:
+            item["state"], item["message"] = "failed", e.message
+        except Exception as e:  # keep the other items going
+            log.exception("job %s: %s failed", job["id"], item.get("name") or item["host_id"])
+            item["state"], item["message"] = "failed", f"{type(e).__name__}: {e}"
+
+    async def _follow(self, ex, task: dict[str, Any], item: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+        """Ask the host how its transfer goes until it is done; its progress goes onto the item."""
+        item["state"] = "running"
+        lost = 0
+        while task["state"] == "running":
+            item["progress"] = prefix + (task.get("progress") or "")
+            await asyncio.sleep(self.transfer_poll)
+            try:
+                task = await ex.transfer(task["id"])
+                lost = 0
+            except ActionError as e:
+                if e.status_code == 404:
+                    raise
+                lost += 1  # the host is busy or the network hiccups: the transfer goes on there
+                item["progress"] = f"{prefix}no answer from the host ({lost}×), still waiting"
+                if lost * self.transfer_poll > 600:
+                    raise ActionError(f"No answer from the host for 10 minutes: {e.message}", 502)
+        item["progress"] = prefix + (task.get("progress") or "")
+        if task["state"] != "ok":
+            raise ActionError(task["message"] or "failed", 502)
+        item["message"] = task["message"]
+        return task
+
+    def _host_items(self, host_ids: list[int]) -> list[dict[str, Any]]:
         for hid in host_ids:
             self.executor_for(hid)  # 404 for unknown hosts before anything starts
-        items = [{"host_id": hid, "name": "", "state": "waiting", "message": "", "progress": ""}
-                 for hid in dict.fromkeys(host_ids)]
+        return [{"host_id": hid, "name": "", "state": "waiting", "message": "", "progress": ""}
+                for hid in dict.fromkeys(host_ids)]
+
+    def start_transfer_job(self, kind: str, target: str, host_ids: list[int], name: str = "",
+                           weight_id: Optional[int] = None, once: bool = False, hub_url: str = "") -> dict[str, Any]:
+        """Pull an image ("pull") or download Hugging Face weights ("download") on several hosts at once.
+        Each host runs its transfer itself; the hub only follows it. A finished download is registered in
+        the Weights tab (entry weight_id, or one found / created by name). With `once`, only the first host
+        downloads and the others copy from it over the local network (see start_copy_job)."""
+        items = self._host_items(host_ids)
         state: dict[str, Any] = {"weight_id": weight_id}
 
         async def runner(item: dict[str, Any]) -> None:
             ex = self.executor_for(item["host_id"])
-            task = await ex.start_transfer(kind, target, name)
-            item["state"] = "running"
-            lost = 0
-            while task["state"] == "running":
-                item["progress"] = task.get("progress", "")
-                await asyncio.sleep(self.transfer_poll)
-                try:
-                    task = await ex.transfer(task["id"])
-                    lost = 0
-                except ActionError as e:
-                    if e.status_code == 404:
-                        raise
-                    lost += 1  # the host is busy or the network hiccups: the transfer goes on there
-                    item["progress"] = f"no answer from the host ({lost}×), still waiting"
-                    if lost * self.transfer_poll > 600:
-                        raise ActionError(f"No answer from the host for 10 minutes: {e.message}", 502)
-            item["progress"] = task.get("progress", "")
-            if task["state"] != "ok":
-                raise ActionError(task["message"] or "failed", 502)
-            item["message"] = task["message"]
+            task = await self._follow(ex, await ex.start_transfer(kind, target, name), item)
             if kind == "download":
                 self._register_download(state, target, name, item["host_id"], task["path"])
             item["state"] = "ok"
 
+        async def download_then_copy(all_items: list[dict[str, Any]]) -> None:
+            first, rest = all_items[0], all_items[1:]
+            for i in rest:
+                i["progress"] = f"waiting for the download on {self._host_name(first['host_id'])}"
+            await self._guarded(job, first, runner)
+            if first["state"] != "ok":
+                for i in rest:
+                    i["state"], i["message"] = "failed", "the download it would copy from failed"
+                return
+            await self._distribute(job, state["weight_id"], rest, [first["host_id"]], hub_url)
+
         what = target if kind == "pull" else (name or target)
-        return self._new_job(kind, f"{'Pulling' if kind == 'pull' else 'Downloading'} {what}", items, runner)
+        title = f"{'Pulling' if kind == 'pull' else 'Downloading'} {what}"
+        if kind == "download" and once and len(items) > 1:
+            job = self._new_job(kind, title, items, whole=download_then_copy)
+        else:
+            job = self._new_job(kind, title, items, runner)
+        return job
 
     def _register_download(self, state: dict[str, Any], repo: str, name: str, host_id: int, path: str) -> None:
         """Set the downloaded folder as the host's path of the weights entry (created on the first host)."""
@@ -543,6 +580,83 @@ class Manager:
                       or (w["source"] and w["source"] == repo)), None)
             state["weight_id"] = w["id"] if w else self.db.create_weight(wname, repo, {})
         self.db.set_weight_location(state["weight_id"], host_id, path)
+
+    # ---- copying weights between hosts ---------------------------------------------------------
+
+    def start_copy_job(self, weight_id: int, host_ids: list[int], hub_url: str = "") -> dict[str, Any]:
+        """Copy registered weights to these hosts over the local network, straight from host to host (the
+        hub only arranges it). Like a snowball: every host that has them serves one copy at a time, and
+        each finished host becomes a source too - 5 machines are done in 3 rounds. Files are checked
+        with SHA-256; files a host has already are skipped."""
+        w = self.db.get_weight(weight_id)
+        if not w:
+            raise ActionError("Weights not found", 404)
+        items = self._host_items(host_ids)
+        job: dict[str, Any] = {}
+
+        async def whole(all_items: list[dict[str, Any]]) -> None:
+            await self._distribute(job, weight_id, all_items, None, hub_url)
+
+        job = self._new_job("copy", f"Copying {w['name']}", items, whole=whole)
+        return job
+
+    async def _distribute(self, job: dict[str, Any], weight_id: int, items: list[dict[str, Any]],
+                          sources: Optional[list[int]], hub_url: str) -> None:
+        w = self.db.get_weight(weight_id)
+        if sources is None:  # every host whose path exists (asked, not just registered)
+            checks = await asyncio.gather(*(self.check_weight(weight_id, hid) for hid in w["locations"]))
+            sources = [c["host_id"] for c in checks if c["state"] == "present"]
+        targets = []
+        for item in items:
+            if item["host_id"] in sources:
+                item["state"], item["message"] = "ok", "already there"
+            else:
+                targets.append(item)
+        if not sources:
+            for item in targets:
+                item["state"], item["message"] = "failed", "No host has these weights yet: download them first"
+            return
+        free, pending, running = list(sources), list(targets), {}
+        while pending or running:
+            while free and pending:
+                src, item = free.pop(0), pending.pop(0)
+                t = asyncio.create_task(self._guarded(job, item, lambda i, s=src: self._copy_one(weight_id, s, i, hub_url)))
+                running[t] = (src, item)
+            if not running:
+                break
+            done, _ = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
+            for t in done:
+                src, item = running.pop(t)
+                if not item.get("source_failed"):
+                    free.append(src)
+                if item["state"] == "ok":
+                    free.append(item["host_id"])  # the snowball: it can serve the next one
+            if not free and pending and not running:
+                for item in pending:
+                    item["state"], item["message"] = "failed", "No working source left"
+                break
+
+    async def _copy_one(self, weight_id: int, src: int, item: dict[str, Any], hub_url: str) -> None:
+        w = self.db.get_weight(weight_id)
+        path = w["locations"][src]
+        src_name = self._host_name(src)
+        prefix = f"from {src_name}: "
+        item["state"], item["progress"] = "running", f"{prefix}starting"
+        url = self.db.get_host(src)["url"] or hub_url
+        try:
+            if not url:
+                raise ActionError("The hub's own address is unknown: open the dashboard by the hub's network "
+                                  "name or IP (not localhost), or set DGXM_PUBLIC_URL", 409)
+            share = await self.executor_for(src).create_share(path)
+        except ActionError:
+            item["source_failed"] = True
+            raise
+        ex = self.executor_for(item["host_id"])
+        name = path.rstrip("/").rsplit("/", 1)[-1]
+        task = await ex.start_transfer("copy", url, name, {"id": share["id"], "ticket": share["ticket"]})
+        task = await self._follow(ex, task, item, prefix)
+        self.db.set_weight_location(weight_id, item["host_id"], task["path"])
+        item["state"] = "ok"
 
     def start_restart_job(self, recipe_ids: list[int], source: str = "user", title: str = "") -> dict[str, Any]:
         """Restart these recipes in the background: hosts in parallel, one after another on the same host.

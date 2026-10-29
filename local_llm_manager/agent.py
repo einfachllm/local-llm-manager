@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from . import __version__, config
 from .executor import ActionError, LocalExecutor, host_info
 from .selfmetrics import Sink
+from .shares import add_share_routes
 
 
 class AgentRequest(BaseModel):
@@ -25,9 +26,14 @@ class AgentRequest(BaseModel):
 
 
 class TransferRequest(BaseModel):
-    kind: Literal["pull", "download"]
-    target: str = Field(min_length=1, max_length=300)   # image reference, or Hugging Face model id
-    name: str = Field(default="", max_length=128)       # download: folder name in the model dir
+    kind: Literal["pull", "download", "copy"]
+    target: str = Field(min_length=1, max_length=300)   # image reference, Hugging Face model id, or copy source
+    name: str = Field(default="", max_length=128)       # download / copy: folder name in the model dir
+    share: dict[str, str] = {}                          # copy: {"id", "ticket"} from the source's /shares
+
+
+class ShareRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=1000)
 
 
 def require_token(request: Request) -> None:
@@ -50,7 +56,7 @@ def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
     app = FastAPI(title="Local LLM Manager agent", version=__version__)
     auth = [Depends(require_token)]
     metrics = Sink()
-    app.state.metrics = metrics
+    app.state.metrics, app.state.executor = metrics, ex
 
     @app.exception_handler(ActionError)
     async def action_error(_: Request, exc: ActionError):
@@ -135,7 +141,15 @@ def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
     @app.post("/agent/v1/transfers", dependencies=auth)
     async def start_transfer(body: TransferRequest):
         """Pull an image or download weights in the background; GET the returned id for its progress."""
-        return await ex.start_transfer(body.kind, body.target, body.name)
+        return await ex.start_transfer(body.kind, body.target, body.name, body.share)
+
+    @app.post("/agent/v1/shares", dependencies=auth)
+    async def create_share(body: ShareRequest):
+        """Share a path read-only so another machine can copy it (see shares.py)."""
+        return await ex.create_share(body.path)
+
+    # Reading a share needs its ticket, not the agent token.
+    add_share_routes(app, ex.shares)
 
     @app.get("/agent/v1/transfers/{task_id}", dependencies=auth)
     async def transfer(task_id: str):

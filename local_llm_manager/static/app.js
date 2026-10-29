@@ -217,6 +217,18 @@ function renderHostOptions() {
   // Editor selects are refreshed when their dialog opens, so an open form keeps its choice.
 }
 
+// Hub ↔ agent traffic (and copies between machines) is only encrypted over Tailscale or HTTPS.
+const TRANSPORT = {
+  tailscale: ["ok", "🔒 Tailscale", "Encrypted by Tailscale (WireGuard)"],
+  https: ["ok", "🔒 HTTPS", "Encrypted by HTTPS"],
+  plain: ["warn", "⚠ plain HTTP", "Not encrypted: the agent token, commands and copied weights travel readable on the network. Use the host's Tailscale name (or HTTPS) as its address."],
+};
+function transportBadge(h) {
+  const t = TRANSPORT[h.transport];
+  return t ? `<span class="chip small ${t[0] === "ok" ? "secret ok" : "warn-chip"}" title="${esc(t[2])}">${t[1]}</span>` : "";
+}
+const plainHosts = (ids) => state.hosts.filter((h) => ids.includes(h.id) && h.transport === "plain");
+
 function renderHosts() {
   renderPorts();
   const running = (id) => state.recipes.filter((r) => r.host_id === id && RUNNING.includes(r.status)).length;
@@ -225,7 +237,7 @@ function renderHosts() {
     const m = h.system?.memory;
     const gpu = h.system?.gpus?.[0];
     return `<tr data-id="${h.id}">
-      <td><b>${esc(maskAddr(h.name))}</b>${h.is_local ? ` <span class="chip small on">this machine</span>` : `<br><small class="host-url">${esc(maskUrl(h.url))}</small>`}</td>
+      <td><b>${esc(maskAddr(h.name))}</b>${h.is_local ? ` <span class="chip small on">this machine</span>` : `<br><small class="host-url">${esc(maskUrl(h.url))}</small> ${transportBadge(h)}`}</td>
       <td>${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span><br><small>${esc(blurHostText(h.error || "", h.url))}</small>`}</td>
       <td>${h.info ? `${esc(PLATFORM[h.info.platform] ?? h.info.platform)} · ${esc(h.info.machine)}<br><small>${esc(maskAddr(h.info.hostname))} · v${esc(h.info.version)}</small>` : "–"}</td>
       <td style="min-width:160px">${m ? `<div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
@@ -1289,7 +1301,9 @@ function renderWeights() {
   $("#weights").innerHTML = list.map((w) => `<tr>
       <td><button type="button" class="link weight-name" data-weight="${w.id}" title="Edit name, source and paths">${esc(w.name)}</button>
         ${w.source ? `<div class="muted mono weight-source">${esc(w.source)}</div>` : ""}
-        <button class="btn small ghost" data-download-weight="${w.id}" title="Download from Hugging Face on the hosts that don't have it">⬇ Download…</button></td>
+        <span class="weight-actions">
+          ${w.hosts.some((c) => c.state === "present") && state.hosts.length > 1 ? `<button class="btn small ghost" data-copy-weight="${w.id}" title="Copy from the hosts that have it to the others, over your network">⇉ Copy…</button>` : ""}
+          <button class="btn small ghost" data-download-weight="${w.id}" title="Download from Hugging Face on the hosts that don't have it">⬇ Download…</button></span></td>
       <td>${w.recipe_ids.length ? w.recipe_ids.map((id) => {
         const r = state.recipes.find((x) => x.id === id);
         return r ? `<button class="chip small" data-recipe="${r.id}" title="Edit this recipe">${esc(r.name)}</button>` : "";
@@ -1299,6 +1313,13 @@ function renderWeights() {
 }
 
 $("#weights").addEventListener("click", (ev) => {
+  const cp = ev.target.closest("[data-copy-weight]");
+  if (cp) {
+    const w = weightsData.weights.find((x) => x.id === Number(cp.dataset.copyWeight));
+    openTransfer({ kind: "copy", weight_id: w.id, label: w.name, sources: w.hosts.filter((c) => c.state === "present").map((c) => c.host_id) },
+      w.hosts.filter((c) => c.state !== "present").map((c) => c.host_id));
+    return;
+  }
   const dl = ev.target.closest("[data-download-weight]");
   if (dl) {
     const w = weightsData.weights.find((x) => x.id === Number(dl.dataset.downloadWeight));
@@ -1561,19 +1582,21 @@ const jobs = new Map();
 let jobTimer = null;
 const JOB_ICON = { waiting: `<span class="muted" title="Waiting for this host">⏸</span>`, running: "⏳",
   ok: `<span class="ok">✓</span>`, failed: `<span class="bad">✗</span>` };
-const JOB_DONE = { restart: "started", pull: "pulled", download: "downloaded" };
+const JOB_DONE = { restart: "started", pull: "pulled", download: "done", copy: "copied" };
 
 function jobItemState(j, i) {
   if (i.state === "failed") return "failed";
   if (i.state === "waiting") return "waiting";
   if (i.state === "running") return j.kind === "restart" ? "restarting…" : esc(blurText(i.progress || "running…")).slice(0, 60);
-  return `${JOB_DONE[j.kind] ?? "done"}${j.kind === "download" && i.progress ? ` · ${esc(i.progress)}` : ""}`;
+  if (i.message === "already there") return "already there";
+  const size = (i.progress || "").match(/([\d.]+) GB(?!.*GB)/)?.[1];
+  return `${JOB_DONE[j.kind] ?? "done"}${(j.kind === "download" || j.kind === "copy") && size ? ` · ${size} GB` : ""}`;
 }
 
 // A job that changes what hosts have: refresh what the open tab shows once it is done.
 function afterJob(j) {
   loadRecipes();
-  if (j.kind === "download") afterWeightsChange();
+  if (j.kind === "download" || j.kind === "copy") afterWeightsChange();
   if (j.kind === "pull" && state.tab === "images") loadImages();
 }
 
@@ -1599,20 +1622,44 @@ function openTransfer(spec, missing = []) {
   const form = $("#form-transfer");
   form.reset();
   $("#transfer-error").textContent = "";
-  const pull = spec.kind === "pull";
-  $("#transfer-title").textContent = pull ? "Pull on hosts" : "Download on hosts";
+  const pull = spec.kind === "pull", copy = spec.kind === "copy";
+  $("#transfer-title").textContent = pull ? "Pull on hosts" : copy ? `Copy “${spec.label}” to hosts` : "Download on hosts";
   $("#transfer-hint").innerHTML = pull
     ? `Each host runs <code>docker pull ${esc(spec.image)}</code> itself (private registries: <code>docker login</code> there once).`
-    : `Each host downloads the model from Hugging Face itself (needs <code>hf</code> there: <code>pip install -U huggingface_hub</code>; gated models: <code>HF_TOKEN</code> in its <code>.env</code>). The folders are registered in the Weights tab.`;
-  $$(".hf-only", form).forEach((el) => el.classList.toggle("hidden", pull));
+    : copy ? `Copied host to host over your network – the hub only arranges it. Every host that has the weights serves
+        one copy at a time and each finished host joins in, so many hosts are done in a few rounds. Each file is checked
+        with SHA-256; files a host already has are skipped, and an interrupted copy continues where it stopped.`
+    : `Downloads from Hugging Face (needs <code>hf</code> on the host: <code>pip install -U huggingface_hub</code>; gated
+        models: <code>HF_TOKEN</code> in its <code>.env</code>). The folders are registered in the Weights tab.`;
+  $$(".hf-only", form).forEach((el) => el.classList.toggle("hidden", pull || copy));
+  form.elements.once.checked = true;
   form.elements.repo.value = spec.repo ?? "";
   form.elements.name.value = spec.name ?? "";
   $("#transfer-hosts").innerHTML = state.hosts.map((h) => `<label class="copy-host">
       <input type="checkbox" value="${h.id}" ${missing.includes(h.id) ? "checked" : ""} ${h.online ? "" : "disabled"}>
       <span class="copy-host-name">${esc(maskAddr(h.name))}</span>
-      <span class="copy-host-check muted">${!h.online ? "offline" : missing.includes(h.id) ? "missing here" : "has it already / not checked"}</span></label>`).join("");
+      <span class="copy-host-check muted">${!h.online ? "offline" : missing.includes(h.id) ? "missing here" : copy ? "has it" : "has it already / not checked"}
+        ${transportBadge(h)}</span></label>`).join("");
+  updateTransferWarning();
   $("#dlg-transfer").showModal();
 }
+
+// Copies (and "download once") send weights between machines: warn when that is not encrypted.
+function updateTransferWarning() {
+  const box = $("#transfer-warning");
+  const spec = transferSpec;
+  const ticked = $$("#transfer-hosts input:checked").map((i) => Number(i.value));
+  const once = spec.kind === "download" && $("#form-transfer").elements.once.checked && ticked.length > 1;
+  const involved = spec.kind === "copy" ? [...ticked, ...(spec.sources || [])] : once ? ticked : [];
+  const plain = plainHosts(involved);
+  box.classList.toggle("hidden", !plain.length);
+  box.innerHTML = plain.length ? `⚠ Not encrypted: ${plain.map((h) => `<b>${esc(maskAddr(h.name))}</b>`).join(", ")}
+    ${plain.length === 1 ? "is" : "are"} reached over plain HTTP, so the weights travel readable on the network (the
+    SHA-256 check still catches damaged or swapped files). Use Tailscale names (or HTTPS) as host addresses to encrypt it.` : "";
+  $("#transfer-once-row").classList.toggle("hidden", spec.kind !== "download");
+}
+$("#transfer-hosts").addEventListener("change", updateTransferWarning);
+$("#form-transfer").elements.once.addEventListener("change", updateTransferWarning);
 
 $("#form-transfer").addEventListener("submit", async (ev) => {
   ev.preventDefault();
@@ -1622,8 +1669,10 @@ $("#form-transfer").addEventListener("submit", async (ev) => {
   try {
     const job = transferSpec.kind === "pull"
       ? await api("/api/jobs/pull", { method: "POST", body: { image: transferSpec.image, host_ids } })
+      : transferSpec.kind === "copy"
+      ? await api("/api/jobs/copy", { method: "POST", body: { weight_id: transferSpec.weight_id, host_ids } })
       : await api("/api/jobs/download", { method: "POST", body: { repo: f.repo.value.trim(), name: f.name.value.trim(),
-        host_ids, weight_id: transferSpec.weight_id ?? null } });
+        host_ids, weight_id: transferSpec.weight_id ?? null, once: f.once.checked } });
     $("#dlg-transfer").close();
     showJob(job);
   } catch (e) {

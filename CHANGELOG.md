@@ -7,6 +7,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Copy weights between machines** (⇉ Copy… on a weights entry, and the new default of "Download on
+  hosts": download once, copy to the others): machines copy straight from each other over the network,
+  snowball-style (every finished machine serves the next one), with a SHA-256 check of every file, files
+  already there skipped, interrupted files resumed, a free-space check first and GB / MB/s / time left in
+  the jobs panel. The source only grants a read-only, ticket-protected share of that one folder for 6 hours
+  (`/agent/v1/shares`); no SSH and no agent token leave the hub. Big files are served and read in 4 MB
+  pieces over a plain socket (about 3-4x faster than before in tests). New `POST /api/jobs/copy` and
+  `DGXM_PUBLIC_URL`.
+- **Encryption shown per host:** the Hosts tab marks each host 🔒 Tailscale, 🔒 HTTPS or ⚠ plain HTTP, and
+  the copy / download dialog warns when weights would travel unencrypted.
 - **Pull and download on hosts:** "⤓ Pull…" on an image in the Images tab runs `docker pull` on the hosts
   you tick, all at the same time; "⬇ Download on hosts…" in the Weights tab (or "⬇ Download…" on an entry)
   downloads a Hugging Face model on each host into its `DGXM_MODEL_DIR` with `hf download` and registers

@@ -54,7 +54,7 @@ def test_download_on_several_hosts_registers_the_weights(hub, tmp_path):
     assert client.post("/api/jobs/download", json={"repo": "not-a-repo", "host_ids": [local]}).status_code == 422
     assert client.post("/api/jobs/download", json={"repo": "a/b", "name": "../x", "host_ids": [local]}).status_code == 422
 
-    res = client.post("/api/jobs/download", json={"repo": "Qwen/Qwen3-8B", "host_ids": [local, mac]})
+    res = client.post("/api/jobs/download", json={"repo": "Qwen/Qwen3-8B", "host_ids": [local, mac], "once": False})
     items = wait(client, res.json()["id"])
     assert [i["state"] for i in items.values()] == ["ok", "ok"], items
     assert (tmp_path / "models" / "Qwen3-8B" / "model.safetensors").exists()

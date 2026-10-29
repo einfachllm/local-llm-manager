@@ -331,6 +331,10 @@
           <input name="name" class="mono" placeholder="Qwen3-8B"></label>
       </div>
       <div id="transfer-hosts" class="copy-hosts"></div>
+      <label class="transfer-once" id="transfer-once-row"><input type="checkbox" name="once" checked>
+        Download only on the first ticked host, then copy to the others over your network
+        <small>(recommended: the model comes over the internet once, Hugging Face is asked once)</small></label>
+      <div class="transfer-warning hidden" id="transfer-warning"></div>
       <div class="error" id="transfer-error"></div>
       <div class="dialog-foot">
         <span class="actions-gap"></span>

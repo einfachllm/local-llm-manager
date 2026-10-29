@@ -30,6 +30,8 @@ from .manager import ActionError, Manager
 from .processes import ProcessRunner
 from .agent import create_agent_app
 from .selfmetrics import Sink
+from .executor import transport_of
+from .shares import add_share_routes
 from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, build_run_argv, fill_weights, format_command,
                       annotate_copies, format_process_command, quick_recipe, slug, split_args, synced_copy,
                       uses_host_network)
@@ -238,6 +240,12 @@ class DownloadJobIn(BaseModel):
     name: str = Field(default="", max_length=128)     # folder in each host's model dir; default: the repo name
     host_ids: list[int] = Field(min_length=1, max_length=100)
     weight_id: Optional[int] = None                   # register the paths on this entry (default: by name)
+    once: bool = True                                 # download on the first host only, copy to the others
+
+
+class CopyJobIn(BaseModel):
+    weight_id: int
+    host_ids: list[int] = Field(min_length=1, max_length=100)
 
 
 class CopyIn(BaseModel):
@@ -454,7 +462,9 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     @app.middleware("http")
     async def basic_auth(request: Request, call_next):
         # Liveness / self-metrics for external scrapers: no login, no request guards, not counted.
-        if request.url.path in ("/healthz", "/metrics"):
+        # Shares are read by other machines copying weights: they carry their own ticket (shares.py).
+        if request.url.path in ("/healthz", "/metrics") or (
+                request.url.path.startswith("/agent/v1/shares/") and request.method in ("GET", "HEAD")):
             return await call_next(request)
         if blocked := request_guard(request):
             return blocked
@@ -489,6 +499,9 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     @app.exception_handler(ActionError)
     async def action_error(_: Request, exc: ActionError):
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+    # This machine as a copy source for the others (weights copied from the hub's own host).
+    add_share_routes(app, manager.local.shares)
 
     @app.exception_handler(sqlite3.IntegrityError)
     async def integrity_error(_: Request, exc: sqlite3.IntegrityError):
@@ -833,15 +846,32 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         except ActionError as e:
             raise HTTPException(e.status_code, e.message)
 
+    def hub_url(request: Request) -> str:
+        """Where other machines reach this hub (to copy weights from its own host)."""
+        if config.PUBLIC_URL:
+            return config.PUBLIC_URL
+        url = str(request.base_url).rstrip("/")
+        return "" if transport_of(url) == "local" else url
+
+    @app.post("/api/jobs/copy", status_code=202)
+    async def copy_job(body: CopyJobIn, request: Request):
+        """Copy registered weights to these hosts, host to host over the network, checked with SHA-256."""
+        get_weight_or_404(body.weight_id)
+        try:
+            return manager.start_copy_job(body.weight_id, body.host_ids, hub_url(request))
+        except ActionError as e:
+            raise HTTPException(e.status_code, e.message)
+
     @app.post("/api/jobs/download", status_code=202)
-    async def download_job(body: DownloadJobIn):
+    async def download_job(body: DownloadJobIn, request: Request):
         """Download Hugging Face weights on each host into its model dir (DGXM_MODEL_DIR) and register the
         folders in the Weights tab. Gated models need HF_TOKEN in that host's .env."""
         if body.weight_id is not None:
             get_weight_or_404(body.weight_id)
         try:
             repo, name = check_repo(body.repo), check_name(body.name) if body.name.strip() else ""
-            return manager.start_transfer_job("download", repo, body.host_ids, name, body.weight_id)
+            return manager.start_transfer_job("download", repo, body.host_ids, name, body.weight_id,
+                                              once=body.once, hub_url=hub_url(request))
         except ValueError as e:
             raise HTTPException(422, str(e))
         except ActionError as e:
