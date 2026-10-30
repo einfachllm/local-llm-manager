@@ -40,6 +40,72 @@ flowchart LR
 !!! tip "Only one machine?"
     Then the dashboard and the models live on the same computer. You don't need anything else.
 
+## Recipes: one card per model
+
+A **recipe** is a saved start button for one model. You set it up once; after that, starting the model
+is one click. Every recipe is made of three things:
+
+```mermaid
+flowchart LR
+    w["📦 <b>The model</b><br/>e.g. Qwen 32B"]
+    e["⚙️ <b>The engine</b><br/>e.g. vLLM"]
+    h["🖥️ <b>The machine</b><br/>e.g. DGX Spark"]
+    r(["🃏 <b>Recipe card</b><br/>Qwen 32B on the Spark<br/>▶️ Start"])
+    w --> r
+    e --> r
+    h --> r
+
+    classDef part fill:#6366f126,stroke:#6366f1
+    classDef card fill:#22c55e38,stroke:#16a34a
+    class w,e,h part
+    class r card
+```
+
+You will soon have many recipes: one model in two sizes, the same model on several machines, a fast
+model for coding and a big one for hard questions. That is fine. Each card is independent, and
+**Switch to** makes sure only the right ones run.
+
+!!! tip "Keep the list tidy"
+    Pin the recipes you use daily, give cards a colour or tags (e.g. `coding`, `chat`), and use the host
+    filter at the top to see one machine at a time.
+
+### Which engine should I pick?
+
+The *engine* (called **framework** in the recipe) is the program that runs the model. Several exist
+because they suit different machines and model files. You don't need to know them all, just use the first row that fits:
+
+| Your situation | Pick | Why |
+|---|---|---|
+| 🍎 A Mac with Apple silicon | **MLX** | Made for Apple chips |
+| 📄 The model is one **.gguf** file | **llama.cpp** | Small and simple, made for GGUF |
+| 👥 Several people or tools use the model at once | **vLLM** (or **SGLang**) | Fastest with many users at the same time |
+| 👤 Just you, on a Linux / NVIDIA machine | **vLLM** or **llama.cpp** | Both are fine |
+
+Everything else (**TensorFold**, **Custom**) is for special cases: a program not in the list, or a
+start script you already have. **📋 Import** turns such a script into a recipe for you.
+
+### The easy way: copy what already works
+
+You rarely fill in a recipe by hand. **⚡ Quick recipe** takes a recipe that already runs and swaps in
+another model. Everything else (engine, settings, port) stays the same:
+
+```mermaid
+flowchart LR
+    a["✅ A recipe that works<br/>Qwen 32B · vLLM"]
+    b["📦 Another model<br/>Llama 70B"]
+    c(["🃏 New recipe<br/>Llama 70B · vLLM<br/>same settings"])
+    a -- "settings" --> c
+    b -- "model" --> c
+
+    classDef old fill:#6366f126,stroke:#6366f1
+    classDef new fill:#22c55e38,stroke:#16a34a
+    class a,b old
+    class c new
+```
+
+On the same machine, the new recipe even gets the same port, so your apps don't need any change: just
+**Switch to** the other model.
+
 ## Switching to another model
 
 Most machines only have memory for one big model at a time. **Switch to** takes care of everything in one
