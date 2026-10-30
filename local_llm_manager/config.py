@@ -15,6 +15,12 @@ PORT = int(os.environ.get("DGXM_PORT", "8090"))
 # so a hub on another machine can run models here.
 MODE = os.environ.get("DGXM_MODE", "hub").strip().lower()
 AGENT_TOKEN = os.environ.get("DGXM_AGENT_TOKEN", "")
+# Agent mode: ask this hub to add this machine (approved there by comparing a code, see joining.py).
+HUB_URL = os.environ.get("DGXM_HUB_URL", "").strip().rstrip("/")
+# How the hub reaches this agent (default: http://<DGXM_HOST or this machine's name>:<DGXM_PORT>) and
+# the name it is listed under (default: this machine's name).
+AGENT_URL = os.environ.get("DGXM_AGENT_URL", "").strip().rstrip("/")
+AGENT_NAME = os.environ.get("DGXM_AGENT_NAME", "").strip()
 
 # Optional HTTP Basic auth. Strongly recommended when the port is reachable from the network,
 # since this service can run arbitrary docker containers.

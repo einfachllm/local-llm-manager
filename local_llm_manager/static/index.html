@@ -14,7 +14,7 @@
       <button class="tab active" data-tab="recipes">Recipes</button>
       <button class="tab" data-tab="schedules">Schedules</button>
       <button class="tab" data-tab="activity">Activity</button>
-      <button class="tab" data-tab="hosts">Hosts</button>
+      <button class="tab" data-tab="hosts">Hosts<span class="tab-count hidden" id="join-count" title="Machines asking to be added"></span></button>
       <button class="tab" data-tab="images">Images</button>
       <button class="tab" data-tab="models" title="Whether each host has the model weights your recipes use">Weights</button>
     </nav>
@@ -112,7 +112,9 @@
       </div>
       <p class="hint">This dashboard controls models on every machine listed here. To add another machine
         (e.g. a Mac Studio), install the manager there in <b>agent mode</b> (<code>DGXM_MODE=agent</code> and a
-        long random <code>DGXM_AGENT_TOKEN</code>), then add it with its URL and that token.</p>
+        long random <code>DGXM_AGENT_TOKEN</code>), then add it with its URL and that token – or also set
+        <code>DGXM_HUB_URL=</code> this dashboard's address there: the machine then asks to be added and shows up below.</p>
+      <div id="join-requests" class="join-requests hidden"></div>
       <div class="table-wrap"><table class="table">
         <thead><tr><th>Host</th><th>Status</th><th>Platform</th><th>Memory</th><th>GPU</th><th>Models</th><th></th></tr></thead>
         <tbody id="hosts"></tbody>

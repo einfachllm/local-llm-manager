@@ -5,15 +5,20 @@ LocalExecutor (Docker containers or native processes). Every request needs
 `Authorization: Bearer <DGXM_AGENT_TOKEN>`; the token grants full control over models on this host.
 """
 
+import asyncio
+import html
 import secrets
+from contextlib import asynccontextmanager
 from typing import Any, Literal, Optional
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import __version__, config
 from .executor import ActionError, LocalExecutor, host_info
+from .joining import Joiner
 from .selfmetrics import Sink
 from .shares import add_share_routes
 
@@ -51,9 +56,22 @@ def _recipe(body: AgentRequest) -> dict:
     return body.recipe
 
 
-def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
+def create_agent_app(executor: Optional[LocalExecutor] = None,
+                     join_transport: Optional[httpx.AsyncBaseTransport] = None) -> FastAPI:
     ex = executor or LocalExecutor()
-    app = FastAPI(title="Local LLM Manager agent", version=__version__)
+    # DGXM_HUB_URL: ask that hub to add this machine (approved there by comparing the join code).
+    joiner = Joiner(config.HUB_URL, config.AGENT_TOKEN, host_info(), join_transport) \
+        if config.HUB_URL and config.AGENT_TOKEN else None
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        task = asyncio.create_task(joiner.run()) if joiner else None
+        yield
+        if task:
+            task.cancel()
+
+    app = FastAPI(title="Local LLM Manager agent", version=__version__, lifespan=lifespan)
+    app.state.joiner = joiner
     auth = [Depends(require_token)]
     metrics = Sink()
     app.state.metrics, app.state.executor = metrics, ex
@@ -73,10 +91,19 @@ def create_agent_app(executor: Optional[LocalExecutor] = None) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index():
+        join = ""
+        if joiner:
+            st = joiner.state
+            what = {"pending": "waiting for approval", "approved": "added ✓", "rejected": "rejected",
+                    "error": f"cannot reach the hub: {st['message']}"}.get(st["status"], st["status"])
+            join = (f"<p>Hub <code>{html.escape(st['hub'])}</code>: <b>{html.escape(what)}</b><br>"
+                    f"Join code: <b style='font-size:1.6em;letter-spacing:2px'>{st['code']}</b><br>"
+                    f"Approve it under <b>Hosts</b> on the hub only if the hub shows the same code.</p>")
         return (f"<!doctype html><title>Local LLM Manager agent</title><body style='font-family:sans-serif'>"
-                f"<h3>Local LLM Manager agent on {host_info()['hostname']}</h3>"
+                f"<h3>Local LLM Manager agent on {html.escape(host_info()['hostname'])}</h3>"
                 f"<p>This machine is controlled from a hub dashboard. Add it there under <b>Hosts</b> "
-                f"with this URL and its agent token.</p></body>")
+                f"with this URL and its agent token, or set <code>DGXM_HUB_URL</code> to ask the hub to add it.</p>"
+                f"{join}</body>")
 
     # Liveness / self-metrics for external scrapers: no token needed, no sensitive data.
     @app.get("/healthz", include_in_schema=False)

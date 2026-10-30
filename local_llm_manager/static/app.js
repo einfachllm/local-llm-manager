@@ -128,12 +128,60 @@ function endpointHost(hostId) {
 
 async function loadHosts() {
   try {
-    state.hosts = await api("/api/hosts");
+    [state.hosts, state.joins] = await Promise.all([api("/api/hosts"), api("/api/join-requests").catch(() => state.joins ?? [])]);
   } catch { return; }
   renderHostsStrip();
   renderHostOptions();
+  renderJoinRequests();
   if (state.tab === "hosts") renderHosts();
 }
+
+/* Machines asking to be added (DGXM_HUB_URL on that machine): approve only if the codes match. */
+function renderJoinRequests() {
+  const pending = (state.joins || []).filter((r) => r.state === "pending");
+  const rejected = (state.joins || []).filter((r) => r.state === "rejected");
+  $("#join-count").textContent = pending.length || "";
+  $("#join-count").classList.toggle("hidden", !pending.length);
+  const box = $("#join-requests");
+  box.classList.toggle("hidden", !pending.length && !rejected.length);
+  if (!pending.length && !rejected.length) { box.innerHTML = ""; return; }
+  const info = (r) => [r.info?.platform && (PLATFORM[r.info.platform] ?? r.info.platform), r.info?.machine, r.info?.version && `v${r.info.version}`].filter(Boolean).join(" · ");
+  box.innerHTML = `<h3>🔔 Asking to be added</h3>
+    <p class="hint">Approve a machine only if <b>it shows the same code</b> – in its installer output, its log
+      (<code>journalctl -u local-llm-manager</code>) or its start page. Another machine using the same name has another code.</p>
+    ${pending.map((r) => `<div class="join-row" data-join="${r.id}">
+      <div><b>${esc(maskAddr(r.name))}</b> ${transportBadge(r)}<br><small class="muted">${esc(maskUrl(r.url))} · from ${esc(blurText(r.ip))}${info(r) ? ` · ${esc(info(r))}` : ""}<br>asked ${esc(fmtTime(r.created_at))}</small></div>
+      <div class="join-code mono" title="Compare with the code the machine shows">${esc(r.code)}</div>
+      <div class="join-actions"><button class="btn small primary" data-join-act="approve">Codes match – add</button>
+        <button class="btn small ghost danger" data-join-act="reject">Reject</button></div></div>`).join("")}
+    ${rejected.length ? `<small class="muted">Rejected (blocked for a week): ${rejected.map((r) => `${esc(maskAddr(r.name))} <span class="mono">${esc(r.code)}</span>`).join(", ")}</small>` : ""}`;
+}
+
+$("#join-requests").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("[data-join-act]");
+  if (!b) return;
+  const id = Number(b.closest("[data-join]").dataset.join);
+  const r = state.joins.find((x) => x.id === id);
+  try {
+    if (b.dataset.joinAct === "approve") {
+      if (!confirm(`Add “${r.name}” (${r.url})?\n\nOnly if the machine shows the code ${r.code}.`)) return;
+      let res;
+      try {
+        res = await api(`/api/join-requests/${id}/approve`, { method: "POST", body: {} });
+      } catch (e) {
+        if (!/exists already/.test(e.message)) throw e;
+        const name = prompt(`${e.message}\n\nName for this machine:`, `${r.name}-2`);
+        if (!name) return;
+        res = await api(`/api/join-requests/${id}/approve`, { method: "POST", body: { name } });
+      }
+      toast(`${res.name} added${res.online ? "" : " – not reachable yet at its address"}`, res.online ? "ok" : "bad");
+    } else {
+      if (!confirm(`Reject “${r.name}” (code ${r.code})? It is blocked for a week.`)) return;
+      await api(`/api/join-requests/${id}/reject`, { method: "POST" });
+    }
+    loadHosts();
+  } catch (e) { toast(e.message, "bad"); }
+});
 
 function renderHostsStrip() {
   $("#hosts-strip").innerHTML = state.hosts.map((h) => {

@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Machines can ask to be added:** with `DGXM_HUB_URL` in an agent's `.env`, the agent announces itself to
+  the hub, which lists it under **Hosts → Asking to be added** (with a counter on the Hosts tab). Approve
+  it with **Codes match – add** when the hub shows the same join code as the machine (installer output,
+  log, its start page); the code comes from the agent's token. Rejected machines stay blocked for a week,
+  unanswered requests expire after an hour, and an approved agent reports a changed address itself. New
+  `POST /api/join` (no login), `GET /api/join-requests`, `POST /api/join-requests/{id}/approve|reject`,
+  and `DGXM_HUB_URL`, `DGXM_AGENT_URL`, `DGXM_AGENT_NAME`.
 - **Copy weights between machines** (⇉ Copy… on a weights entry, and the new default of "Download on
   hosts": download once, copy to the others): machines copy straight from each other over the network,
   snowball-style (every finished machine serves the next one), with a SHA-256 check of every file, files

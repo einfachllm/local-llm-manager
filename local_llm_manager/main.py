@@ -12,7 +12,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import NoReturn, Optional
+from typing import Any, NoReturn, Optional
 from urllib.parse import urlsplit
 
 import httpx
@@ -31,6 +31,7 @@ from .processes import ProcessRunner
 from .agent import create_agent_app
 from .selfmetrics import Sink
 from .executor import transport_of
+from .joining import join_code
 from .shares import add_share_routes
 from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, build_run_argv, fill_weights, format_command,
                       annotate_copies, format_process_command, quick_recipe, slug, split_args, synced_copy,
@@ -256,6 +257,29 @@ class WeightPathIn(BaseModel):
     path: str = Field(default="", max_length=1000)
 
 
+class JoinIn(BaseModel):
+    """An agent asking to be added (DGXM_HUB_URL on that machine)."""
+    name: str = Field(min_length=1, max_length=60)
+    url: str = Field(min_length=1, max_length=300)
+    token: str = Field(min_length=32, max_length=300)
+    version: str = Field(default="", max_length=40)
+    info: dict[str, Any] = {}
+
+    @model_validator(mode="after")
+    def check(self):
+        self.name, self.url = self.name.strip(), self.url.strip().rstrip("/")
+        if not re.match(r"^[A-Za-z0-9][\w.-]*$", self.name):
+            raise ValueError("name may only contain letters, digits, '_', '.', '-'")
+        if not re.match(r"^https?://[A-Za-z0-9.\-\[\]:]+$", self.url):
+            raise ValueError("url must be http(s)://host:port")
+        self.info = {k: str(v)[:100] for k, v in list(self.info.items())[:10]}
+        return self
+
+
+class JoinApproveIn(BaseModel):
+    name: str = Field(default="", max_length=60)   # list it under another name than the agent's own
+
+
 class HostIn(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     url: str = ""     # empty for this machine; e.g. http://mac-studio.local:8090 for an agent
@@ -463,8 +487,10 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     async def basic_auth(request: Request, call_next):
         # Liveness / self-metrics for external scrapers: no login, no request guards, not counted.
         # Shares are read by other machines copying weights: they carry their own ticket (shares.py).
+        # Agents asking to join prove nothing yet: they only land in the list someone has to approve.
         if request.url.path in ("/healthz", "/metrics") or (
-                request.url.path.startswith("/agent/v1/shares/") and request.method in ("GET", "HEAD")):
+                request.url.path.startswith("/agent/v1/shares/") and request.method in ("GET", "HEAD")) or (
+                request.url.path == "/api/join" and request.method == "POST"):
             return await call_next(request)
         if blocked := request_guard(request):
             return blocked
@@ -619,6 +645,77 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             raise HTTPException(422, "url is required for a remote host")
         db.update_host(host_id, body.name, body.url, body.token or host["token"])
         return next(h for h in await manager.host_overview() if h["id"] == host_id)
+
+    # ---- agents asking to join -----------------------------------------
+
+    MAX_PENDING_JOINS = 20
+
+    def _expire_joins() -> None:
+        now = datetime.now().astimezone()
+        db.expire_join_requests((now - timedelta(hours=1)).isoformat(timespec="seconds"),
+                                (now - timedelta(days=7)).isoformat(timespec="seconds"))
+
+    @app.post("/api/join")
+    async def join(body: JoinIn, request: Request):
+        """Called by agents (no login). Unknown agents land in the list under Hosts until approved there."""
+        _expire_joins()
+        known = next((h for h in db.list_hosts() if h["url"] and secrets.compare_digest(h["token"], body.token)), None)
+        if known:
+            # Only the approved agent knows its token: it may tell its new address.
+            if known["url"].rstrip("/") != body.url:
+                db.update_host(known["id"], known["name"], body.url, known["token"])
+                db.add_event("agent", "join", True, f"{known['name']} moved to {body.url}", target=known["name"])
+            return {"state": "approved"}
+        existing = next((r for r in db.list_join_requests() if secrets.compare_digest(r["token"], body.token)), None)
+        if existing and existing["state"] == "rejected":
+            return {"state": "rejected"}
+        if not existing and sum(r["state"] == "pending" for r in db.list_join_requests()) >= MAX_PENDING_JOINS:
+            raise HTTPException(429, "Too many open join requests on the hub: approve or reject some there")
+        code = join_code(body.token)
+        ip = request.client.host if request.client else ""
+        db.upsert_join_request(body.name, body.url, body.token, code, {**body.info, "version": body.version}, ip)
+        if not existing:
+            db.add_event("agent", "join", True, f"{body.name} ({body.url}, from {ip}) asks to be added - code {code}",
+                         target=body.name)
+        return {"state": "pending", "code": code}
+
+    @app.get("/api/join-requests")
+    async def join_requests():
+        _expire_joins()
+        return [{k: v for k, v in r.items() if k != "token"} | {"transport": transport_of(r["url"])}
+                for r in db.list_join_requests()]
+
+    def get_join_or_404(request_id: int) -> dict:
+        r = db.get_join_request(request_id)
+        if not r:
+            raise HTTPException(404, "Join request not found (expired after an hour without news from the agent?)")
+        return r
+
+    @app.post("/api/join-requests/{request_id}/approve")
+    async def approve_join(request_id: int, body: JoinApproveIn):
+        """Add the agent as a host. Only approve when the agent shows the same code as listed here."""
+        r = get_join_or_404(request_id)
+        if r["state"] != "pending":
+            raise HTTPException(409, "This request was rejected")
+        name = body.name.strip() or r["name"]
+        same = next((h for h in db.list_hosts() if h["name"].lower() == name.lower()), None)
+        if same and same["url"].rstrip("/") != r["url"]:
+            raise HTTPException(409, f"A host named '{name}' exists already: approve under another name")
+        if same:
+            db.update_host(same["id"], same["name"], r["url"], r["token"])  # the same machine, reinstalled
+            host_id = same["id"]
+        else:
+            host_id = db.create_host(name, r["url"], r["token"])
+        db.delete_join_request(request_id)
+        db.add_event("user", "join", True, f"Added {name} ({r['url']}), code {r['code']}", target=name)
+        return next(h for h in await manager.host_overview() if h["id"] == host_id)
+
+    @app.post("/api/join-requests/{request_id}/reject", status_code=204)
+    async def reject_join(request_id: int):
+        r = get_join_or_404(request_id)
+        db.set_join_request_state(request_id, "rejected")
+        db.add_event("user", "join", False, f"Rejected {r['name']} ({r['url']}), code {r['code']}", target=r["name"])
+        return Response(status_code=204)
 
     @app.delete("/api/hosts/{host_id}", status_code=204)
     async def delete_host(host_id: int):

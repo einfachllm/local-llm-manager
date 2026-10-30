@@ -28,6 +28,12 @@ Local LLM Manager is built to **run arbitrary containers and processes** on the 
 - The agent token grants the same level of control over an agent machine.
 - Hub ↔ agent traffic is plain HTTP (run it over Tailscale/WireGuard, which encrypts it). The Hosts tab
   marks each host 🔒 Tailscale / 🔒 HTTPS or ⚠ plain HTTP.
+- **Machines asking to be added** (`DGXM_HUB_URL` on an agent): `POST /api/join` needs no login. A request
+  only lands in the list under Hosts (at most 20 open, expired after an hour); nothing is reachable for it
+  until someone approves it. Approve only when the machine shows the same join code - the code is derived
+  from the agent's token, so a different machine announcing the same name shows a different one. An
+  approved agent may update its own address (it proves itself with its token); rejected ones are blocked
+  for a week.
 - **Copying weights between machines:** the hub asks the source machine (with its agent token) for a
   read-only *share* of one registered weights path. It is valid for 6 hours and readable only with its
   random ticket, which the hub hands to the copying machine; that machine never gets the source's agent

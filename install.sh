@@ -84,9 +84,14 @@ case "$(setting DGXM_HOST)" in
   *)          ADDR="$(setting DGXM_HOST)" ;;
 esac
 URL="http://${ADDR%% *}:${PORT:-8090}"
-if [ "$(setting DGXM_MODE)" = "agent" ]; then
+if [ "$(setting DGXM_MODE)" = "agent" ] && [ -n "$(setting DGXM_HUB_URL)" ]; then
+  CODE="$(.venv/bin/python -m local_llm_manager.joining code "$(setting DGXM_AGENT_TOKEN)")"
+  echo "Installed as agent on ${ADDR}. It asks the hub $(setting DGXM_HUB_URL) to add it."
+  echo "On the hub, open Hosts and approve it only if it shows this code:  ${CODE}"
+elif [ "$(setting DGXM_MODE)" = "agent" ]; then
   echo "Installed as agent on ${ADDR}. In the hub: Hosts -> Add host with URL ${URL}"
   echo "and the DGXM_AGENT_TOKEN from ${ENV_FILE}."
+  echo "(Or set DGXM_HUB_URL=http://<hub>:8090 in ${ENV_FILE} and run this again: it then asks the hub itself.)"
 else
   echo "Installed and running on ${ADDR}. Open ${URL} (user: $(setting DGXM_USER))"
 fi

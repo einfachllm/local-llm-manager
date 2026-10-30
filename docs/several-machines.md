@@ -27,6 +27,16 @@ it to. Agents never connect to the hub.
 3. In the hub's dashboard, open **Hosts → + Add host**. Enter the agent's URL (e.g.
    `http://mac-studio:8090`) and the same token.
 
+!!! tip "Or let the machine ask to be added"
+    Instead of step 3, also set `DGXM_HUB_URL=http://<hub>:8090` in the new machine's `.env` and run the
+    installer again. It prints a **join code** (e.g. `K7Q2-X9PM`), and the machine appears on the hub under
+    **Hosts → Asking to be added** with a code. Click **Codes match – add** only if both codes are the
+    same: another machine announcing the same name has a different code. Rejected machines are blocked for a
+    week; requests nobody answers expire after an hour without news from the machine. The machine shows its
+    code also on its start page (`http://<machine>:8090`) and in its log. Optional: `DGXM_AGENT_URL` (how
+    the hub reaches it, default `http://<its name>:8090`) and `DGXM_AGENT_NAME`. If its address changes
+    later, the machine tells the hub itself.
+
 The new machine appears in the host strip at the top. Recipes now have a **Host** field that decides where
 they run.
 

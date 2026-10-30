@@ -1,5 +1,6 @@
 """SQLite storage for recipes, schedules and the activity log."""
 
+import json
 import os
 import socket
 import sqlite3
@@ -95,6 +96,20 @@ CREATE TABLE IF NOT EXISTS weight_locations (
     host_id    INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
     path       TEXT NOT NULL,
     PRIMARY KEY (weight_id, host_id)
+);
+
+-- Agents asking to be added (DGXM_HUB_URL on the agent); approved under Hosts by comparing the code.
+CREATE TABLE IF NOT EXISTS join_requests (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    url         TEXT NOT NULL,
+    token       TEXT NOT NULL UNIQUE,
+    code        TEXT NOT NULL,
+    info        TEXT NOT NULL DEFAULT '{}',
+    ip          TEXT NOT NULL DEFAULT '',
+    state       TEXT NOT NULL DEFAULT 'pending',   -- pending | rejected
+    created_at  TEXT NOT NULL,
+    last_seen   TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS start_times (
@@ -364,6 +379,37 @@ class Database:
 
     def local_host_id(self) -> int:
         return self._query("SELECT id FROM hosts WHERE url = '' ORDER BY id LIMIT 1")[0]["id"]
+
+    # ---- join requests -------------------------------------------------
+
+    def list_join_requests(self) -> list[dict]:
+        rows = self._query("SELECT * FROM join_requests ORDER BY created_at")
+        for r in rows:
+            r["info"] = json.loads(r["info"] or "{}")
+        return rows
+
+    def get_join_request(self, request_id: int) -> Optional[dict]:
+        return next((r for r in self.list_join_requests() if r["id"] == request_id), None)
+
+    def upsert_join_request(self, name: str, url: str, token: str, code: str, info: dict, ip: str) -> dict:
+        """A new request, or the same agent (same token) announcing itself again."""
+        ts = now_iso()
+        self._execute(
+            "INSERT INTO join_requests (name, url, token, code, info, ip, created_at, last_seen) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(token) DO UPDATE SET name = excluded.name, "
+            "url = excluded.url, info = excluded.info, ip = excluded.ip, last_seen = excluded.last_seen",
+            (name, url, token, code, json.dumps(info), ip, ts, ts))
+        return next(r for r in self.list_join_requests() if r["token"] == token)
+
+    def set_join_request_state(self, request_id: int, state: str) -> None:
+        self._execute("UPDATE join_requests SET state = ?, last_seen = ? WHERE id = ?", (state, now_iso(), request_id))
+
+    def delete_join_request(self, request_id: int) -> None:
+        self._execute("DELETE FROM join_requests WHERE id = ?", (request_id,))
+
+    def expire_join_requests(self, pending_before: str, rejected_before: str) -> None:
+        self._execute("DELETE FROM join_requests WHERE (state = 'pending' AND last_seen < ?) "
+                      "OR (state = 'rejected' AND last_seen < ?)", (pending_before, rejected_before))
 
     def create_host(self, name: str, url: str, token: str) -> int:
         return self._execute("INSERT INTO hosts (name, url, token, created_at) VALUES (?, ?, ?, ?)",
