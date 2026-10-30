@@ -18,8 +18,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Agent self-registration:** an agent with `DGXM_HUB_URL` asks the hub to be added; approve it by
   comparing the join code.
 - **Copy to other hosts:** roll one recipe out to several machines; copies stay in sync with the original.
-- **Background jobs:** restarts, pulls, downloads and copies run on the hub and keep going when the
-  browser is closed; a panel shows their progress.
 - **Encryption per host:** the Hosts tab shows 🔒 Tailscale, 🔒 HTTPS or ⚠ plain HTTP.
 
 **Weights and images**
