@@ -645,6 +645,31 @@ or rerun the installer).</p>
 <td>Directories scanned for local model folders and <code>.gguf</code> files (Weights tab, "Search hosts", presence checks). Comma- or whitespace-separated, several allowed, searched up to three levels deep.</td>
 </tr>
 <tr>
+<td><code>DGXM_HF_BIN</code></td>
+<td><code>hf</code>, else <code>huggingface-cli</code></td>
+<td>Hugging Face CLI used by "Download on hosts" (Weights tab); downloads go into the first <code>DGXM_MODEL_DIR</code>. Gated models need <code>HF_TOKEN</code> in this machine's <code>.env</code>.</td>
+</tr>
+<tr>
+<td><code>DGXM_PUBLIC_URL</code></td>
+<td>the address the dashboard is opened with</td>
+<td>Where the other machines reach this hub, e.g. <code>http://spark1:8090</code> - needed to copy weights <em>from</em> the hub's own machine when you open the dashboard as <code>localhost</code>.</td>
+</tr>
+<tr>
+<td><code>DGXM_HUB_URL</code></td>
+<td>–</td>
+<td>Agent mode: ask this hub to add the machine; approve it under <strong>Hosts</strong> there when the join codes match.</td>
+</tr>
+<tr>
+<td><code>DGXM_AGENT_URL</code></td>
+<td><code>http://&lt;DGXM_HOST or machine name&gt;:&lt;DGXM_PORT&gt;</code></td>
+<td>Agent mode: the address the hub should use for this machine when it asks to join.</td>
+</tr>
+<tr>
+<td><code>DGXM_AGENT_NAME</code></td>
+<td>the machine's name</td>
+<td>Agent mode: the name it asks to be listed under.</td>
+</tr>
+<tr>
 <td><code>DGXM_DOCKER</code></td>
 <td><code>docker</code></td>
 <td>Docker binary used to run Docker recipes - e.g. point it at <code>podman</code> where Docker is unavailable.</td>
