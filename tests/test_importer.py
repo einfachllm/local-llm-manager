@@ -84,6 +84,34 @@ def test_plain_docker_run_command():
     assert r["name"] == "Qwen3-8B"
 
 
+def test_vllm_openai_image_runs_serve_itself():
+    # vllm/vllm-openai's entrypoint is `vllm serve`, so the first word after the image is the model.
+    r, _ = recipe_from_argv([
+        "--network", "host", "-v", "/m/q:/model:ro", "vllm/vllm-openai:v0.32.0", "/model",
+        "--host", "0.0.0.0", "--port", "8000", "--served-model-name", "qwen3.8",
+    ])
+    assert r["framework"] == "vllm" and r["model"] == "/model"
+    assert r["command"] == "{model} --host 0.0.0.0 --port {port}"
+    rebuilt = build_run_argv({**r, "id": 1})
+    assert rebuilt[rebuilt.index("vllm/vllm-openai:v0.32.0") + 1:][:2] == ["/model", "--host"]
+
+
+@pytest.mark.parametrize("image, docker_args, dropped", [
+    ("vllm/vllm-openai:v0.32.0", "", True),
+    ("docker.io/vllm/vllm-openai", "", True),
+    ("vllm/vllm-openai@sha256:abc", "", True),
+    ("vllm/vllm-openai:latest", "--entrypoint vllm", False),  # then `serve` is needed again
+    ("nvcr.io/nvidia/vllm:25.11-py3", "", False),
+])
+def test_preset_vllm_serve_dropped_only_where_the_image_runs_it(image, docker_args, dropped):
+    recipe = {"id": 1, "container_name": "m", "image": image, "model": "/model", "host_port": 8000,
+              "container_port": 8000, "command": "vllm serve {model} --host {bind_host} --port {port}",
+              "docker_args": docker_args}
+    argv = build_run_argv(recipe)
+    after = argv[argv.index(image) + 1:]
+    assert after[:2] == (["/model", "--host"] if dropped else ["vllm", "serve"])
+
+
 def test_sglang_python_module():
     r, _ = recipe_from_argv([
         "--gpus", "all", "lmsysorg/sglang:spark", "python3", "-m", "sglang.launch_server",
