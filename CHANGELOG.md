@@ -36,6 +36,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **⚡ Quick recipe:** a new recipe from a working one plus other weights, in one dialog.
 - **Added Agents** (e.g. a Hermes gateway) as their own kind of recipe, apart from models.
 - **TensorFold** preset; models shown as rows (or tiles).
+- **Simpler moves between hosts:** change a recipe's host and its model folder follows: `{weights}`
+  mounts the path that host has in the Weights tab, so you don't edit the volumes by hand.
 - **More filters and grouping:** show All / Models / Agents, and group agents by host or tag like models.
 
 **Operations and docs**
