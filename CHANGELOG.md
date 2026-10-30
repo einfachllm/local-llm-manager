@@ -21,13 +21,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Encryption per host:** the Hosts tab shows 🔒 Tailscale, 🔒 HTTPS or ⚠ plain HTTP.
 
 **Weights and images**
+- **Search hosts** for model folders and `.gguf` files, and register them in one click. Which folders are
+  searched is set with `DGXM_MODEL_DIR` in `.env` (several allowed).
 - **Weights tab** and **weights registry:** one entry per model with its path on each host; recipes use
   `{weights}` and work on any host.
-- **Search hosts** for model folders and `.gguf` files, and register them in one click.
-- **Download on hosts** from Hugging Face, **pull images** on several hosts at once.
+- **Download on hosts** from Hugging Face (gated models: `HF_TOKEN` in `.env`) and **pull images** on
+  several hosts at once.
 - **Copy weights host to host:** download once, then machines copy from each other (SHA-256 checked,
-  resumable).
-- **Images tab:** which host has which image, and newer tags to switch to.
+  resumable). Recommended for getting the same model onto several machines.
+- **Missing weights per host:** see on which hosts a recipe's weights are missing before you start or copy it.
+- **Images tab** (experimental): which host has which image, and newer tags to switch to.
 
 **Recipes**
 - **⚡ Quick recipe:** a new recipe from a working one plus other weights, in one dialog.
