@@ -12,14 +12,14 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import NoReturn, Optional
+from typing import Any, NoReturn, Optional
 from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from . import __version__, config, system
 from .db import Database, normalize_tags
@@ -30,10 +30,15 @@ from .manager import ActionError, Manager
 from .processes import ProcessRunner
 from .agent import create_agent_app
 from .selfmetrics import Sink
+from .executor import transport_of
+from .joining import join_code
+from .shares import add_share_routes
 from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, build_run_argv, fill_weights, format_command,
-                      format_process_command, split_args, uses_host_network)
+                      annotate_copies, format_process_command, quick_recipe, slug, split_args, synced_copy,
+                      uses_host_network)
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
 from .timeline import build_timeline
+from .transfers import check_image, check_name, check_repo
 
 STATIC_DIR = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
@@ -196,8 +201,83 @@ class AdoptIn(BaseModel):
     name: str = Field(default="", max_length=120)
 
 
+class QuickIn(BaseModel):
+    """A recipe made from an existing recipe's (or a preset's) settings and other weights."""
+    host_id: Optional[int] = None
+    base_recipe_id: Optional[int] = None   # copy this recipe's engine settings ...
+    framework: str = ""                    # ... or start from this preset
+    weights_id: Optional[int] = None       # the model: registered weights,
+    path: str = Field(default="", max_length=1000)   # a folder / .gguf on the host (registered on save),
+    model: str = Field(default="", max_length=300)   # or a Hugging Face id
+    name: str = Field(default="", max_length=100)
+    context: Optional[int] = Field(default=None, ge=256, le=10_000_000)
+    port: Optional[int] = Field(default=None, ge=1, le=65535)
+    save: bool = True                      # False: only return the draft and its command
+
+    @model_validator(mode="after")
+    def check(self):
+        self.path, self.model, self.name = self.path.strip(), self.model.strip(), self.name.strip()
+        if sum(bool(x) for x in (self.weights_id, self.path, self.model)) != 1:
+            raise ValueError("pick the model: registered weights, a path on the host or a Hugging Face id")
+        if ":" in self.path or "\n" in self.path:
+            raise ValueError("a path may not contain ':' or line breaks (it becomes a docker volume)")
+        if not self.base_recipe_id and self.framework not in FRAMEWORKS:
+            raise ValueError("pick the settings: an existing recipe or an engine preset")
+        return self
+
+
+class RestartJobIn(BaseModel):
+    recipe_ids: list[int] = Field(min_length=1, max_length=200)
+    title: str = Field(default="", max_length=120)
+
+
+class PullJobIn(BaseModel):
+    image: str = Field(min_length=1, max_length=300)
+    host_ids: list[int] = Field(min_length=1, max_length=100)
+
+
+class DownloadJobIn(BaseModel):
+    repo: str = Field(min_length=1, max_length=200)   # Hugging Face model id, e.g. Qwen/Qwen3-8B
+    name: str = Field(default="", max_length=128)     # folder in each host's model dir; default: the repo name
+    host_ids: list[int] = Field(min_length=1, max_length=100)
+    weight_id: Optional[int] = None                   # register the paths on this entry (default: by name)
+    once: bool = True                                 # download on the first host only, copy to the others
+
+
+class CopyJobIn(BaseModel):
+    weight_id: int
+    host_ids: list[int] = Field(min_length=1, max_length=100)
+
+
+class CopyIn(BaseModel):
+    host_ids: list[int] = Field(min_length=1)
+
+
 class WeightPathIn(BaseModel):
     path: str = Field(default="", max_length=1000)
+
+
+class JoinIn(BaseModel):
+    """An agent asking to be added (DGXM_HUB_URL on that machine)."""
+    name: str = Field(min_length=1, max_length=60)
+    url: str = Field(min_length=1, max_length=300)
+    token: str = Field(min_length=32, max_length=300)
+    version: str = Field(default="", max_length=40)
+    info: dict[str, Any] = {}
+
+    @model_validator(mode="after")
+    def check(self):
+        self.name, self.url = self.name.strip(), self.url.strip().rstrip("/")
+        if not re.match(r"^[A-Za-z0-9][\w.-]*$", self.name):
+            raise ValueError("name may only contain letters, digits, '_', '.', '-'")
+        if not re.match(r"^https?://[A-Za-z0-9.\-\[\]:]+$", self.url):
+            raise ValueError("url must be http(s)://host:port")
+        self.info = {k: str(v)[:100] for k, v in list(self.info.items())[:10]}
+        return self
+
+
+class JoinApproveIn(BaseModel):
+    name: str = Field(default="", max_length=60)   # list it under another name than the agent's own
 
 
 class HostIn(BaseModel):
@@ -406,7 +486,11 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     @app.middleware("http")
     async def basic_auth(request: Request, call_next):
         # Liveness / self-metrics for external scrapers: no login, no request guards, not counted.
-        if request.url.path in ("/healthz", "/metrics"):
+        # Shares are read by other machines copying weights: they carry their own ticket (shares.py).
+        # Agents asking to join prove nothing yet: they only land in the list someone has to approve.
+        if request.url.path in ("/healthz", "/metrics") or (
+                request.url.path.startswith("/agent/v1/shares/") and request.method in ("GET", "HEAD")) or (
+                request.url.path == "/api/join" and request.method == "POST"):
             return await call_next(request)
         if blocked := request_guard(request):
             return blocked
@@ -441,6 +525,9 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     @app.exception_handler(ActionError)
     async def action_error(_: Request, exc: ActionError):
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+    # This machine as a copy source for the others (weights copied from the hub's own host).
+    add_share_routes(app, manager.local.shares)
 
     @app.exception_handler(sqlite3.IntegrityError)
     async def integrity_error(_: Request, exc: sqlite3.IntegrityError):
@@ -559,6 +646,77 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         db.update_host(host_id, body.name, body.url, body.token or host["token"])
         return next(h for h in await manager.host_overview() if h["id"] == host_id)
 
+    # ---- agents asking to join -----------------------------------------
+
+    MAX_PENDING_JOINS = 20
+
+    def _expire_joins() -> None:
+        now = datetime.now().astimezone()
+        db.expire_join_requests((now - timedelta(hours=1)).isoformat(timespec="seconds"),
+                                (now - timedelta(days=7)).isoformat(timespec="seconds"))
+
+    @app.post("/api/join")
+    async def join(body: JoinIn, request: Request):
+        """Called by agents (no login). Unknown agents land in the list under Hosts until approved there."""
+        _expire_joins()
+        known = next((h for h in db.list_hosts() if h["url"] and secrets.compare_digest(h["token"], body.token)), None)
+        if known:
+            # Only the approved agent knows its token: it may tell its new address.
+            if known["url"].rstrip("/") != body.url:
+                db.update_host(known["id"], known["name"], body.url, known["token"])
+                db.add_event("agent", "join", True, f"{known['name']} moved to {body.url}", target=known["name"])
+            return {"state": "approved"}
+        existing = next((r for r in db.list_join_requests() if secrets.compare_digest(r["token"], body.token)), None)
+        if existing and existing["state"] == "rejected":
+            return {"state": "rejected"}
+        if not existing and sum(r["state"] == "pending" for r in db.list_join_requests()) >= MAX_PENDING_JOINS:
+            raise HTTPException(429, "Too many open join requests on the hub: approve or reject some there")
+        code = join_code(body.token)
+        ip = request.client.host if request.client else ""
+        db.upsert_join_request(body.name, body.url, body.token, code, {**body.info, "version": body.version}, ip)
+        if not existing:
+            db.add_event("agent", "join", True, f"{body.name} ({body.url}, from {ip}) asks to be added - code {code}",
+                         target=body.name)
+        return {"state": "pending", "code": code}
+
+    @app.get("/api/join-requests")
+    async def join_requests():
+        _expire_joins()
+        return [{k: v for k, v in r.items() if k != "token"} | {"transport": transport_of(r["url"])}
+                for r in db.list_join_requests()]
+
+    def get_join_or_404(request_id: int) -> dict:
+        r = db.get_join_request(request_id)
+        if not r:
+            raise HTTPException(404, "Join request not found (expired after an hour without news from the agent?)")
+        return r
+
+    @app.post("/api/join-requests/{request_id}/approve")
+    async def approve_join(request_id: int, body: JoinApproveIn):
+        """Add the agent as a host. Only approve when the agent shows the same code as listed here."""
+        r = get_join_or_404(request_id)
+        if r["state"] != "pending":
+            raise HTTPException(409, "This request was rejected")
+        name = body.name.strip() or r["name"]
+        same = next((h for h in db.list_hosts() if h["name"].lower() == name.lower()), None)
+        if same and same["url"].rstrip("/") != r["url"]:
+            raise HTTPException(409, f"A host named '{name}' exists already: approve under another name")
+        if same:
+            db.update_host(same["id"], same["name"], r["url"], r["token"])  # the same machine, reinstalled
+            host_id = same["id"]
+        else:
+            host_id = db.create_host(name, r["url"], r["token"])
+        db.delete_join_request(request_id)
+        db.add_event("user", "join", True, f"Added {name} ({r['url']}), code {r['code']}", target=name)
+        return next(h for h in await manager.host_overview() if h["id"] == host_id)
+
+    @app.post("/api/join-requests/{request_id}/reject", status_code=204)
+    async def reject_join(request_id: int):
+        r = get_join_or_404(request_id)
+        db.set_join_request_state(request_id, "rejected")
+        db.add_event("user", "join", False, f"Rejected {r['name']} ({r['url']}), code {r['code']}", target=r["name"])
+        return Response(status_code=204)
+
     @app.delete("/api/hosts/{host_id}", status_code=204)
     async def delete_host(host_id: int):
         host = get_host_or_404(host_id)
@@ -652,7 +810,7 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
 
     @app.get("/api/recipes")
     async def list_recipes():
-        return await manager.recipes_with_status()
+        return annotate_copies(await manager.recipes_with_status())
 
     @app.get("/api/recipes/{recipe_id}")
     async def get_recipe(recipe_id: int):
@@ -703,6 +861,217 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         r["name"] = f"{r['name']} (copy {i})"
         r["container_name"] = f"{r['container_name']}-copy{i}"
         return db.get_recipe(db.create_recipe(r))
+
+    # ---- copies on other hosts: the same recipe on several machines, kept in sync -------------
+
+    def original_of(recipe_id: int) -> dict:
+        """The recipe copies are made from: the recipe itself, or the original a copy came from."""
+        r = get_recipe_or_404(recipe_id)
+        return (db.get_recipe(r["copy_of"]) if r.get("copy_of") else None) or r
+
+    def copy_hosts(original: dict, host_ids: list[int]) -> list[int]:
+        for hid in host_ids:
+            get_host_or_404(hid)
+        if original["host_id"] in host_ids:
+            raise HTTPException(422, "The original already runs on that host: pick other hosts")
+        return list(dict.fromkeys(host_ids))
+
+    @app.post("/api/recipes/{recipe_id}/copies/check")
+    async def check_copies(recipe_id: int, body: CopyIn):
+        """Per host: are the weights and the image there, who else uses the port, is there a copy already."""
+        original = original_of(recipe_id)
+        return {"original_id": original["id"], "hosts": await manager.copy_check(original, copy_hosts(original, body.host_ids))}
+
+    @app.post("/api/recipes/{recipe_id}/copies", status_code=201)
+    async def create_copies(recipe_id: int, body: CopyIn):
+        """Put a copy of the recipe on each host (a host that has one already gets it updated). Copies keep
+        their own name, container name and host; everything else follows the original on "Sync"."""
+        original = original_of(recipe_id)
+        created, updated = [], []
+        for hid in copy_hosts(original, body.host_ids):
+            recipes = db.list_recipes()
+            existing = next((x for x in recipes if x["host_id"] == hid and x.get("copy_of") == original["id"]), None)
+            if existing:
+                db.update_recipe(existing["id"], synced_copy(existing, original))
+                updated.append(db.get_recipe(existing["id"]))
+                continue
+            host = db.get_host(hid)["name"]
+            names, containers = {x["name"].lower() for x in recipes}, {x["container_name"] for x in recipes}
+            name, container, i = f"{original['name']} · {host}", f"{original['container_name']}-{slug(host)}", 2
+            while name.lower() in names or container in containers:
+                name, container = f"{original['name']} · {host} {i}", f"{original['container_name']}-{slug(host)}-{i}"
+                i += 1
+            rid = db.create_recipe(synced_copy({"name": name, "container_name": container, "host_id": hid,
+                                                "pinned": False}, original))
+            db.set_copy_of(rid, original["id"])
+            created.append(db.get_recipe(rid))
+        return {"created": created, "updated": updated}
+
+    @app.post("/api/recipes/{recipe_id}/sync")
+    async def sync_copies(recipe_id: int):
+        """Give copies the original's current settings: all copies of an original, or just this copy.
+        Running ones keep running with the old settings until restarted (listed in `running`)."""
+        r = get_recipe_or_404(recipe_id)
+        original = original_of(recipe_id)
+        targets = [r] if original["id"] != r["id"] else [x for x in db.list_recipes() if x.get("copy_of") == r["id"]]
+        statuses = {x["id"]: x["status"] for x in await manager.recipes_with_status()}
+        updated, running = [], []
+        for c in targets:
+            db.update_recipe(c["id"], synced_copy(c, original))
+            updated.append(c["id"])
+            if statuses.get(c["id"]) in ("ready", "loading", "starting"):
+                running.append(c["id"])
+        return {"updated": updated, "running": running}
+
+    # ---- background jobs: keep running on the hub when the browser is closed -------------------
+
+    @app.post("/api/jobs/restart", status_code=202)
+    async def restart_job(body: RestartJobIn):
+        """Restart several recipes (e.g. the copies of one) in the background: hosts in parallel."""
+        for rid in body.recipe_ids:
+            get_recipe_or_404(rid)
+        return manager.start_restart_job(body.recipe_ids, title=body.title)
+
+    @app.post("/api/jobs/pull", status_code=202)
+    async def pull_job(body: PullJobIn):
+        """`docker pull` the image on each host at the same time; each host pulls from the registry itself."""
+        try:
+            image = check_image(body.image)
+            return manager.start_transfer_job("pull", image, body.host_ids)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except ActionError as e:
+            raise HTTPException(e.status_code, e.message)
+
+    def hub_url(request: Request) -> str:
+        """Where other machines reach this hub (to copy weights from its own host)."""
+        if config.PUBLIC_URL:
+            return config.PUBLIC_URL
+        url = str(request.base_url).rstrip("/")
+        return "" if transport_of(url) == "local" else url
+
+    @app.post("/api/jobs/copy", status_code=202)
+    async def copy_job(body: CopyJobIn, request: Request):
+        """Copy registered weights to these hosts, host to host over the network, checked with SHA-256."""
+        get_weight_or_404(body.weight_id)
+        try:
+            return manager.start_copy_job(body.weight_id, body.host_ids, hub_url(request))
+        except ActionError as e:
+            raise HTTPException(e.status_code, e.message)
+
+    @app.post("/api/jobs/download", status_code=202)
+    async def download_job(body: DownloadJobIn, request: Request):
+        """Download Hugging Face weights on each host into its model dir (DGXM_MODEL_DIR) and register the
+        folders in the Weights tab. Gated models need HF_TOKEN in that host's .env."""
+        if body.weight_id is not None:
+            get_weight_or_404(body.weight_id)
+        try:
+            repo, name = check_repo(body.repo), check_name(body.name) if body.name.strip() else ""
+            return manager.start_transfer_job("download", repo, body.host_ids, name, body.weight_id,
+                                              once=body.once, hub_url=hub_url(request))
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except ActionError as e:
+            raise HTTPException(e.status_code, e.message)
+
+    @app.get("/api/jobs")
+    async def list_jobs():
+        return list(reversed(manager.jobs.values()))
+
+    @app.get("/api/jobs/{job_id}")
+    async def get_job(job_id: str):
+        job = manager.jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "Job not found (jobs are kept until the manager restarts)")
+        return job
+
+    @app.post("/api/recipes/{recipe_id}/unlink")
+    async def unlink_copy(recipe_id: int):
+        """Make a copy an original of its own: syncing no longer changes it."""
+        get_recipe_or_404(recipe_id)
+        db.set_copy_of(recipe_id, None)
+        return db.get_recipe(recipe_id)
+
+    @app.post("/api/recipes/quick")
+    async def quick(body: QuickIn):
+        """Create a model recipe in one step: the settings of an existing recipe (or a preset), other
+        weights, a name, port and served model name filled in. With save=false only the draft."""
+        host_id = get_host_or_404(body.host_id)["id"] if body.host_id else db.local_host_id()
+        recipes = db.list_recipes()
+        if body.base_recipe_id:
+            base = get_recipe_or_404(body.base_recipe_id)
+        else:
+            preset = FRAMEWORKS[body.framework]
+            base = {**preset, "framework": body.framework, "model": "",
+                    "gpus": "all" if preset["runtime"] == "docker" else ""}
+
+        # The model: registered weights, a found folder (registered when saving) or a Hugging Face id.
+        weight, path = None, ""
+        if body.weights_id:
+            weight = db.get_weight(body.weights_id)
+            if not weight:
+                raise HTTPException(422, "The selected weights do not exist (any more)")
+            path = weight["locations"].get(host_id, "")
+        elif body.path:
+            path = body.path
+            weight = next((w for w in db.list_weights()
+                           if w["locations"].get(host_id, "").rstrip("/") == path.rstrip("/")), None)
+        folder = path.rstrip("/").rsplit("/", 1)[-1]
+        default_name = (weight["name"] if weight else re.sub(r"\.gguf$", "", folder, flags=re.I) if path
+                        else body.model.rstrip("/").rsplit("/", 1)[-1])
+        names = {r["name"].lower() for r in recipes}
+        name, i = body.name or default_name, 2
+        while name.lower() in names:
+            name, i = f"{body.name or default_name} {i}", i + 1
+        try:
+            r, notes = quick_recipe(base, name=name, weights=bool(path or weight), model=body.model,
+                                    context=body.context)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
+        # Same port as the base recipe on this host: "Switch to" swaps the two, the endpoint stays.
+        if body.port:
+            port = body.port
+        elif base.get("id") and base.get("host_id") == host_id:
+            port = base["host_port"]
+            notes.append(f"Port {port} as “{base['name']}”: Switch to swaps them, the endpoint stays the same.")
+        else:
+            used, port = {x["host_port"] for x in recipes if x["host_id"] == host_id}, 8100
+            while port in used:
+                port += 1
+        containers, container, i = {x["container_name"] for x in recipes}, slug(name), 2
+        while container in containers:
+            container, i = f"{slug(name)}-{i}", i + 1
+        r.update(host_id=host_id, host_port=port, container_name=container,
+                 description=f"Settings from {base['name'] if base.get('id') else base['label']}.")
+        try:
+            data = recipe_data(RecipeIn(**r))
+        except ValidationError as e:
+            raise HTTPException(422, "; ".join(err["msg"] for err in e.errors()))
+
+        preview = fill_weights(data, path or None)
+        command = (format_process_command(preview) if data["runtime"] == "process"
+                   else format_command(build_run_argv(preview)))
+        if path and not weight:
+            notes.insert(0, f"“{folder}” will be registered in the Weights tab.")
+        elif weight and not path:
+            notes.insert(0, "These weights have no path on this host yet: set it in the Weights tab.")
+        if not body.save:
+            return {"recipe": data, "command": command, "notes": notes}
+
+        if path and not weight:
+            wname, i = re.sub(r"\.gguf$", "", folder, flags=re.I) or "model", 2
+            existing = {w["name"].lower(): w for w in db.list_weights()}
+            # The same name without a path here is most likely the same weights on another host.
+            while wname.lower() in existing and host_id in existing[wname.lower()]["locations"]:
+                wname, i = f"{folder} {i}", i + 1
+            if wname.lower() in existing:
+                weight = existing[wname.lower()]
+                db.set_weight_location(weight["id"], host_id, path)
+            else:
+                weight = db.get_weight(db.create_weight(wname, "", {host_id: path}))
+        data["weights_id"] = weight["id"] if weight else None
+        return {"recipe": db.get_recipe(db.create_recipe(data)), "command": command, "notes": notes}
 
     @app.post("/api/recipes/preview")
     async def preview(body: RecipeIn, recipe_id: Optional[int] = None):

@@ -26,7 +26,21 @@ Local LLM Manager is built to **run arbitrary containers and processes** on the 
 - Anyone who can log in to the dashboard can start any Docker container on the hub and its agents,
   which is effectively **root** on those machines.
 - The agent token grants the same level of control over an agent machine.
-- Hub ↔ agent traffic is plain HTTP (run it over Tailscale/WireGuard, which encrypts it).
+- Hub ↔ agent traffic is plain HTTP (run it over Tailscale/WireGuard, which encrypts it). The Hosts tab
+  marks each host 🔒 Tailscale / 🔒 HTTPS or ⚠ plain HTTP.
+- **Machines asking to be added** (`DGXM_HUB_URL` on an agent): `POST /api/join` needs no login. A request
+  only lands in the list under Hosts (at most 20 open, expired after an hour); nothing is reachable for it
+  until someone approves it. Approve only when the machine shows the same join code - the code is derived
+  from the agent's token, so a different machine announcing the same name shows a different one. An
+  approved agent may update its own address (it proves itself with its token); rejected ones are blocked
+  for a week.
+- **Copying weights between machines:** the hub asks the source machine (with its agent token) for a
+  read-only *share* of one registered weights path. It is valid for 6 hours and readable only with its
+  random ticket, which the hub hands to the copying machine; that machine never gets the source's agent
+  token. Share URLs (`GET /agent/v1/shares/...`) need no dashboard login or agent token, only the ticket.
+  Symlinks leaving the shared folder are not followed (except, in a Hugging Face cache, to the same
+  model's blobs). Every file is checked against the source's SHA-256 on arrival, so damaged or swapped
+  files are rejected - but over plain HTTP the weights themselves travel unencrypted.
 - *Import script* runs user-supplied shell scripts in a restricted, but **not sandboxed**, environment.
 - Agents are trusted by the hub: a compromised agent can send misleading status data to the dashboard.
 

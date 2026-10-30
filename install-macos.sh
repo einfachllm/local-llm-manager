@@ -84,7 +84,11 @@ case "$(setting DGXM_HOST)" in
   tailscale)  IP="$("$TS_CLI" ip -4 2>/dev/null | head -n 1 || true)"; IP="${IP:-$(hostname -s)}" ;;
   *)          IP="$(setting DGXM_HOST)" ;;
 esac
-if [ "$(setting DGXM_MODE)" = "agent" ]; then
+if [ "$(setting DGXM_MODE)" = "agent" ] && [ -n "$(setting DGXM_HUB_URL)" ]; then
+  CODE="$(.venv/bin/python -m local_llm_manager.joining code "$(setting DGXM_AGENT_TOKEN)")"
+  echo "Installed as agent. It asks the hub $(setting DGXM_HUB_URL) to add it."
+  echo "On the hub, open Hosts and approve it only if it shows this code:  ${CODE}"
+elif [ "$(setting DGXM_MODE)" = "agent" ]; then
   echo "Installed as agent. In the hub dashboard, Hosts -> Add host:"
   echo "  URL:   http://${IP}:${PORT:-8090}"
   echo "  Token: the DGXM_AGENT_TOKEN from ${APP_DIR}/.env"

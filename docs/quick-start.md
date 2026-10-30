@@ -67,11 +67,16 @@ and restart the service.
 
 ## 3. Start your first model
 
-1. Click **+ New recipe**.
-2. Pick a **framework**, e.g. vLLM. The preset fills in the image, command, port and health check.
-3. Set the **Model**: a Hugging Face id such as `Qwen/Qwen3-8B`, or a path inside the container.
-4. Check the **Command preview** next to the form, then **Save**.
+1. Click **⚡ Quick recipe** (shortcut `q`).
+2. Pick the **Model**: a folder or `.gguf` found in `DGXM_MODEL_DIR` on the host, registered weights, or a
+   Hugging Face id such as `Qwen/Qwen3-8B`.
+3. Pick **Settings from**: an engine default (vLLM, SGLang, llama.cpp, MLX on a Mac) or, once you have
+   one, a recipe that already works - its image, flags, env and caches are copied, only the model, name,
+   served model name and (optionally) the context length change.
+4. Check the **Command** shown below, then **Create**.
 5. Click **Start** on the new card. The status goes from *starting* to *loading* to *ready*.
+
+Every field by hand: **+ New recipe**.
 
 !!! tip "Already have a start script?"
     Use **📋 Import docker run / script…** instead of steps 1–3. Paste the script or `docker run`

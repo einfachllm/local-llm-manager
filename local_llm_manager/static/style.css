@@ -142,7 +142,7 @@ main { padding: 24px; max-width: 1500px; margin: 0 auto; }
 }
 .badge.sglang { background: rgba(167,123,243,.15); color: var(--purple); }
 .badge.tensorfold { background: rgba(34,197,139,.15); color: var(--green); }
-.badge.llamacpp, .badge.custom { background: rgba(240,180,41,.15); color: var(--yellow); }
+.badge.llamacpp, .badge.llamacpp-native, .badge.custom { background: rgba(240,180,41,.15); color: var(--yellow); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 13px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; text-align: right; word-break: break-all; }
@@ -164,6 +164,7 @@ main { padding: 24px; max-width: 1500px; margin: 0 auto; }
 .table td.msg { white-space: pre-wrap; word-break: break-word; max-width: 560px; font-size: 13px; }
 .ok { color: var(--green); }
 .bad { color: var(--red); }
+.warn { color: var(--yellow); }
 .empty { color: var(--muted); padding: 24px; text-align: center; }
 
 /* dialogs */
@@ -579,3 +580,42 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
 .discover-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; border-top: 1px solid var(--border); }
 .discover-row code { word-break: break-all; }
 .discover-row .btn { margin-left: auto; }
+
+/* Quick recipe */
+.quick-notes { margin: 4px 18px 10px; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.quick-notes:empty { display: none; }
+.quick-preview pre { max-height: 220px; }
+
+/* Copy to other hosts */
+.copy-hint { margin: 12px 18px 0; }
+.copy-hosts { display: flex; flex-direction: column; gap: 6px; padding: 12px 18px; }
+.copy-host { display: grid; grid-template-columns: auto minmax(90px, auto) 1fr; gap: 10px; align-items: baseline;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.copy-host-check { font-size: 12px; }
+.agent-copies { margin-top: 6px; font-size: 13px; color: var(--muted); }
+
+/* Background jobs (e.g. restarting copies on several hosts): run on the hub, shown bottom left */
+.jobs { position: fixed; left: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 100;
+  max-width: min(420px, calc(100vw - 36px)); }
+.job { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.25); font-size: 13px; }
+.job-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 600; }
+.job-head .x { margin-left: auto; }
+.job-item { display: grid; grid-template-columns: 1.4em 1fr auto; gap: 6px; align-items: baseline; padding: 2px 0; }
+.job-item .muted { font-size: 12px; }
+.job-msg { grid-column: 2 / -1; font-size: 12px; overflow-wrap: anywhere; }
+.img-pull { margin-top: 4px; font-family: inherit; }
+.transfer-once { display: block; margin: 0 18px 8px; font-size: 13px; }
+.transfer-once small { color: var(--muted); }
+.transfer-warning { margin: 0 18px 8px; padding: 8px 10px; border: 1px solid rgba(240,180,41,.5); border-radius: 8px;
+  color: var(--yellow); font-size: 13px; }
+.weight-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+
+/* Machines asking to be added */
+.tab-count { margin-left: 6px; padding: 0 6px; border-radius: 9px; background: var(--yellow); color: #111; font-size: 11px; font-weight: 700; }
+.join-requests { margin: 0 0 16px; padding: 12px 14px; border: 1px solid rgba(240,180,41,.5); border-radius: 10px; background: var(--panel); }
+.join-requests h3 { margin: 0 0 4px; font-size: 15px; }
+.join-row { display: grid; grid-template-columns: 1fr auto auto; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+.join-code { font-size: 22px; font-weight: 700; letter-spacing: 3px; }
+.join-actions { display: flex; gap: 6px; }
+@media (max-width: 700px) { .join-row { grid-template-columns: 1fr; } }

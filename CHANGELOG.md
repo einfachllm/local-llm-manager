@@ -7,6 +7,50 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Machines can ask to be added:** with `DGXM_HUB_URL` in an agent's `.env`, the agent announces itself to
+  the hub, which lists it under **Hosts → Asking to be added** (with a counter on the Hosts tab). Approve
+  it with **Codes match – add** when the hub shows the same join code as the machine (installer output,
+  log, its start page); the code comes from the agent's token. Rejected machines stay blocked for a week,
+  unanswered requests expire after an hour, and an approved agent reports a changed address itself. New
+  `POST /api/join` (no login), `GET /api/join-requests`, `POST /api/join-requests/{id}/approve|reject`,
+  and `DGXM_HUB_URL`, `DGXM_AGENT_URL`, `DGXM_AGENT_NAME`.
+- **Copy weights between machines** (⇉ Copy… on a weights entry, and the new default of "Download on
+  hosts": download once, copy to the others): machines copy straight from each other over the network,
+  snowball-style (every finished machine serves the next one), with a SHA-256 check of every file, files
+  already there skipped, interrupted files resumed, a free-space check first and GB / MB/s / time left in
+  the jobs panel. The source only grants a read-only, ticket-protected share of that one folder for 6 hours
+  (`/agent/v1/shares`); no SSH and no agent token leave the hub. Big files are served and read in 4 MB
+  pieces over a plain socket (about 3-4x faster than before in tests). New `POST /api/jobs/copy` and
+  `DGXM_PUBLIC_URL`.
+- **Encryption shown per host:** the Hosts tab marks each host 🔒 Tailscale, 🔒 HTTPS or ⚠ plain HTTP, and
+  the copy / download dialog warns when weights would travel unencrypted.
+- **Pull and download on hosts:** "⤓ Pull…" on an image in the Images tab runs `docker pull` on the hosts
+  you tick, all at the same time; "⬇ Download on hosts…" in the Weights tab (or "⬇ Download…" on an entry)
+  downloads a Hugging Face model on each host into its `DGXM_MODEL_DIR` with `hf download` and registers
+  the folders in the Weights tab. Each host runs its transfer itself in the background, so a flaky
+  connection or a hub restart does not interrupt it; the hub follows the progress (pull output, GB so far)
+  in the jobs panel. Needs the `hf` CLI on each host (`pip install -U huggingface_hub`, or `DGXM_HF_BIN`);
+  gated models need `HF_TOKEN` in that host's `.env`. New endpoints `POST /api/jobs/pull`,
+  `POST /api/jobs/download` and, on agents, `POST /agent/v1/transfers` / `GET /agent/v1/transfers/{id}`.
+- **Background jobs:** restarting the copies of a recipe after a sync runs on the hub - all hosts at the
+  same time, one after another on the same host - and keeps going when the browser is closed. A panel
+  bottom left shows each copy (waiting / restarting / started / failed with the reason) and comes back after
+  a reload. New endpoints `POST /api/jobs/restart`, `GET /api/jobs`, `GET /api/jobs/{id}`.
+- **Copy to other hosts** (⇉ on a card): one recipe on several machines - e.g. every employee's DGX
+  Spark. The dialog checks per host whether the weights and the Docker image are there and who else uses
+  the port; each host gets a copy `<recipe> · <host>` with the same settings and port. Copies stay linked:
+  cards show **✓ in sync** / **⟳ differs**, saving the original offers to update every copy (and to restart
+  running ones), **sync** catches one up, **unlink** makes a copy a recipe of its own. New endpoints
+  `POST /api/recipes/{id}/copies[/check]`, `/sync`, `/unlink`; recipes get a `copy_of` column.
+- **⚡ Quick recipe** (shortcut `q`): a new model recipe in one dialog - pick the weights (found on the
+  host, registered, or a Hugging Face id) and the settings to copy (a recipe that already works, or an
+  engine default), optionally the context length. Image, flags, env and caches come from the base; the
+  model is mounted via `{weights}`, the served model name follows the new name, and a recipe on the same
+  host keeps its port so **Switch to** swaps the two. Found folders are registered in the Weights tab on
+  create; flags that belong to one model (parsers, quantization, `--hf-overrides`, …) are pointed out.
+  The dialog shows the resulting command before anything is saved (new `POST /api/recipes/quick`).
+- **Native presets** "llama.cpp server (native)" (`llama-server`) and "MLX (native, Apple silicon)"
+  (`mlx_lm.server`).
 - **Documentation site** (MkDocs + Material) with a Quick start and a Several machines guide, published to
   GitHub Pages by a new `Docs` workflow: `main` updates the `dev` version, release tags add `stable`.
 - **Weights registry:** the Weights tab registers model weights with their path on each host. A recipe
@@ -69,6 +113,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `GET /agent/v1/images` (older agents are reported as too old to list images).
 
 ### Changed
+- **One lock per host instead of one for the whole hub:** start, stop, restart and switch on one machine
+  no longer wait for a slow action on another one (e.g. a start pulling a large image). Actions on the same
+  machine still run one after another. "Stop all" and "Free memory" on every host now run on all hosts at
+  once, and a host that is offline no longer stops the others from being handled.
 - **Framework presets trimmed to what is actually used:** the TensorRT-LLM preset (Docker) and the
   MLX / llama.cpp (native) presets are gone. The native-process section now offers **TensorFold** and
   **Custom (native)**; imported `mlx_lm.server` / `llama-server` / `trtllm-serve` scripts and Mac

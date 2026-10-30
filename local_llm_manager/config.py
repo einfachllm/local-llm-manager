@@ -15,6 +15,12 @@ PORT = int(os.environ.get("DGXM_PORT", "8090"))
 # so a hub on another machine can run models here.
 MODE = os.environ.get("DGXM_MODE", "hub").strip().lower()
 AGENT_TOKEN = os.environ.get("DGXM_AGENT_TOKEN", "")
+# Agent mode: ask this hub to add this machine (approved there by comparing a code, see joining.py).
+HUB_URL = os.environ.get("DGXM_HUB_URL", "").strip().rstrip("/")
+# How the hub reaches this agent (default: http://<DGXM_HOST or this machine's name>:<DGXM_PORT>) and
+# the name it is listed under (default: this machine's name).
+AGENT_URL = os.environ.get("DGXM_AGENT_URL", "").strip().rstrip("/")
+AGENT_NAME = os.environ.get("DGXM_AGENT_NAME", "").strip()
 
 # Optional HTTP Basic auth. Strongly recommended when the port is reachable from the network,
 # since this service can run arbitrary docker containers.
@@ -36,6 +42,11 @@ MODEL_DIRS = [d.strip() for d in os.environ.get("DGXM_MODEL_DIR", "~/models").re
 
 # Docker binary and timeouts.
 DOCKER_BIN = os.environ.get("DGXM_DOCKER", "docker")
+# Address other machines reach this hub at, e.g. http://spark1:8090 - needed when weights are copied
+# *from* the hub's own host. Default: the address the dashboard was opened with (unless localhost).
+PUBLIC_URL = os.environ.get("DGXM_PUBLIC_URL", "").strip().rstrip("/")
+# Hugging Face CLI for "Download on hosts" (default: `hf`, else `huggingface-cli`, whichever is on PATH).
+HF_BIN = os.environ.get("DGXM_HF_BIN", "")
 STOP_TIMEOUT = int(os.environ.get("DGXM_STOP_TIMEOUT", "30"))
 
 # Image used to drop the page cache when the manager itself lacks permission

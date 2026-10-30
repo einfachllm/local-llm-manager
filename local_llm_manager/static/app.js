@@ -128,12 +128,60 @@ function endpointHost(hostId) {
 
 async function loadHosts() {
   try {
-    state.hosts = await api("/api/hosts");
+    [state.hosts, state.joins] = await Promise.all([api("/api/hosts"), api("/api/join-requests").catch(() => state.joins ?? [])]);
   } catch { return; }
   renderHostsStrip();
   renderHostOptions();
+  renderJoinRequests();
   if (state.tab === "hosts") renderHosts();
 }
+
+/* Machines asking to be added (DGXM_HUB_URL on that machine): approve only if the codes match. */
+function renderJoinRequests() {
+  const pending = (state.joins || []).filter((r) => r.state === "pending");
+  const rejected = (state.joins || []).filter((r) => r.state === "rejected");
+  $("#join-count").textContent = pending.length || "";
+  $("#join-count").classList.toggle("hidden", !pending.length);
+  const box = $("#join-requests");
+  box.classList.toggle("hidden", !pending.length && !rejected.length);
+  if (!pending.length && !rejected.length) { box.innerHTML = ""; return; }
+  const info = (r) => [r.info?.platform && (PLATFORM[r.info.platform] ?? r.info.platform), r.info?.machine, r.info?.version && `v${r.info.version}`].filter(Boolean).join(" · ");
+  box.innerHTML = `<h3>🔔 Asking to be added</h3>
+    <p class="hint">Approve a machine only if <b>it shows the same code</b> – in its installer output, its log
+      (<code>journalctl -u local-llm-manager</code>) or its start page. Another machine using the same name has another code.</p>
+    ${pending.map((r) => `<div class="join-row" data-join="${r.id}">
+      <div><b>${esc(maskAddr(r.name))}</b> ${transportBadge(r)}<br><small class="muted">${esc(maskUrl(r.url))} · from ${esc(blurText(r.ip))}${info(r) ? ` · ${esc(info(r))}` : ""}<br>asked ${esc(fmtTime(r.created_at))}</small></div>
+      <div class="join-code mono" title="Compare with the code the machine shows">${esc(r.code)}</div>
+      <div class="join-actions"><button class="btn small primary" data-join-act="approve">Codes match – add</button>
+        <button class="btn small ghost danger" data-join-act="reject">Reject</button></div></div>`).join("")}
+    ${rejected.length ? `<small class="muted">Rejected (blocked for a week): ${rejected.map((r) => `${esc(maskAddr(r.name))} <span class="mono">${esc(r.code)}</span>`).join(", ")}</small>` : ""}`;
+}
+
+$("#join-requests").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("[data-join-act]");
+  if (!b) return;
+  const id = Number(b.closest("[data-join]").dataset.join);
+  const r = state.joins.find((x) => x.id === id);
+  try {
+    if (b.dataset.joinAct === "approve") {
+      if (!confirm(`Add “${r.name}” (${r.url})?\n\nOnly if the machine shows the code ${r.code}.`)) return;
+      let res;
+      try {
+        res = await api(`/api/join-requests/${id}/approve`, { method: "POST", body: {} });
+      } catch (e) {
+        if (!/exists already/.test(e.message)) throw e;
+        const name = prompt(`${e.message}\n\nName for this machine:`, `${r.name}-2`);
+        if (!name) return;
+        res = await api(`/api/join-requests/${id}/approve`, { method: "POST", body: { name } });
+      }
+      toast(`${res.name} added${res.online ? "" : " – not reachable yet at its address"}`, res.online ? "ok" : "bad");
+    } else {
+      if (!confirm(`Reject “${r.name}” (code ${r.code})? It is blocked for a week.`)) return;
+      await api(`/api/join-requests/${id}/reject`, { method: "POST" });
+    }
+    loadHosts();
+  } catch (e) { toast(e.message, "bad"); }
+});
 
 function renderHostsStrip() {
   $("#hosts-strip").innerHTML = state.hosts.map((h) => {
@@ -217,6 +265,18 @@ function renderHostOptions() {
   // Editor selects are refreshed when their dialog opens, so an open form keeps its choice.
 }
 
+// Hub ↔ agent traffic (and copies between machines) is only encrypted over Tailscale or HTTPS.
+const TRANSPORT = {
+  tailscale: ["ok", "🔒 Tailscale", "Encrypted by Tailscale (WireGuard)"],
+  https: ["ok", "🔒 HTTPS", "Encrypted by HTTPS"],
+  plain: ["warn", "⚠ plain HTTP", "Not encrypted: the agent token, commands and copied weights travel readable on the network. Use the host's Tailscale name (or HTTPS) as its address."],
+};
+function transportBadge(h) {
+  const t = TRANSPORT[h.transport];
+  return t ? `<span class="chip small ${t[0] === "ok" ? "secret ok" : "warn-chip"}" title="${esc(t[2])}">${t[1]}</span>` : "";
+}
+const plainHosts = (ids) => state.hosts.filter((h) => ids.includes(h.id) && h.transport === "plain");
+
 function renderHosts() {
   renderPorts();
   const running = (id) => state.recipes.filter((r) => r.host_id === id && RUNNING.includes(r.status)).length;
@@ -225,7 +285,7 @@ function renderHosts() {
     const m = h.system?.memory;
     const gpu = h.system?.gpus?.[0];
     return `<tr data-id="${h.id}">
-      <td><b>${esc(maskAddr(h.name))}</b>${h.is_local ? ` <span class="chip small on">this machine</span>` : `<br><small class="host-url">${esc(maskUrl(h.url))}</small>`}</td>
+      <td><b>${esc(maskAddr(h.name))}</b>${h.is_local ? ` <span class="chip small on">this machine</span>` : `<br><small class="host-url">${esc(maskUrl(h.url))}</small> ${transportBadge(h)}`}</td>
       <td>${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span><br><small>${esc(blurHostText(h.error || "", h.url))}</small>`}</td>
       <td>${h.info ? `${esc(PLATFORM[h.info.platform] ?? h.info.platform)} · ${esc(h.info.machine)}<br><small>${esc(maskAddr(h.info.hostname))} · v${esc(h.info.version)}</small>` : "–"}</td>
       <td style="min-width:160px">${m ? `<div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
@@ -478,6 +538,32 @@ function imageShort(image) {
   return `${repo.split("/").pop()}:${t}`;
 }
 
+// A copy is named "<original> · <host>": with Blur on, its host part is masked like everywhere else.
+function recipeTitle(r) {
+  const host = hostName(r.host_id);
+  return state.blur && r.copy_of && host ? r.name.split(host).join(maskAddr(host)) : r.name;
+}
+
+// Copies on other hosts: on the original how many and whether all match, on a copy whether it matches.
+function copiesFact(r) {
+  if (r.copy_of) {
+    const o = state.recipes.find((x) => x.id === r.copy_of);
+    const same = !r.differs?.length;
+    return ["Copy of", `${esc(o?.name ?? "?")} ${same ? `<span class="ok" title="Same settings as the original">✓ in sync</span>`
+      : `<span class="warn" title="Differs in: ${esc(r.differs.join(", "))}">⟳ differs</span>
+         <button class="copy-mini" data-act="sync" title="Take the original's settings">sync</button>`}
+      <button class="copy-mini" data-act="unlink" title="Make this an original of its own: syncing no longer changes it">unlink</button>`];
+  }
+  if (!r.copies?.length) return null;
+  const copies = r.copies.map((id) => state.recipes.find((x) => x.id === id)).filter(Boolean);
+  const stale = copies.filter((c) => c.differs?.length);
+  const where = copies.map((c) => maskAddr(hostName(c.host_id))).join(", ");
+  return ["Copies", `<span title="${esc(where)}">on ${copies.length} host${copies.length === 1 ? "" : "s"}</span> ${stale.length
+    ? `<span class="warn" title="Differ: ${esc(stale.map((c) => maskAddr(hostName(c.host_id))).join(", "))}">⟳ ${stale.length} differ${stale.length === 1 ? "s" : ""}</span>
+       <button class="copy-mini" data-act="sync" title="Give all copies this recipe's settings">sync all</button>`
+    : `<span class="ok">✓ in sync</span>`}`];
+}
+
 function cardHtml(r) {
   const busy = state.busy.has(r.id);
   const running = RUNNING.includes(r.status);
@@ -507,6 +593,7 @@ function cardHtml(r) {
           <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
           <button class="btn small ghost" data-act="edit">Edit</button>
           <button class="btn small ghost icon" data-act="duplicate" title="Duplicate" aria-label="Duplicate">⧉</button>
+          ${multiHost() ? `<button class="btn small ghost icon" data-act="copyto" title="Copy to other hosts – kept in sync with this one" aria-label="Copy to other hosts">⇉</button>` : ""}
           <button class="btn small ghost danger icon" data-act="delete" ${running ? "disabled" : ""} title="${running ? "Stop it before deleting" : "Delete"}" aria-label="Delete">🗑</button>`;
   const endpoint = (running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(maskEndpoint(url))}/v1</a>`
     : `<span class="muted">${esc(maskEndpoint(url))}/v1</span>`)
@@ -519,6 +606,7 @@ function cardHtml(r) {
     ["Endpoint", endpoint],
     r.runtime === "docker" && r.image ? ["Image", `<span title="${esc(r.image)}">${esc(imageShort(r.image))}</span>`] : null,
     r.est_memory_gb ? ["Memory", `~${r.est_memory_gb} GB`] : null,
+    copiesFact(r),
     r.container ? [r.runtime === "process" ? "Process" : "Container",
       `<span title="${esc(r.container_name)}">${esc(r.container.status)}</span>`] : null,
   ].filter(Boolean);
@@ -529,7 +617,7 @@ function cardHtml(r) {
         <div class="row-icon" aria-hidden="true">🧠</div>
         <div class="row-main">
           <div class="row-title">
-            <span class="card-title">${esc(r.name)}</span>
+            <span class="card-title">${esc(recipeTitle(r))}</span>
             <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
             ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
@@ -547,7 +635,7 @@ function cardHtml(r) {
   return `
       <article class="card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
         <div class="card-head">
-          <div class="card-title">${esc(r.name)}</div>
+          <div class="card-title">${esc(recipeTitle(r))}</div>
           <div class="card-head-right">
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
             <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
@@ -580,7 +668,7 @@ function agentCardHtml(r) {
         <div class="agent-icon" aria-hidden="true">🤖</div>
         <div class="agent-main">
           <div class="agent-title-row">
-            <span class="card-title">${esc(r.name)}</span>
+            <span class="card-title">${esc(recipeTitle(r))}</span>
             <span class="badge agent" title="An agent: uses a model, kept running by “Switch to”">Agent · ${r.runtime === "process" ? "native" : "Docker"}</span>
             ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
@@ -595,6 +683,7 @@ function agentCardHtml(r) {
             ${(r.tags || []).map((t) =>
               `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}
           </div>
+          ${copiesFact(r) ? `<div class="agent-copies">${copiesFact(r)[0]}: ${copiesFact(r)[1]}</div>` : ""}
           ${dups.length ? `<div class="agent-warn">⚠ ${dups.length === 1 ? "Another copy" : `${dups.length} other copies`} of this command
             ${dups.length === 1 ? "runs" : "run"} outside the manager (pid ${dups.map(Number).join(", ")}). Two gateways on one bot
             token lose messages: kill ${dups.length === 1 ? "it" : "them"}, then restart this recipe.</div>` : ""}
@@ -607,6 +696,7 @@ function agentCardHtml(r) {
           <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
           <button class="btn small ghost" data-act="edit">Edit</button>
           <button class="btn small ghost" data-act="duplicate">Duplicate</button>
+          ${multiHost() ? `<button class="btn small ghost" data-act="copyto" title="Copy to other hosts – kept in sync with this one">Copy to hosts</button>` : ""}
           <button class="btn small ghost danger" data-act="delete" ${running ? "disabled" : ""}>Delete</button>
         </div>
       </article>`;
@@ -790,6 +880,13 @@ $("#recipes").addEventListener("click", async (ev) => {
       await loadRecipes();
       openRecipeEditor(copy);
     } catch (e) { toast(e.message, "bad"); }
+  } else if (act === "copyto") {
+    openCopyTo(r);
+  } else if (act === "sync") {
+    await syncCopies(r.id);
+  } else if (act === "unlink") {
+    if (!confirm(`Unlink “${r.name}” from its original? It keeps its settings, and syncing no longer changes it.`)) return;
+    try { await api(`/api/recipes/${id}/unlink`, { method: "POST" }); await loadRecipes(); } catch (e) { toast(e.message, "bad"); }
   } else if (act === "pin") {
     try {
       await api(`/api/recipes/${id}`, { method: "PUT", body: recipeBodyFrom(r, { pinned: !r.pinned }) });
@@ -1105,6 +1202,10 @@ recipeForm.addEventListener("submit", async (ev) => {
     }
     $("#dlg-recipe").close();
     toast("Recipe saved", "ok");
+    const copies = editingRecipe ? state.recipes.filter((x) => x.copy_of === editingRecipe.id) : [];
+    if (copies.length && confirm(`“${saved.name}” has ${copies.length} cop${copies.length === 1 ? "y" : "ies"} on other hosts. Update ${copies.length === 1 ? "it" : "them"} too?`)) {
+      await syncCopies(saved.id);
+    }
     const wasRunning = editingRecipe && ["ready", "loading", "starting"].includes(editingRecipe.status);
     if (wasRunning && confirm("This model is running. Restart it now so the changes take effect?")) {
       await runAction(saved.id, `/api/recipes/${saved.id}/restart`);
@@ -1247,7 +1348,10 @@ function renderWeights() {
   }
   $("#weights").innerHTML = list.map((w) => `<tr>
       <td><button type="button" class="link weight-name" data-weight="${w.id}" title="Edit name, source and paths">${esc(w.name)}</button>
-        ${w.source ? `<div class="muted mono weight-source">${esc(w.source)}</div>` : ""}</td>
+        ${w.source ? `<div class="muted mono weight-source">${esc(w.source)}</div>` : ""}
+        <span class="weight-actions">
+          ${w.hosts.some((c) => c.state === "present") && state.hosts.length > 1 ? `<button class="btn small ghost" data-copy-weight="${w.id}" title="Copy from the hosts that have it to the others, over your network">⇉ Copy…</button>` : ""}
+          <button class="btn small ghost" data-download-weight="${w.id}" title="Download from Hugging Face on the hosts that don't have it">⬇ Download…</button></span></td>
       <td>${w.recipe_ids.length ? w.recipe_ids.map((id) => {
         const r = state.recipes.find((x) => x.id === id);
         return r ? `<button class="chip small" data-recipe="${r.id}" title="Edit this recipe">${esc(r.name)}</button>` : "";
@@ -1257,6 +1361,22 @@ function renderWeights() {
 }
 
 $("#weights").addEventListener("click", (ev) => {
+  const cp = ev.target.closest("[data-copy-weight]");
+  if (cp) {
+    const w = weightsData.weights.find((x) => x.id === Number(cp.dataset.copyWeight));
+    openTransfer({ kind: "copy", weight_id: w.id, label: w.name, sources: w.hosts.filter((c) => c.state === "present").map((c) => c.host_id) },
+      w.hosts.filter((c) => c.state !== "present").map((c) => c.host_id));
+    return;
+  }
+  const dl = ev.target.closest("[data-download-weight]");
+  if (dl) {
+    const w = weightsData.weights.find((x) => x.id === Number(dl.dataset.downloadWeight));
+    const path = w.hosts.map((c) => c.path).find(Boolean) || "";
+    const folder = path.replace(/\/+$/, "").split("/").pop() || (/^[\w.-]+$/.test(w.name) ? w.name : "");
+    openTransfer({ kind: "download", repo: w.source, name: folder, weight_id: w.id },
+      w.hosts.filter((c) => c.state !== "present").map((c) => c.host_id));
+    return;
+  }
   const r = ev.target.closest("[data-recipe]");
   if (r) { const rec = state.recipes.find((x) => x.id === Number(r.dataset.recipe)); if (rec) openRecipeEditor(rec); return; }
   const b = ev.target.closest("[data-weight]");
@@ -1489,6 +1609,400 @@ $("#form-import").addEventListener("submit", async (ev) => {
     btn.textContent = "Import";
   }
 });
+
+/* ---------------- copies on other hosts ---------------- */
+
+async function syncCopies(id) {
+  try {
+    const res = await api(`/api/recipes/${id}/sync`, { method: "POST" });
+    toast(`${res.updated.length} cop${res.updated.length === 1 ? "y" : "ies"} updated`, "ok");
+    await loadRecipes();
+    const running = res.running.map((rid) => state.recipes.find((x) => x.id === rid)).filter(Boolean);
+    if (running.length && confirm(`Running with the old settings: ${running.map((x) => `“${x.name}”`).join(", ")}.\n\nRestart ${running.length === 1 ? "it" : "them"} now?`)) {
+      await startRestartJob(running.map((x) => x.id), "Restarting copies");
+    }
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+/* Background jobs: they run on the hub (closing the browser does not stop them); this only shows them. */
+
+const jobs = new Map();
+let jobTimer = null;
+const JOB_ICON = { waiting: `<span class="muted" title="Waiting for this host">⏸</span>`, running: "⏳",
+  ok: `<span class="ok">✓</span>`, failed: `<span class="bad">✗</span>` };
+const JOB_DONE = { restart: "started", pull: "pulled", download: "done", copy: "copied" };
+
+function jobItemState(j, i) {
+  if (i.state === "failed") return "failed";
+  if (i.state === "waiting") return "waiting";
+  if (i.state === "running") return j.kind === "restart" ? "restarting…" : esc(blurText(i.progress || "running…")).slice(0, 60);
+  if (i.message === "already there") return "already there";
+  const size = (i.progress || "").match(/([\d.]+) GB(?!.*GB)/)?.[1];
+  return `${JOB_DONE[j.kind] ?? "done"}${(j.kind === "download" || j.kind === "copy") && size ? ` · ${size} GB` : ""}`;
+}
+
+// A job that changes what hosts have: refresh what the open tab shows once it is done.
+function afterJob(j) {
+  loadRecipes();
+  if (j.kind === "download" || j.kind === "copy") afterWeightsChange();
+  if (j.kind === "pull" && state.tab === "images") loadImages();
+}
+
+function showJob(job) {
+  jobs.set(job.id, job);
+  renderJobs();
+  pollJobs();
+}
+
+async function startRestartJob(ids, title) {
+  try {
+    showJob(await api("/api/jobs/restart", { method: "POST", body: { recipe_ids: ids, title } }));
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+/* Pull an image / download weights on several hosts: each host does it itself, the panel shows progress. */
+
+let transferSpec = null;
+
+// spec: { kind: "pull", image } or { kind: "download", repo, name, weight_id }; `missing` = host ids to tick.
+function openTransfer(spec, missing = []) {
+  transferSpec = spec;
+  const form = $("#form-transfer");
+  form.reset();
+  $("#transfer-error").textContent = "";
+  const pull = spec.kind === "pull", copy = spec.kind === "copy";
+  $("#transfer-title").textContent = pull ? "Pull on hosts" : copy ? `Copy “${spec.label}” to hosts` : "Download on hosts";
+  $("#transfer-hint").innerHTML = pull
+    ? `Each host runs <code>docker pull ${esc(spec.image)}</code> itself (private registries: <code>docker login</code> there once).`
+    : copy ? `Copied host to host over your network – the hub only arranges it. Every host that has the weights serves
+        one copy at a time and each finished host joins in, so many hosts are done in a few rounds. Each file is checked
+        with SHA-256; files a host already has are skipped, and an interrupted copy continues where it stopped.`
+    : `Downloads from Hugging Face (needs <code>hf</code> on the host: <code>pip install -U huggingface_hub</code>; gated
+        models: <code>HF_TOKEN</code> in its <code>.env</code>). The folders are registered in the Weights tab.`;
+  $$(".hf-only", form).forEach((el) => el.classList.toggle("hidden", pull || copy));
+  form.elements.once.checked = true;
+  form.elements.repo.value = spec.repo ?? "";
+  form.elements.name.value = spec.name ?? "";
+  $("#transfer-hosts").innerHTML = state.hosts.map((h) => `<label class="copy-host">
+      <input type="checkbox" value="${h.id}" ${missing.includes(h.id) ? "checked" : ""} ${h.online ? "" : "disabled"}>
+      <span class="copy-host-name">${esc(maskAddr(h.name))}</span>
+      <span class="copy-host-check muted">${!h.online ? "offline" : missing.includes(h.id) ? "missing here" : copy ? "has it" : "has it already / not checked"}
+        ${transportBadge(h)}</span></label>`).join("");
+  updateTransferWarning();
+  $("#dlg-transfer").showModal();
+}
+
+// Copies (and "download once") send weights between machines: warn when that is not encrypted.
+function updateTransferWarning() {
+  const box = $("#transfer-warning");
+  const spec = transferSpec;
+  const ticked = $$("#transfer-hosts input:checked").map((i) => Number(i.value));
+  const once = spec.kind === "download" && $("#form-transfer").elements.once.checked && ticked.length > 1;
+  const involved = spec.kind === "copy" ? [...ticked, ...(spec.sources || [])] : once ? ticked : [];
+  const plain = plainHosts(involved);
+  box.classList.toggle("hidden", !plain.length);
+  box.innerHTML = plain.length ? `⚠ Not encrypted: ${plain.map((h) => `<b>${esc(maskAddr(h.name))}</b>`).join(", ")}
+    ${plain.length === 1 ? "is" : "are"} reached over plain HTTP, so the weights travel readable on the network (the
+    SHA-256 check still catches damaged or swapped files). Use Tailscale names (or HTTPS) as host addresses to encrypt it.` : "";
+  $("#transfer-once-row").classList.toggle("hidden", spec.kind !== "download");
+}
+$("#transfer-hosts").addEventListener("change", updateTransferWarning);
+$("#form-transfer").elements.once.addEventListener("change", updateTransferWarning);
+
+$("#form-transfer").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const f = ev.target.elements;
+  const host_ids = $$("#transfer-hosts input:checked").map((i) => Number(i.value));
+  if (!host_ids.length) { $("#transfer-error").textContent = "Pick at least one host."; return; }
+  try {
+    const job = transferSpec.kind === "pull"
+      ? await api("/api/jobs/pull", { method: "POST", body: { image: transferSpec.image, host_ids } })
+      : transferSpec.kind === "copy"
+      ? await api("/api/jobs/copy", { method: "POST", body: { weight_id: transferSpec.weight_id, host_ids } })
+      : await api("/api/jobs/download", { method: "POST", body: { repo: f.repo.value.trim(), name: f.name.value.trim(),
+        host_ids, weight_id: transferSpec.weight_id ?? null, once: f.once.checked } });
+    $("#dlg-transfer").close();
+    showJob(job);
+  } catch (e) {
+    $("#transfer-error").textContent = e.message;
+  }
+});
+
+$("#btn-download-weights").addEventListener("click", () =>
+  openTransfer({ kind: "download" }, state.hosts.filter((h) => h.online).map((h) => h.id)));
+
+function renderJobs() {
+  $("#jobs").innerHTML = [...jobs.values()].map((j) => {
+    const done = j.items.filter((i) => i.state === "ok" || i.state === "failed").length;
+    return `<div class="job" data-job="${esc(j.id)}">
+      <div class="job-head">${j.done ? (j.items.some((i) => i.state === "failed") ? `<span class="bad">✗</span>` : `<span class="ok">✓</span>`) : "⏳"}
+        ${esc(j.title)} <span class="muted">${done} / ${j.items.length}</span>
+        ${j.done ? `<button type="button" class="x" data-close-job="${esc(j.id)}" title="Close">&times;</button>` : ""}</div>
+      ${j.items.map((i) => `<div class="job-item">${JOB_ICON[i.state] ?? ""}
+        <span>${i.name ? `${esc(recipeTitle({ ...i, copy_of: 1 }))}${multiHost() ? ` <span class="muted">⌂ ${esc(maskAddr(hostName(i.host_id)))}</span>` : ""}`
+          : `⌂ ${esc(maskAddr(hostName(i.host_id)))}`}</span>
+        <span class="muted">${jobItemState(j, i)}</span>
+        ${i.state === "failed" ? `<span class="job-msg bad">${esc(blurText(i.message))}</span>` : ""}</div>`).join("")}
+    </div>`;
+  }).join("");
+}
+
+async function pollJobs() {
+  clearTimeout(jobTimer);
+  const open = [...jobs.values()].filter((j) => !j.done);
+  if (!open.length) return;
+  for (const j of open) {
+    try {
+      const fresh = await api(`/api/jobs/${j.id}`);
+      jobs.set(j.id, fresh);
+      if (fresh.done) {
+        const failed = fresh.items.filter((i) => i.state === "failed").length;
+        toast(`${fresh.title}: ${failed ? `${failed} failed` : `all ${JOB_DONE[fresh.kind] ?? "done"}`}`, failed ? "bad" : "ok");
+        afterJob(fresh);
+        // Successful jobs close themselves; failed ones stay until closed, so the reason can be read.
+        if (!failed) setTimeout(() => { jobs.delete(fresh.id); renderJobs(); }, 30000);
+      }
+    } catch { jobs.delete(j.id); }  // the manager restarted: the job is gone
+  }
+  renderJobs();
+  jobTimer = setTimeout(pollJobs, 1500);
+}
+
+$("#jobs").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-close-job]");
+  if (b) { jobs.delete(b.dataset.closeJob); renderJobs(); }
+});
+
+// After a reload: show jobs that are still running on the hub.
+async function resumeJobs() {
+  try {
+    for (const j of await api("/api/jobs")) if (!j.done) jobs.set(j.id, j);
+  } catch { return; }
+  renderJobs();
+  pollJobs();
+}
+
+let copyFrom = null;
+
+async function openCopyTo(r) {
+  copyFrom = r.copy_of ? state.recipes.find((x) => x.id === r.copy_of) || r : r;
+  $("#copy-title").textContent = `Copy “${copyFrom.name}” to other hosts`;
+  $("#copy-error").textContent = "";
+  const hosts = state.hosts.filter((h) => h.id !== copyFrom.host_id);
+  const box = $("#copy-hosts");
+  box.innerHTML = hosts.map((h) => `<label class="copy-host"><input type="checkbox" value="${h.id}">
+      <span class="copy-host-name">${esc(maskAddr(h.name))}${h.online ? "" : " <small>(offline)</small>"}</span>
+      <span class="copy-host-check muted" data-check="${h.id}">checking…</span></label>`).join("")
+    || `<div class="muted">No other hosts: add them in the Hosts tab.</div>`;
+  $("#dlg-copy").showModal();
+  if (!hosts.length) return;
+  try {
+    const res = await api(`/api/recipes/${copyFrom.id}/copies/check`, { method: "POST", body: { host_ids: hosts.map((h) => h.id) } });
+    for (const c of res.hosts) {
+      const bits = [];
+      if (c.existing_copy) bits.push(`<span class="ok">has a copy – will be updated</span>`);
+      const w = c.weights;
+      if (w) bits.push(w.state === "present" ? `<span class="ok">✓ weights</span>`
+        : w.state === "unset" ? `<span class="bad">✗ weights: no path – set it in the Weights tab</span>`
+        : w.state === "missing" ? `<span class="bad">✗ weights not at ${esc(w.location || w.path)}</span>` : `<span class="muted">? weights</span>`);
+      if (c.image) bits.push(c.image === "present" ? `<span class="ok">✓ image</span>`
+        : c.image === "missing" ? `<span class="warn">image not there yet – pulled on first start</span>` : `<span class="muted">? image</span>`);
+      if (c.port_users.length) bits.push(`<span class="warn">port ${copyFrom.host_port} also used by ${esc(c.port_users.join(", "))}</span>`);
+      if (c.error) bits.push(`<span class="muted">${esc(blurHostText(c.error, hostById(c.host_id)?.url))}</span>`);
+      const cell = box.querySelector(`[data-check="${c.host_id}"]`);
+      if (cell) cell.innerHTML = bits.join(" · ") || `<span class="ok">✓ ready</span>`;
+      if (cell && c.existing_copy) cell.closest("label").querySelector("input").checked = true;
+    }
+  } catch (e) {
+    $("#copy-error").textContent = e.message;
+  }
+}
+
+$("#form-copy").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const ids = $$("#copy-hosts input:checked").map((i) => Number(i.value));
+  if (!ids.length) { $("#copy-error").textContent = "Pick at least one host."; return; }
+  try {
+    const res = await api(`/api/recipes/${copyFrom.id}/copies`, { method: "POST", body: { host_ids: ids } });
+    $("#dlg-copy").close();
+    toast(`${res.created.length} cop${res.created.length === 1 ? "y" : "ies"} created${res.updated.length ? `, ${res.updated.length} updated` : ""}`, "ok");
+    await loadRecipes();
+  } catch (e) {
+    $("#copy-error").textContent = e.message;
+  }
+});
+
+/* ---------------- quick recipe ---------------- */
+
+// Weights on the host + the settings of a recipe that already works (or a preset) = a new recipe.
+const quickForm = $("#form-quick");
+let quickFound = [];      // model folders / .gguf files on the hosts nobody registered yet
+let quickBaseTouched = false;
+let quickModelTouched = false;
+let quickTimer = null;
+let quickSeq = 0;
+
+const isGguf = (ref) => /\.gguf$/i.test(ref);
+
+function quickModelRef() {
+  const v = quickForm.elements.model_ref.value;
+  if (v !== "other") return v;
+  const t = quickForm.elements.other.value.trim();
+  return !t ? "" : /^[/~]/.test(t) ? `f:${t}` : `h:${t}`;
+}
+
+function renderQuickModels() {
+  const hostId = Number(quickForm.elements.host_id.value);
+  const cur = quickForm.elements.model_ref.value;
+  const reg = state.weights.filter((w) => w.locations[hostId]);
+  const found = quickFound.filter((f) => f.host_id === hostId);
+  const size = (f) => f.size_gb ? ` – ${f.size_gb} GB` : "";
+  quickForm.elements.model_ref.innerHTML = [
+    reg.length ? `<optgroup label="Registered weights">${reg.map((w) =>
+      `<option value="w:${w.id}">${esc(w.name)}</option>`).join("")}</optgroup>` : "",
+    found.length ? `<optgroup label="Found on this host">${found.map((f) =>
+      `<option value="f:${esc(f.path)}">${f.kind === "file" ? "📄" : "📁"} ${esc(f.name)}${size(f)}</option>`).join("")}</optgroup>` : "",
+    `<optgroup label="Other"><option value="other">Hugging Face id or another path…</option></optgroup>`,
+  ].join("");
+  const keep = quickModelTouched && [...quickForm.elements.model_ref.options].some((o) => o.value === cur);
+  quickForm.elements.model_ref.value = keep ? cur : quickForm.elements.model_ref.options[0].value;
+  $("#quick-other-row").classList.toggle("hidden", quickForm.elements.model_ref.value !== "other");
+}
+
+function renderQuickBases() {
+  const hostId = Number(quickForm.elements.host_id.value);
+  const cur = quickForm.elements.base.value;
+  const models = state.recipes.filter((r) => kindOf(r) === "model").sort(byName);
+  const opt = (r) => `<option value="r:${r.id}">${esc(r.name)} (${esc(state.meta.frameworks[r.framework]?.label ?? r.framework)})</option>`;
+  const here = models.filter((r) => r.host_id === hostId);
+  const elsewhere = models.filter((r) => r.host_id !== hostId);
+  const mac = hostPlatform(hostId) === "darwin";
+  const presets = Object.entries(state.meta.frameworks)
+    .filter(([k, v]) => !k.endsWith("custom") && (!mac || v.runtime === "process"));
+  quickForm.elements.base.innerHTML = [
+    here.length ? `<optgroup label="Recipes on this host">${here.map(opt).join("")}</optgroup>` : "",
+    elsewhere.length ? `<optgroup label="Recipes on other hosts">${elsewhere.map(opt).join("")}</optgroup>` : "",
+    `<optgroup label="Engine defaults">${presets.map(([k, v]) => `<option value="p:${k}">${esc(v.label)}</option>`).join("")}</optgroup>`,
+  ].join("");
+  if ([...quickForm.elements.base.options].some((o) => o.value === cur)) quickForm.elements.base.value = cur;
+}
+
+// The settings that most likely fit: a recipe on this host for the same kind of weights, else a preset.
+function suggestQuickBase() {
+  if (quickBaseTouched) return;
+  const hostId = Number(quickForm.elements.host_id.value);
+  const gguf = isGguf(quickModelRef());
+  const mac = hostPlatform(hostId) === "darwin";
+  const llama = (fw) => fw.startsWith("llamacpp");
+  const fits = (r) => kindOf(r) === "model" && r.host_id === hostId && (gguf ? llama(r.framework)
+    : !llama(r.framework) && (!mac || r.runtime === "process"));
+  const recent = state.recipes.filter(fits).sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""))[0];
+  quickForm.elements.base.value = recent ? `r:${recent.id}`
+    : `p:${gguf ? (mac ? "llamacpp-native" : "llamacpp") : mac ? "mlx" : "vllm"}`;
+}
+
+function quickBody(save) {
+  const f = quickForm.elements;
+  const ref = quickModelRef();
+  const base = f.base.value;
+  const body = { host_id: Number(f.host_id.value) || null, name: f.name.value.trim(), save,
+    context: f.context.value ? Number(f.context.value) : null };
+  if (base.startsWith("r:")) body.base_recipe_id = Number(base.slice(2));
+  else body.framework = base.slice(2);
+  if (ref.startsWith("w:")) body.weights_id = Number(ref.slice(2));
+  else if (ref.startsWith("f:")) body.path = ref.slice(2);
+  else if (ref.startsWith("h:")) body.model = ref.slice(2);
+  return body;
+}
+
+async function updateQuickPreview() {
+  const seq = ++quickSeq;
+  $("#quick-error").textContent = "";
+  if (!quickModelRef()) {
+    $("#quick-preview").textContent = "Pick the model first.";
+    $("#quick-notes").innerHTML = "";
+    return;
+  }
+  try {
+    const res = await api("/api/recipes/quick", { method: "POST", body: quickBody(false) });
+    if (seq !== quickSeq) return;
+    const r = res.recipe;
+    $("#quick-notes").innerHTML = [
+      `<b>${esc(r.name)}</b> on port <b>${r.host_port}</b> – endpoint <code>${esc(maskEndpoint(endpointUrl(r)))}</code>`,
+      ...res.notes.map(esc),
+    ].map((n) => `<li>${n}</li>`).join("");
+    $("#quick-preview").innerHTML = previewHtml(res.command, r.image);
+  } catch (e) {
+    if (seq !== quickSeq) return;
+    $("#quick-notes").innerHTML = "";
+    $("#quick-preview").textContent = `(incomplete) ${e.message}`;
+  }
+}
+
+function scheduleQuickPreview() {
+  clearTimeout(quickTimer);
+  quickTimer = setTimeout(updateQuickPreview, 250);
+}
+
+async function openQuick() {
+  quickForm.reset();
+  quickBaseTouched = false;
+  quickModelTouched = false;
+  $("#quick-error").textContent = "";
+  $("#quick-host").innerHTML = state.hosts.map((h) =>
+    `<option value="${h.id}">${esc(maskAddr(h.name))}${h.online ? "" : " (offline)"}</option>`).join("");
+  $("#quick-host-row").classList.toggle("hidden", !multiHost());
+  quickForm.elements.host_id.value = view.host || state.hosts.find((h) => h.is_local)?.id || "";
+  renderQuickModels();
+  renderQuickBases();
+  suggestQuickBase();
+  $("#dlg-quick").showModal();
+  updateQuickPreview();
+  // Unregistered folders take a round trip to every host: fill them in when they arrive.
+  try {
+    quickFound = (await api("/api/weights/discover")).unregistered;
+    if (!$("#dlg-quick").open) return;
+    renderQuickModels();
+    suggestQuickBase();
+    updateQuickPreview();
+  } catch { /* the registered weights and "Other" still work */ }
+}
+
+$("#btn-quick-recipe").addEventListener("click", openQuick);
+$("#quick-host").addEventListener("change", () => {
+  renderQuickModels();
+  renderQuickBases();
+  suggestQuickBase();
+  updateQuickPreview();
+});
+$("#quick-model").addEventListener("change", () => {
+  quickModelTouched = true;
+  $("#quick-other-row").classList.toggle("hidden", quickForm.elements.model_ref.value !== "other");
+  if (quickForm.elements.model_ref.value === "other") quickForm.elements.other.focus();
+  suggestQuickBase();
+  updateQuickPreview();
+});
+$("#quick-base").addEventListener("change", () => { quickBaseTouched = true; updateQuickPreview(); });
+quickForm.addEventListener("input", (ev) => {
+  if (ev.target.name === "other") suggestQuickBase();
+  if (["other", "context", "name"].includes(ev.target.name)) scheduleQuickPreview();
+});
+
+async function createQuick(edit) {
+  try {
+    const res = await api("/api/recipes/quick", { method: "POST", body: quickBody(true) });
+    $("#dlg-quick").close();
+    toast(`“${res.recipe.name}” created${edit ? "" : " – press Start on its card"}`, "ok");
+    await loadWeightsList();
+    await loadRecipes();
+    if (edit) openRecipeEditor(state.recipes.find((r) => r.id === res.recipe.id) || res.recipe);
+  } catch (e) {
+    $("#quick-error").textContent = e.message;
+  }
+}
+
+quickForm.addEventListener("submit", (ev) => { ev.preventDefault(); createQuick(false); });
+$("#btn-quick-edit").addEventListener("click", () => createQuick(true));
 
 /* ---------------- logs ---------------- */
 
@@ -2055,7 +2569,8 @@ function renderImages() {
       const open = imagesView.open.has(key);
       const recipes = imagesView.host ? img.recipes.filter((r) => String(r.host_id) === imagesView.host) : img.recipes;
       rows.push(`<tr>
-        <td class="mono img-ref">${tagsInUse > 1 ? "" : `${esc(repo)}<br>`}<b>:${esc(img.tag)}</b></td>
+        <td class="mono img-ref">${tagsInUse > 1 ? "" : `${esc(repo)}<br>`}<b>:${esc(img.tag)}</b>
+          <button class="btn small ghost img-pull" data-pull="${esc(key)}" title="docker pull this image on several hosts at once">⤓ Pull…</button></td>
         <td><button class="chip small" data-toggle="${esc(key)}" aria-expanded="${open}">${recipes.length} recipe${recipes.length === 1 ? "" : "s"} ${open ? "▾" : "▸"}</button></td>
         ${cols.map((h) => `<td class="img-cell">${imageCellHtml(img, img.hosts.find((x) => x.host_id === h.id))}</td>`).join("")}
       </tr>`);
@@ -2078,6 +2593,12 @@ $("#images-only-newer").addEventListener("click", () => { imagesView.onlyNewer =
 $("#images-only-missing").addEventListener("click", () => { imagesView.onlyMissing = !imagesView.onlyMissing; renderImages(); });
 
 $("#images").addEventListener("click", async (ev) => {
+  const pull = ev.target.closest("[data-pull]");
+  if (pull) {
+    const img = imagesData.images.find((i) => imgKey(i) === pull.dataset.pull);
+    if (img) openTransfer({ kind: "pull", image: img.image }, img.hosts.filter((h) => h.state !== "present").map((h) => h.host_id));
+    return;
+  }
   const toggle = ev.target.closest("[data-toggle]");
   if (toggle) {
     const k = toggle.dataset.toggle;
@@ -2261,9 +2782,10 @@ document.addEventListener("keydown", (ev) => {
   if (k === "/") { $('.tab[data-tab="recipes"]').click(); $("#recipe-search").focus(); ev.preventDefault(); return; }
   if (k === "n" && state.tab === "recipes") { $("#btn-new-recipe").click(); ev.preventDefault(); return; }
   if (k === "i" && state.tab === "recipes") { $("#btn-import-recipe").click(); ev.preventDefault(); return; }
+  if (k === "q" && state.tab === "recipes") { $("#btn-quick-recipe").click(); ev.preventDefault(); return; }
   if (k === "t") { $("#btn-theme").click(); return; }
   if (k === "b") { $("#btn-blur").click(); return; }
-  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · n new recipe · i import a docker run / script · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
+  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · q quick recipe · n new recipe · i import a docker run / script · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
 });
 
 /* ---------------- boot ---------------- */
@@ -2282,6 +2804,7 @@ async function boot() {
   await loadWeightsList();
   await loadStartTimes();
   await loadRecipes();
+  resumeJobs();
   setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); } }, 5000);
   // Keep the ⏳ elapsed counter ticking between the 5 s polls.
   setInterval(() => { if (!document.hidden && startWatch.size) renderRecipes(); }, 1000);

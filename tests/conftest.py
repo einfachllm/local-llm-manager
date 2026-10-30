@@ -26,6 +26,7 @@ class FakeDocker:
         self.log_stats = ""
         # Local images, as list_images() returns them.
         self.images: list[dict] = []
+        self.fail_pull = False
 
     async def run_argv(self, argv):
         self.calls.append(argv)
@@ -58,6 +59,16 @@ class FakeDocker:
     async def follow_logs(self, name, tail=200):
         for line in ("line 1", "line 2"):
             yield line
+
+    async def pull(self, image, on_line=None):
+        self.calls.append(["pull", image])
+        if on_line:
+            on_line(f"{image}: Pull complete")
+        if self.fail_pull:
+            return CommandResult(1, "", "Error response from daemon: manifest unknown")
+        self.images.append({"repository": image.rsplit(":", 1)[0], "tag": image.rsplit(":", 1)[-1], "id": "x",
+                            "created": "", "size": ""})
+        return CommandResult(0, "Pull complete", "")
 
     async def drop_caches(self, image=""):
         self.dropped += 1

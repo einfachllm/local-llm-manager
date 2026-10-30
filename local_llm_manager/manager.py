@@ -5,6 +5,8 @@ executors (executor.py) do the actual work on this machine or on a remote agent.
 """
 
 import asyncio
+import logging
+import secrets
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional
@@ -13,10 +15,12 @@ import httpx
 
 from .db import Database
 from .docker import Docker, split_image
-from .executor import (RUNNING_STATES, ActionError, LocalExecutor, RemoteExecutor, agent_payload_recipe,
+from .executor import (RUNNING_STATES, transport_of, ActionError, LocalExecutor, RemoteExecutor, agent_payload_recipe,
                        resolve_model_target)
 from .processes import ProcessRunner
 from .recipes import WEIGHTS, fill_weights, model_mount, use_weights_mount, uses_weights
+
+log = logging.getLogger(__name__)
 
 __all__ = ["ActionError", "Manager"]
 
@@ -28,8 +32,15 @@ class Manager:
         self.local = LocalExecutor(docker, procs)
         # Only for tests: route remote calls to an in-process agent app.
         self.remote_transport = remote_transport
-        # Serialises mutating operations so the scheduler and UI don't race.
-        self.lock = asyncio.Lock()
+        # One lock per host: actions on the same machine (scheduler, UI, bulk jobs) run one after another,
+        # while a slow start on one host (e.g. pulling an image) does not hold up the others.
+        self._host_locks: dict[int, asyncio.Lock] = {}
+        # Background jobs (e.g. restarting the copies of a recipe on several hosts), newest last.
+        self.jobs: dict[str, dict[str, Any]] = {}
+        self._tasks: set[asyncio.Task] = set()
+        self.local.transfers.transport = remote_transport  # copies from other machines (tests: in-process)
+        # Seconds between asking a host how its pull / download is going.
+        self.transfer_poll = 3.0
         # Self-metrics: (action, ok/error) -> how many times since the manager started.
         self.actions: Counter = Counter()
 
@@ -51,7 +62,8 @@ class Manager:
 
         async def one(host: dict) -> dict[str, Any]:
             out = {"id": host["id"], "name": host["name"], "url": host["url"], "is_local": not host["url"],
-                   "has_token": bool(host["token"]), "online": False, "info": None, "system": None, "error": None}
+                   "has_token": bool(host["token"]), "online": False, "info": None, "system": None, "error": None,
+                   "transport": await asyncio.to_thread(transport_of, host["url"])}
             try:
                 ex = self.executor_for(host["id"])
                 out["info"], out["system"] = await asyncio.gather(ex.info(), ex.system())
@@ -102,6 +114,32 @@ class Manager:
             images.append({**g, "hosts": hosts})
         native = sum(1 for r in self.db.list_recipes() if r.get("runtime") == "process")
         return {"images": images, "native_recipes": native}
+
+    async def copy_check(self, recipe: dict, host_ids: list[int]) -> list[dict[str, Any]]:
+        """What copying a recipe to other hosts would meet there: whether its weights and image are on
+        each host, other recipes on the same port, and a copy that is there already."""
+        repo, tag = split_image(recipe.get("image") or "") if recipe.get("runtime") == "docker" else ("", "")
+        recipes = self.db.list_recipes()
+
+        async def one(hid: int) -> dict[str, Any]:
+            out: dict[str, Any] = {"host_id": hid, "weights": None, "image": None, "error": None,
+                                   "port_users": [x["name"] for x in recipes if x["host_id"] == hid
+                                                  and x["host_port"] == recipe["host_port"]
+                                                  and x["id"] != recipe["id"] and x.get("copy_of") != recipe["id"]],
+                                   "existing_copy": next((x["id"] for x in recipes if x["host_id"] == hid
+                                                          and x.get("copy_of") == recipe["id"]), None)}
+            if recipe.get("weights_id"):
+                out["weights"] = await self.check_weight(recipe["weights_id"], hid)
+            if repo:
+                try:
+                    images = await self.executor_for(hid).images()
+                    out["image"] = "present" if any(i["repository"] == repo and i["tag"] == tag for i in images) \
+                        else "missing"
+                except ActionError as e:
+                    out["image"], out["error"] = "unknown", e.message
+            return out
+
+        return list(await asyncio.gather(*(one(h) for h in host_ids)))
 
     async def models_overview(self) -> dict[str, Any]:
         """Models referenced by model recipes that are not on registered weights: which recipes use each,
@@ -343,90 +381,307 @@ class Manager:
     def _count(self, action: str, ok: bool) -> None:
         self.actions[(action, "ok" if ok else "error")] += 1
 
-    async def start(self, recipe_id: int, source: str = "user", force: bool = False) -> str:
-        async with self.lock:
+    def host_lock(self, host_id: int) -> asyncio.Lock:
+        return self._host_locks.setdefault(host_id, asyncio.Lock())
+
+    async def _on_hosts(self, host_id: Optional[int], fn) -> list[str]:
+        """Run fn(host_id) under that host's lock: on one host, or on every host at the same time. Hosts
+        that fail don't stop the others; their errors are raised together at the end."""
+        host_ids = [host_id] if host_id is not None else [h["id"] for h in self.db.list_hosts()]
+
+        async def one(hid: int) -> str:
+            async with self.host_lock(hid):
+                return await fn(hid)
+
+        results = await asyncio.gather(*(one(h) for h in host_ids), return_exceptions=True)
+        errors = [r for r in results if isinstance(r, BaseException)]
+        if errors:
+            for e in errors:
+                if not isinstance(e, ActionError):
+                    raise e
+            if len(errors) == 1 and host_id is not None:
+                raise errors[0]
+            done = [r for r in results if isinstance(r, str) and r]
+            raise ActionError("; ".join([*(e.message for e in errors), *done]), errors[0].status_code)
+        return [r for r in results if r]
+
+    async def _locked_recipe(self, recipe_id: int, fn, action: str) -> str:
+        """fn(recipe) under the lock of the recipe's host (read again once the lock is held)."""
+        host_id = self._get(recipe_id)["host_id"]
+        async with self.host_lock(host_id):
             try:
-                result = await self._start(self._get(recipe_id), source, force)
+                result = await fn(self._get(recipe_id))
             except ActionError:
-                self._count("start", False)
+                self._count(action, False)
                 raise
-            self._count("start", True)
+            self._count(action, True)
             return result
 
+    async def start(self, recipe_id: int, source: str = "user", force: bool = False) -> str:
+        return await self._locked_recipe(recipe_id, lambda r: self._start(r, source, force), "start")
+
     async def stop(self, recipe_id: int, source: str = "user") -> str:
-        async with self.lock:
-            try:
-                result = await self._stop(self._get(recipe_id), source)
-            except ActionError:
-                self._count("stop", False)
-                raise
-            self._count("stop", True)
-            return result
+        return await self._locked_recipe(recipe_id, lambda r: self._stop(r, source), "stop")
 
     async def restart(self, recipe_id: int, source: str = "user", force: bool = False) -> str:
         """Stop, remove and re-create the container/process so edits to the recipe take effect."""
-        async with self.lock:
-            recipe = self._get(recipe_id)
-            try:
-                await self._stop(recipe, source, record=False)
-                result = await self._start(recipe, source, force, action="restart")
-            except ActionError:
-                self._count("restart", False)
-                raise
-            self._count("restart", True)
-            return result
+        return await self._locked_recipe(recipe_id, lambda r: self._restart(r, source, force), "restart")
 
     async def stop_all(self, source: str = "user", except_id: Optional[int] = None,
                        host_id: Optional[int] = None) -> str:
-        async with self.lock:
-            try:
-                result = await self._stop_all(source, except_id, host_id)
-            except ActionError:
-                self._count("stop_all", False)
-                raise
-            self._count("stop_all", True)
-            return result
+        try:
+            msgs = await self._on_hosts(host_id, lambda hid: self._stop_all(source, except_id, hid))
+        except ActionError:
+            self._count("stop_all", False)
+            raise
+        self._count("stop_all", True)
+        stopped = [m for m in msgs if m.startswith("Stopped")]
+        return "; ".join(stopped) if stopped else msgs[0] if host_id is not None else "No other models running"
 
     async def switch(self, recipe_id: int, source: str = "user", drop_caches: bool = True) -> str:
         """Stop every other model on the same host, free memory there, then start this one.
 
         Agents on the host keep running: they use a model rather than compete with it for memory.
         """
-        async with self.lock:
-            recipe = self._get(recipe_id)
-            try:
-                if recipe.get("kind") == "agent":
-                    msg = f"{recipe['name']} is an agent: start it instead of switching to it"
-                    self.db.add_event(source, "switch", False, msg, recipe["id"], self._target(recipe))
-                    raise ActionError(msg, 409)
-                msgs = [await self._stop_all(source, except_id=recipe_id, host_id=recipe["host_id"],
-                                             keep_agents=True)]
-                if drop_caches:
-                    msgs.append(await self._drop_caches(source, recipe["host_id"]))
-                msgs.append(await self._start(recipe, source, force=False, action="switch"))
-                result = "; ".join(m for m in msgs if m)
-            except ActionError:
-                self._count("switch", False)
-                raise
-            self._count("switch", True)
-            return result
+        async def run(recipe: dict) -> str:
+            if recipe.get("kind") == "agent":
+                msg = f"{recipe['name']} is an agent: start it instead of switching to it"
+                self.db.add_event(source, "switch", False, msg, recipe["id"], self._target(recipe))
+                raise ActionError(msg, 409)
+            msgs = [await self._stop_all(source, except_id=recipe_id, host_id=recipe["host_id"], keep_agents=True)]
+            if drop_caches:
+                msgs.append(await self._drop_caches(source, recipe["host_id"]))
+            msgs.append(await self._start(recipe, source, force=False, action="switch"))
+            return "; ".join(m for m in msgs if m)
+
+        return await self._locked_recipe(recipe_id, run, "switch")
 
     async def free_memory(self, source: str = "user", host_id: Optional[int] = None) -> str:
         """Stop all models and drop the page cache, on one host or (host_id None) on all of them."""
-        async with self.lock:
-            try:
-                msgs = [await self._stop_all(source, host_id=host_id)]
-                host_ids = [host_id] if host_id is not None else [h["id"] for h in self.db.list_hosts()]
-                for hid in host_ids:
-                    msgs.append(await self._drop_caches(source, hid))
-                result = "; ".join(m for m in msgs if m)
-            except ActionError:
-                self._count("free_memory", False)
-                raise
-            self._count("free_memory", True)
-            return result
+        async def run(hid: int) -> str:
+            msgs = [await self._stop_all(source, host_id=hid), await self._drop_caches(source, hid)]
+            return "; ".join(m for m in msgs if m)
 
-    # ---- internals (caller holds the lock) -----------------------------
+        try:
+            msgs = await self._on_hosts(host_id, run)
+        except ActionError:
+            self._count("free_memory", False)
+            raise
+        self._count("free_memory", True)
+        return "; ".join(msgs)
+
+    # ---- background jobs: run on the hub, so closing the browser does not stop them -----------
+
+    def _new_job(self, kind: str, title: str, items: list[dict[str, Any]], runner=None, whole=None) -> dict[str, Any]:
+        """A background job: runner(item) for every item at once, or whole(items) deciding the order itself.
+        Errors end up on their item; the job always finishes."""
+        job = {"id": secrets.token_hex(4), "kind": kind, "title": title, "done": False, "items": items,
+               "created": datetime.now().astimezone().isoformat(timespec="seconds")}
+        self.jobs[job["id"]] = job
+        while len(self.jobs) > 20:  # keep the last few for the dashboard
+            self.jobs.pop(next(iter(self.jobs)))
+
+        async def run() -> None:
+            try:
+                if whole:
+                    await whole(items)
+                else:
+                    await asyncio.gather(*(self._guarded(job, i, runner) for i in items))
+            finally:
+                for i in items:
+                    if i["state"] in ("waiting", "running"):
+                        i["state"], i["message"] = "failed", i["message"] or "not done"
+                job["done"] = True
+
+        task = asyncio.create_task(run())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return job
+
+    @staticmethod
+    async def _guarded(job: dict[str, Any], item: dict[str, Any], coro_fn) -> None:
+        try:
+            await coro_fn(item)
+        except ActionError as e:
+            item["state"], item["message"] = "failed", e.message
+        except Exception as e:  # keep the other items going
+            log.exception("job %s: %s failed", job["id"], item.get("name") or item["host_id"])
+            item["state"], item["message"] = "failed", f"{type(e).__name__}: {e}"
+
+    async def _follow(self, ex, task: dict[str, Any], item: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+        """Ask the host how its transfer goes until it is done; its progress goes onto the item."""
+        item["state"] = "running"
+        lost = 0
+        while task["state"] == "running":
+            item["progress"] = prefix + (task.get("progress") or "")
+            await asyncio.sleep(self.transfer_poll)
+            try:
+                task = await ex.transfer(task["id"])
+                lost = 0
+            except ActionError as e:
+                if e.status_code == 404:
+                    raise
+                lost += 1  # the host is busy or the network hiccups: the transfer goes on there
+                item["progress"] = f"{prefix}no answer from the host ({lost}×), still waiting"
+                if lost * self.transfer_poll > 600:
+                    raise ActionError(f"No answer from the host for 10 minutes: {e.message}", 502)
+        item["progress"] = prefix + (task.get("progress") or "")
+        if task["state"] != "ok":
+            raise ActionError(task["message"] or "failed", 502)
+        item["message"] = task["message"]
+        return task
+
+    def _host_items(self, host_ids: list[int]) -> list[dict[str, Any]]:
+        for hid in host_ids:
+            self.executor_for(hid)  # 404 for unknown hosts before anything starts
+        return [{"host_id": hid, "name": "", "state": "waiting", "message": "", "progress": ""}
+                for hid in dict.fromkeys(host_ids)]
+
+    def start_transfer_job(self, kind: str, target: str, host_ids: list[int], name: str = "",
+                           weight_id: Optional[int] = None, once: bool = False, hub_url: str = "") -> dict[str, Any]:
+        """Pull an image ("pull") or download Hugging Face weights ("download") on several hosts at once.
+        Each host runs its transfer itself; the hub only follows it. A finished download is registered in
+        the Weights tab (entry weight_id, or one found / created by name). With `once`, only the first host
+        downloads and the others copy from it over the local network (see start_copy_job)."""
+        items = self._host_items(host_ids)
+        state: dict[str, Any] = {"weight_id": weight_id}
+
+        async def runner(item: dict[str, Any]) -> None:
+            ex = self.executor_for(item["host_id"])
+            task = await self._follow(ex, await ex.start_transfer(kind, target, name), item)
+            if kind == "download":
+                self._register_download(state, target, name, item["host_id"], task["path"])
+            item["state"] = "ok"
+
+        async def download_then_copy(all_items: list[dict[str, Any]]) -> None:
+            first, rest = all_items[0], all_items[1:]
+            for i in rest:
+                i["progress"] = f"waiting for the download on {self._host_name(first['host_id'])}"
+            await self._guarded(job, first, runner)
+            if first["state"] != "ok":
+                for i in rest:
+                    i["state"], i["message"] = "failed", "the download it would copy from failed"
+                return
+            await self._distribute(job, state["weight_id"], rest, [first["host_id"]], hub_url)
+
+        what = target if kind == "pull" else (name or target)
+        title = f"{'Pulling' if kind == 'pull' else 'Downloading'} {what}"
+        if kind == "download" and once and len(items) > 1:
+            job = self._new_job(kind, title, items, whole=download_then_copy)
+        else:
+            job = self._new_job(kind, title, items, runner)
+        return job
+
+    def _register_download(self, state: dict[str, Any], repo: str, name: str, host_id: int, path: str) -> None:
+        """Set the downloaded folder as the host's path of the weights entry (created on the first host)."""
+        if not state["weight_id"]:
+            wname = name or repo.rsplit("/", 1)[-1]
+            w = next((w for w in self.db.list_weights() if w["name"].lower() == wname.lower()
+                      or (w["source"] and w["source"] == repo)), None)
+            state["weight_id"] = w["id"] if w else self.db.create_weight(wname, repo, {})
+        self.db.set_weight_location(state["weight_id"], host_id, path)
+
+    # ---- copying weights between hosts ---------------------------------------------------------
+
+    def start_copy_job(self, weight_id: int, host_ids: list[int], hub_url: str = "") -> dict[str, Any]:
+        """Copy registered weights to these hosts over the local network, straight from host to host (the
+        hub only arranges it). Like a snowball: every host that has them serves one copy at a time, and
+        each finished host becomes a source too - 5 machines are done in 3 rounds. Files are checked
+        with SHA-256; files a host has already are skipped."""
+        w = self.db.get_weight(weight_id)
+        if not w:
+            raise ActionError("Weights not found", 404)
+        items = self._host_items(host_ids)
+        job: dict[str, Any] = {}
+
+        async def whole(all_items: list[dict[str, Any]]) -> None:
+            await self._distribute(job, weight_id, all_items, None, hub_url)
+
+        job = self._new_job("copy", f"Copying {w['name']}", items, whole=whole)
+        return job
+
+    async def _distribute(self, job: dict[str, Any], weight_id: int, items: list[dict[str, Any]],
+                          sources: Optional[list[int]], hub_url: str) -> None:
+        w = self.db.get_weight(weight_id)
+        if sources is None:  # every host whose path exists (asked, not just registered)
+            checks = await asyncio.gather(*(self.check_weight(weight_id, hid) for hid in w["locations"]))
+            sources = [c["host_id"] for c in checks if c["state"] == "present"]
+        targets = []
+        for item in items:
+            if item["host_id"] in sources:
+                item["state"], item["message"] = "ok", "already there"
+            else:
+                targets.append(item)
+        if not sources:
+            for item in targets:
+                item["state"], item["message"] = "failed", "No host has these weights yet: download them first"
+            return
+        free, pending, running = list(sources), list(targets), {}
+        while pending or running:
+            while free and pending:
+                src, item = free.pop(0), pending.pop(0)
+                t = asyncio.create_task(self._guarded(job, item, lambda i, s=src: self._copy_one(weight_id, s, i, hub_url)))
+                running[t] = (src, item)
+            if not running:
+                break
+            done, _ = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
+            for t in done:
+                src, item = running.pop(t)
+                if not item.get("source_failed"):
+                    free.append(src)
+                if item["state"] == "ok":
+                    free.append(item["host_id"])  # the snowball: it can serve the next one
+            if not free and pending and not running:
+                for item in pending:
+                    item["state"], item["message"] = "failed", "No working source left"
+                break
+
+    async def _copy_one(self, weight_id: int, src: int, item: dict[str, Any], hub_url: str) -> None:
+        w = self.db.get_weight(weight_id)
+        path = w["locations"][src]
+        src_name = self._host_name(src)
+        prefix = f"from {src_name}: "
+        item["state"], item["progress"] = "running", f"{prefix}starting"
+        url = self.db.get_host(src)["url"] or hub_url
+        try:
+            if not url:
+                raise ActionError("The hub's own address is unknown: open the dashboard by the hub's network "
+                                  "name or IP (not localhost), or set DGXM_PUBLIC_URL", 409)
+            share = await self.executor_for(src).create_share(path)
+        except ActionError:
+            item["source_failed"] = True
+            raise
+        ex = self.executor_for(item["host_id"])
+        name = path.rstrip("/").rsplit("/", 1)[-1]
+        task = await ex.start_transfer("copy", url, name, {"id": share["id"], "ticket": share["ticket"]})
+        task = await self._follow(ex, task, item, prefix)
+        self.db.set_weight_location(weight_id, item["host_id"], task["path"])
+        item["state"] = "ok"
+
+    def start_restart_job(self, recipe_ids: list[int], source: str = "user", title: str = "") -> dict[str, Any]:
+        """Restart these recipes in the background: hosts in parallel, one after another on the same host.
+        Returns the job; GET it again (jobs[id]) to follow its progress."""
+        items = []
+        for rid in dict.fromkeys(recipe_ids):
+            r = self._get(rid)
+            items.append({"recipe_id": rid, "name": r["name"], "host_id": r["host_id"], "state": "waiting",
+                          "message": "", "progress": ""})
+
+        async def runner(item: dict[str, Any]) -> None:
+            async def run(recipe: dict) -> str:
+                item["state"] = "running"  # "waiting" until this host's lock is free
+                return await self._restart(recipe, source, force=False)
+
+            item["message"] = await self._locked_recipe(item["recipe_id"], run, "restart")
+            item["state"] = "ok"
+
+        return self._new_job("restart", title or "Restart", items, runner)
+
+    # ---- internals (caller holds the host's lock) ----------------------
+
+    async def _restart(self, recipe: dict, source: str, force: bool) -> str:
+        await self._stop(recipe, source, record=False)
+        return await self._start(recipe, source, force, action="restart")
 
     def _host_name(self, host_id: int) -> str:
         host = self.db.get_host(host_id)

@@ -27,11 +27,57 @@ it to. Agents never connect to the hub.
 3. In the hub's dashboard, open **Hosts → + Add host**. Enter the agent's URL (e.g.
    `http://mac-studio:8090`) and the same token.
 
+!!! tip "Or let the machine ask to be added"
+    Instead of step 3, also set `DGXM_HUB_URL=http://<hub>:8090` in the new machine's `.env` and run the
+    installer again. It prints a **join code** (e.g. `K7Q2-X9PM`), and the machine appears on the hub under
+    **Hosts → Asking to be added** with a code. Click **Codes match – add** only if both codes are the
+    same: another machine announcing the same name has a different code. Rejected machines are blocked for a
+    week; requests nobody answers expire after an hour without news from the machine. The machine shows its
+    code also on its start page (`http://<machine>:8090`) and in its log. Optional: `DGXM_AGENT_URL` (how
+    the hub reaches it, default `http://<its name>:8090`) and `DGXM_AGENT_NAME`. If its address changes
+    later, the machine tells the hub itself.
+
 The new machine appears in the host strip at the top. Recipes now have a **Host** field that decides where
 they run.
 
 !!! info "Keep versions in sync"
     Upgrade the hub and all agents to the same version.
+
+## The same recipe on several machines
+
+E.g. a company where every employee has their own DGX Spark: set the recipe up once, then roll it out.
+
+1. On the recipe's card click **⇉** (*Copy to other hosts*) and tick the machines. For each one the dialog
+   checks first whether the weights (Weights tab) and the Docker image are there, and whether another
+   recipe uses the same port.
+2. **Copy**: every machine gets its own copy, named `<recipe> · <host>`, with the same settings and port -
+   so every employee has the same endpoint `http://<their-spark>:<port>/v1` and the same model name.
+3. Later, edit the **original** (new image, other flags) and save: the manager offers to update all copies.
+   Running copies are listed and can be restarted right away: the hub restarts them on all machines at
+   the same time, also if you close the browser, and a panel shows the progress per machine. Cards show **✓ in sync** or **⟳ differs**,
+   with **sync** to catch up.
+
+**Images and weights on every machine:**
+
+- **Images:** in the **Images** tab, **⤓ Pull…** on an image runs `docker pull` on the machines you tick,
+  all at once (private registries: `docker login` on each machine once).
+- **Weights from Hugging Face:** in the **Weights** tab, **⬇ Download on hosts…**. By default only the first
+  ticked machine downloads; the others then copy from it over your network, so the model comes over the
+  internet once. Needs the `hf` command there (`pip install -U huggingface_hub`); gated models need
+  `HF_TOKEN` in that machine's `.env`.
+- **Weights already on a machine** (e.g. from your SSD): **⇉ Copy…** on the weights entry. Machines copy
+  straight from each other - the hub only arranges it - like a snowball: each machine that has the weights
+  serves one copy at a time and every finished machine joins in, so 5 machines are done in 3 rounds.
+  Every file is checked with SHA-256, files a machine already has are skipped, an interrupted copy
+  continues where it stopped, and free disk space is checked first. The jobs panel shows GB, MB/s and
+  the time left per machine.
+
+The machines must reach each other at the addresses in the Hosts tab. To copy *from* the hub's own
+machine, open the dashboard by its network name (not `localhost`) or set `DGXM_PUBLIC_URL`. Use Tailscale
+names as addresses so copies are encrypted - the copy dialog warns about hosts reached over plain HTTP.
+
+A copy keeps only its name, container name, host and pin; everything else follows the original. To change
+one copy for good, **unlink** it: it becomes a recipe of its own. Deleting the original unlinks its copies.
 
 ## Network access
 

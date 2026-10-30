@@ -11,6 +11,8 @@ silicon, or any Linux box - from any browser on your network:
 
 📖 **Documentation:** [einfachllm.github.io/local-llm-manager](https://einfachllm.github.io/local-llm-manager/) – start with the Quick start and Several machines.
 
+- **⚡ Quick recipe:** pick the weights and a recipe that already works (or an engine default) - the new
+  model gets the same image, flags and caches, its own name and endpoint, in one click.
 - **Recipes:** save how to start a model server (vLLM, SGLang, llama.cpp, TensorFold or any image / native binary),
   as a Docker container or as a native process. Or import an existing starter script / `docker run` command.
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).
@@ -22,12 +24,19 @@ silicon, or any Linux box - from any browser on your network:
 - **Schedules:** start, stop or switch models at set times, with a timeline of what will run when.
 - **Images:** see which Docker images your recipes use, whether each host has them, and switch recipes to a
   newer local tag (e.g. a fresh vLLM nightly) with one click.
-- **Several machines, one dashboard:** e.g. a DGX Spark and a Mac Studio side by side.
+- **Several machines, one dashboard:** e.g. a DGX Spark and a Mac Studio side by side. A new machine can
+  ask the hub to be added (`DGXM_HUB_URL`); you approve it when both show the same join code.
+- **One recipe on many machines:** ⇉ copies a recipe to other hosts (e.g. every employee's DGX Spark) and
+  keeps the copies in sync; after a change the hub restarts them on all machines at once, in the
+  background. Each host has its own action queue, so a slow start on one never blocks the others.
+- **Images and weights on every machine:** ⤓ pull an image on several hosts at once; download a Hugging
+  Face model once and copy it host to host over your network (snowball-style, SHA-256 checked, resumable),
+  with progress per machine. The Hosts tab shows which connections are encrypted (Tailscale / HTTPS).
 - **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
   ⭐ pinned recipes, collapsible groups and keyboard shortcuts (`?` shows them).
 
-Model weights and Docker images must already be on the machine that runs them; the manager does not
-download them.
+Model weights and Docker images must be on the machine that runs them. The manager can pull images and
+download / copy weights for you (Images and Weights tabs), or you put them there yourself.
 
 ## Use cases
 
