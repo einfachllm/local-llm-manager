@@ -34,8 +34,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 **Recipes**
 - **⚡ Quick recipe:** a new recipe from a working one plus other weights, in one dialog.
-- **Agents** (e.g. a Hermes gateway) as their own kind of recipe, apart from models.
+- **Added Agents** (e.g. a Hermes gateway) as their own kind of recipe, apart from models.
 - **TensorFold** preset; models shown as rows (or tiles).
+- **More filters and grouping:** show All / Models / Agents, and group agents by host or tag like models.
 
 **Operations and docs**
 - **Self-monitoring:** `/healthz` and opt-in Prometheus `/metrics` (`DGXM_METRICS=1`).
