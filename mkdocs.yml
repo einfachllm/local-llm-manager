@@ -38,7 +38,11 @@ markdown_extensions:
   - pymdownx.details
   - pymdownx.highlight
   - pymdownx.inlinehilite
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - tables
@@ -49,6 +53,7 @@ nav:
   - Home: index.md
   - Quick start: quick-start.md
   - Several machines: several-machines.md
+  - Architecture: architecture.md
   - Configuration: configuration.md
 
 plugins:

@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-30
+
+### Upgrading from 0.1.0
+- **Upgrade the hub and every agent together.** Agents from 0.1.0 cannot list images (Images tab), search
+  for or check weights, run pulls, downloads or copies, share weights, or ask to be added.
+- **TensorRT-LLM preset removed:** recipes saved with it keep running, but the API rejects the `trtllm`
+  framework key on the next save. Open them once and pick *Custom* (same image and command).
+- The database is upgraded in place on the first start (new columns and tables only); back up the file
+  `DGXM_DB` points to (default `data/manager.db`) if you want to be able to go back to 0.1.0.
+
 ### Added
 - **Machines can ask to be added:** with `DGXM_HUB_URL` in an agent's `.env`, the agent announces itself to
   the hub, which lists it under **Hosts → Asking to be added** (with a counter on the Hosts tab). Approve
@@ -49,9 +59,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   host keeps its port so **Switch to** swaps the two. Found folders are registered in the Weights tab on
   create; flags that belong to one model (parsers, quantization, `--hf-overrides`, …) are pointed out.
   The dialog shows the resulting command before anything is saved (new `POST /api/recipes/quick`).
-- **Native presets** "llama.cpp server (native)" (`llama-server`) and "MLX (native, Apple silicon)"
-  (`mlx_lm.server`).
-- **Documentation site** (MkDocs + Material) with a Quick start and a Several machines guide, published to
+- **Documentation site** (MkDocs + Material) with a Quick start, a Several machines guide and an
+  Architecture page (diagrams of how the hub and agents work together), published to
   GitHub Pages by a new `Docs` workflow: `main` updates the `dev` version, release tags add `stable`.
 - **Weights registry:** the Weights tab registers model weights with their path on each host. A recipe
   picks an entry under *Weights* and writes `{weights}` (in volumes, model, command, args or env); on
@@ -117,11 +126,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   no longer wait for a slow action on another one (e.g. a start pulling a large image). Actions on the same
   machine still run one after another. "Stop all" and "Free memory" on every host now run on all hosts at
   once, and a host that is offline no longer stops the others from being handled.
-- **Framework presets trimmed to what is actually used:** the TensorRT-LLM preset (Docker) and the
-  MLX / llama.cpp (native) presets are gone. The native-process section now offers **TensorFold** and
-  **Custom (native)**; imported `mlx_lm.server` / `llama-server` / `trtllm-serve` scripts and Mac
-  defaults now land on Custom (native). Existing recipes using a removed framework key need a one-time
-  framework re-save (the API rejects the old keys).
+- **Framework presets:** the TensorRT-LLM preset (Docker) is gone and **TensorFold** (native) is new;
+  the MLX and llama.cpp (native) presets stay, as engine defaults for ⚡ Quick recipe too. Imported
+  `mlx_lm.server` / `llama-server` / `trtllm-serve` scripts and Mac defaults land on **Custom (native)**.
+  Existing recipes using the `trtllm` framework key need a one-time framework re-save (the API rejects it).
 - **Recipe editor:** the command preview sits in its own column beside the form and stays in view while
   you scroll (stacked below it on narrow screens), shows docker's and the framework's flags in two colours,
   and has a Copy button. Importing is easier to find: an "📋 Import docker run / script…" button on the
@@ -176,5 +184,6 @@ First public release.
 - The database (it stores agent tokens) is readable by its owner only.
 - See [SECURITY.md](https://github.com/einfachllm/local-llm-manager/blob/main/SECURITY.md) for the threat model and how to report vulnerabilities.
 
-[Unreleased]: https://github.com/einfachllm/local-llm-manager/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/einfachllm/local-llm-manager/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/einfachllm/local-llm-manager/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/einfachllm/local-llm-manager/releases/tag/v0.1.0

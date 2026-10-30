@@ -2,7 +2,9 @@
 
 One installation is the **hub**: it serves the dashboard and stores recipes, schedules and the activity
 log. Every other machine runs the same app as an **agent**, which only carries out what the hub tells
-it to. Agents never connect to the hub.
+it to. Only two things go the other way: an agent can *ask* the hub to add it, and machines copy weights
+straight from each other once the hub has arranged it. The [Architecture](architecture.md) page shows
+all of this as diagrams.
 
 ```text
  your browser ──:8090──▶  HUB (dashboard, recipes, schedules)
@@ -86,10 +88,12 @@ one copy for good, **unlink** it: it becomes a recipe of its own. Deleting the o
 | Your browser | hub, port `8090` | The dashboard |
 | Hub | each agent, port `8090` | Start and stop models, status, logs (plain HTTP plus the token) |
 | Apps using a model | the machine running it, the recipe's port (e.g. `8100`) | The model's API at `http://<machine>:<port>/v1` |
+| Agent | hub, port `8090` | Only with `DGXM_HUB_URL`: asking to be added, reporting a changed address |
+| Agent | other agents, port `8090` | Copying weights (read-only share with a ticket) |
 
 !!! warning
     Keep all of this inside one private network – ideally Tailscale, see below – and never expose these
-    ports to the internet. Traffic between hub and agents is plain HTTP.
+    ports to the internet. Traffic between hub and agents, and between agents copying weights, is plain HTTP unless you use Tailscale or HTTPS addresses.
 
 ## Recommended: Tailscale
 
