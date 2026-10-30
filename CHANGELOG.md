@@ -9,149 +9,50 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.2.0] - 2026-10-30
 
 ### Upgrading from 0.1.0
-- **Upgrade the hub and every agent together.** Agents from 0.1.0 cannot list images (Images tab), search
-  for or check weights, run pulls, downloads or copies, share weights, or ask to be added.
-- **TensorRT-LLM preset removed:** recipes saved with it keep running, but the API rejects the `trtllm`
-  framework key on the next save. Open them once and pick *Custom* (same image and command).
-- The database is upgraded in place on the first start (new columns and tables only); back up the file
-  `DGXM_DB` points to (default `data/manager.db`) if you want to be able to go back to 0.1.0.
+- Upgrade the hub and all agents together: the new features need new agents.
+- The TensorRT-LLM preset is gone: re-save such recipes once with *Custom* (they keep running until then).
+- The database is upgraded on the first start; back it up (`DGXM_DB`) if you may want to go back.
 
 ### Added
-- **Machines can ask to be added:** with `DGXM_HUB_URL` in an agent's `.env`, the agent announces itself to
-  the hub, which lists it under **Hosts → Asking to be added** (with a counter on the Hosts tab). Approve
-  it with **Codes match – add** when the hub shows the same join code as the machine (installer output,
-  log, its start page); the code comes from the agent's token. Rejected machines stay blocked for a week,
-  unanswered requests expire after an hour, and an approved agent reports a changed address itself. New
-  `POST /api/join` (no login), `GET /api/join-requests`, `POST /api/join-requests/{id}/approve|reject`,
-  and `DGXM_HUB_URL`, `DGXM_AGENT_URL`, `DGXM_AGENT_NAME`.
-- **Copy weights between machines** (⇉ Copy… on a weights entry, and the new default of "Download on
-  hosts": download once, copy to the others): machines copy straight from each other over the network,
-  snowball-style (every finished machine serves the next one), with a SHA-256 check of every file, files
-  already there skipped, interrupted files resumed, a free-space check first and GB / MB/s / time left in
-  the jobs panel. The source only grants a read-only, ticket-protected share of that one folder for 6 hours
-  (`/agent/v1/shares`); no SSH and no agent token leave the hub. Big files are served and read in 4 MB
-  pieces over a plain socket (about 3-4x faster than before in tests). New `POST /api/jobs/copy` and
-  `DGXM_PUBLIC_URL`.
-- **Encryption shown per host:** the Hosts tab marks each host 🔒 Tailscale, 🔒 HTTPS or ⚠ plain HTTP, and
-  the copy / download dialog warns when weights would travel unencrypted.
-- **Pull and download on hosts:** "⤓ Pull…" on an image in the Images tab runs `docker pull` on the hosts
-  you tick, all at the same time; "⬇ Download on hosts…" in the Weights tab (or "⬇ Download…" on an entry)
-  downloads a Hugging Face model on each host into its `DGXM_MODEL_DIR` with `hf download` and registers
-  the folders in the Weights tab. Each host runs its transfer itself in the background, so a flaky
-  connection or a hub restart does not interrupt it; the hub follows the progress (pull output, GB so far)
-  in the jobs panel. Needs the `hf` CLI on each host (`pip install -U huggingface_hub`, or `DGXM_HF_BIN`);
-  gated models need `HF_TOKEN` in that host's `.env`. New endpoints `POST /api/jobs/pull`,
-  `POST /api/jobs/download` and, on agents, `POST /agent/v1/transfers` / `GET /agent/v1/transfers/{id}`.
-- **Background jobs:** restarting the copies of a recipe after a sync runs on the hub - all hosts at the
-  same time, one after another on the same host - and keeps going when the browser is closed. A panel
-  bottom left shows each copy (waiting / restarting / started / failed with the reason) and comes back after
-  a reload. New endpoints `POST /api/jobs/restart`, `GET /api/jobs`, `GET /api/jobs/{id}`.
-- **Copy to other hosts** (⇉ on a card): one recipe on several machines - e.g. every employee's DGX
-  Spark. The dialog checks per host whether the weights and the Docker image are there and who else uses
-  the port; each host gets a copy `<recipe> · <host>` with the same settings and port. Copies stay linked:
-  cards show **✓ in sync** / **⟳ differs**, saving the original offers to update every copy (and to restart
-  running ones), **sync** catches one up, **unlink** makes a copy a recipe of its own. New endpoints
-  `POST /api/recipes/{id}/copies[/check]`, `/sync`, `/unlink`; recipes get a `copy_of` column.
-- **⚡ Quick recipe** (shortcut `q`): a new model recipe in one dialog - pick the weights (found on the
-  host, registered, or a Hugging Face id) and the settings to copy (a recipe that already works, or an
-  engine default), optionally the context length. Image, flags, env and caches come from the base; the
-  model is mounted via `{weights}`, the served model name follows the new name, and a recipe on the same
-  host keeps its port so **Switch to** swaps the two. Found folders are registered in the Weights tab on
-  create; flags that belong to one model (parsers, quantization, `--hf-overrides`, …) are pointed out.
-  The dialog shows the resulting command before anything is saved (new `POST /api/recipes/quick`).
-- **Documentation site** (MkDocs + Material) with a Quick start, a Several machines guide and an
-  Architecture page (diagrams of how the hub and agents work together), published to
-  GitHub Pages by a new `Docs` workflow: `main` updates the `dev` version, release tags add `stable`.
-- **Weights registry:** the Weights tab registers model weights with their path on each host. A recipe
-  picks an entry under *Weights* and writes `{weights}` (in volumes, model, command, args or env); on
-  start it becomes the path on the recipe's host, so a recipe moved to another host mounts the right
-  folder without edits. Picking an entry adds `{weights}:/model:ro` (or uses the model's existing
-  mount). The editor checks the selected host right away (✓ present / ✗ no path / ✗ not found), the
-  command preview shows the host's path, and starting is refused with a clear message when the host has
-  no path or nothing is there. Agents need no update: they receive the resolved paths.
-- **Finding weights:** "🔍 Search hosts" in the Weights tab lists the model folders and `.gguf` files in
-  every host's `DGXM_MODEL_DIR` (new agent endpoint `GET /agent/v1/weights/scan`), suggests paths for
-  registered entries by folder name ("Use" / "Use all"), and offers to register the rest. Recipes that
-  mount their model folder directly get **→ Register** under *Used by recipes* (`POST /api/weights/adopt`),
-  and an imported `docker run` that mounts a registered path is switched to that entry.
-- **TensorFold preset** (native process): `tensorfold serve {model} --host {bind_host} --port {port}`,
-  health check on `/health`, port 8080. Importing a `tensorfold serve ...` script picks the preset up.
-- **Weights tab:** a new "Weights" tab (shortcut `6`) lists every model referenced by model recipes and,
-  per host, whether its weights are present locally - mirroring the Images tab. A recipe's `{model}` is
-  resolved to a host path when it is a container path backed by a volume mount (e.g.
-  `/home/einfachllm/models/...`), to its Hugging Face hub-cache entry for `org/name` ids, or to a file
-  under `DGXM_MODEL_DIR` (default `~/models`). Hosts report presence via the new agent endpoint
-  `POST /agent/v1/models/check` (agents that predate it show "agent too old" until updated).
-- **Agents apart from models:** a recipe is either a *model* (an LLM server) or an *agent* (a program that
-  uses one, e.g. a Hermes gateway; new `kind` field, default `model`). The Recipes tab shows two sections,
-  🤖 Agents and 🧠 Models, with their own counts and "+ New" buttons, and an All / Models / Agents filter.
-  Agents are wide rows instead of tiles: running or not and since when, the model they use, no endpoint or
-  engine metrics. **Switch to** keeps agents running and is not offered for them (the API answers 409);
-  "stop all" and "free memory" still stop them. A new agent defaults to no GPUs and no health check.
-  An agent card shows each passed-through secret name with ✓/✗ (whether it is set in the manager's
-  environment on that host; values are never sent) and, for native agents, warns when another copy of
-  the same command runs outside the manager (e.g. a detached second gateway on the same bot token).
-  Grouped by host or tag, each group stacks its agents above its models, and its "+ New" buttons create
-  the recipe on that host.
-- **Model rows:** models are shown as wide rows like agents (🧠 icon, the card's facts side by side) by
-  default; "Models as: Rows / Tiles" in the filter rail switches back to the card grid (remembered per
-  browser).
-- **Self-monitoring:** `GET /healthz` (hub and agent, no login) answers `ok` while the process is up and
-  the database reachable (503 otherwise), and with `DGXM_METRICS=1` `GET /metrics` serves the manager's
-  own metrics in Prometheus format (uptime, request/action counts, stored recipes/hosts) - no recipe or
-  host data.
-- **Activity-log retention:** events and start-time measurements older than `DGXM_RETENTION_DAYS`
-  (default 90 days, `0` = keep all) are pruned on start-up, and the database records its schema version
-  (`PRAGMA user_version`).
-- [Configuration reference](docs/configuration.md): every `.env` key in one place - dashboard and network,
-  hub/agent modes, models and recipes, storage, scheduler and monitoring, and how secret names are passed
-  through to recipes.
-- `examples/recipes`: paste-ready recipes for **Recipes → Import** - starting with
-  `qwen38-flash-next-fp4.sh` (vLLM with b12x flags and tool calling on a DGX Spark); add your own as
-  further `.sh` files.
-- `examples/hermes-agent`: guide to run Hermes Agent (Telegram, local faster-whisper STT and Piper TTS) on an
-  LLM recipe, with the Hermes gateway as a native-process recipe, tool-calling flags and security notes.
-  The Docker variant now covers the container-network traps: `base_url` must use `host.docker.internal`
-  (not `127.0.0.1`), `config.yaml` wins over recipe environment, and `model.key_env` must name the secret
-  the recipe actually passes.
-- **Images** tab (shortcut `5`): a matrix of the Docker images used by recipes (rows, tags of one image grouped
-  together) and the hosts (columns): `✓ 23d` when the host has the image, `✗ missing`, and `⬆ tag` when a newer
-  tag of the same image is already on that host - one click switches that host's recipes to it. Search, host
-  filter, "Newer available" / "Missing on a host" filters and a summary; the recipes per image are collapsed
-  into a count that expands per host. Scales to ~100 recipes on 5 hosts on one screen. Agents get
-  `GET /agent/v1/images` (older agents are reported as too old to list images).
+**Several machines**
+- **Agent self-registration:** an agent with `DGXM_HUB_URL` asks the hub to be added; approve it by
+  comparing the join code.
+- **Copy to other hosts:** roll one recipe out to several machines; copies stay in sync with the original.
+- **Background jobs:** restarts, pulls, downloads and copies run on the hub and keep going when the
+  browser is closed; a panel shows their progress.
+- **Encryption per host:** the Hosts tab shows 🔒 Tailscale, 🔒 HTTPS or ⚠ plain HTTP.
+
+**Weights and images**
+- **Weights tab** and **weights registry:** one entry per model with its path on each host; recipes use
+  `{weights}` and work on any host.
+- **Search hosts** for model folders and `.gguf` files, and register them in one click.
+- **Download on hosts** from Hugging Face, **pull images** on several hosts at once.
+- **Copy weights host to host:** download once, then machines copy from each other (SHA-256 checked,
+  resumable).
+- **Images tab:** which host has which image, and newer tags to switch to.
+
+**Recipes**
+- **⚡ Quick recipe:** a new recipe from a working one plus other weights, in one dialog.
+- **Agents** (e.g. a Hermes gateway) as their own kind of recipe, apart from models.
+- **TensorFold** preset; models shown as rows (or tiles).
+
+**Operations and docs**
+- **Self-monitoring:** `/healthz` and opt-in Prometheus `/metrics` (`DGXM_METRICS=1`).
+- **Log retention:** old activity is pruned after `DGXM_RETENTION_DAYS` (default 90).
+- **Documentation site** with Quick start, Several machines, How it works, Architecture and a
+  configuration reference; recipe examples in `examples/`.
 
 ### Changed
-- **One lock per host instead of one for the whole hub:** start, stop, restart and switch on one machine
-  no longer wait for a slow action on another one (e.g. a start pulling a large image). Actions on the same
-  machine still run one after another. "Stop all" and "Free memory" on every host now run on all hosts at
-  once, and a host that is offline no longer stops the others from being handled.
-- **Framework presets:** the TensorRT-LLM preset (Docker) is gone and **TensorFold** (native) is new;
-  the MLX and llama.cpp (native) presets stay, as engine defaults for ⚡ Quick recipe too. Imported
-  `mlx_lm.server` / `llama-server` / `trtllm-serve` scripts and Mac defaults land on **Custom (native)**.
-  Existing recipes using the `trtllm` framework key need a one-time framework re-save (the API rejects it).
-- **Recipe editor:** the command preview sits in its own column beside the form and stays in view while
-  you scroll (stacked below it on narrow screens), shows docker's and the framework's flags in two colours,
-  and has a Copy button. Importing is easier to find: an "📋 Import docker run / script…" button on the
-  Recipes tab (shortcut `i`), a highlighted button in the editor head, and a prompt at the top of a new recipe.
-- **Model cards:** "Model" shows the mounted folder's name instead of a container path like `/model`
-  (full path in the tooltip), plus the `--served-model-name` clients use, the image (shortened) and a
-  copy button for the endpoint. Start/Stop stay on the left; Duplicate and Delete are icon buttons.
-- A stopped Docker container that exits with 137/143 (what `docker stop` usually produces) is now
-  recognised as a clean stop only when the manager itself stopped it (recorded in a small state
-  file next to the process logs). A container the kernel OOM-killed exits the same way but without
-  that record, so it now shows **failed** instead of a misleading "stopped".
+- **One lock per host:** a slow action on one machine no longer blocks the others.
+- **Recipe editor:** command preview beside the form, easier import (`i`).
+- **Model cards:** show the model folder, served model name and endpoint copy button.
+- A container killed for lack of memory now shows **failed** instead of "stopped".
 
 ### Fixed
-- The command preview of an existing recipe showed an empty `local-llm-manager.recipe=` label; it now
-  shows the recipe's id, as `start` sets it.
-- The "KV" figure in a card's stats line no longer drops onto its own line (it picked up the layout of
-  the card's fact list).
-- On phones, the tab bar wraps instead of making the page wider than the screen.
-- The jobs panel no longer loses a running copy, pull or download when the dashboard briefly cannot reach
-  the hub (e.g. a laptop waking up from sleep): it keeps the job and asks again. It also picks up jobs
-  started in another browser or on the phone, and shows jobs that finished in the last hour while nobody
-  was looking (failed ones with their reason).
+- Empty recipe label in the command preview of an existing recipe.
+- "KV" stats figure wrapping onto its own line; tab bar too wide on phones.
+- Jobs panel losing a running copy after a laptop wakes from sleep; it now also shows jobs from other
+  browsers and recently finished ones.
 
 ## [0.1.0] - 2026-10-26
 
