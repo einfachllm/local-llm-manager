@@ -491,6 +491,7 @@ class Manager:
                 for i in items:
                     if i["state"] in ("waiting", "running"):
                         i["state"], i["message"] = "failed", i["message"] or "not done"
+                job["finished"] = datetime.now().astimezone().isoformat(timespec="seconds")
                 job["done"] = True
 
         task = asyncio.create_task(run())

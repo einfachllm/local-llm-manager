@@ -22,7 +22,7 @@ async function api(path, opts = {}) {
   if (!res.ok) {
     let msg = data?.detail ?? data ?? res.statusText;
     if (Array.isArray(msg)) msg = msg.map((e) => `${(e.loc || []).slice(1).join(".")}: ${e.msg}`).join("\n");
-    throw new Error(msg);
+    throw Object.assign(new Error(msg), { status: res.status });
   }
   return data;
 }
@@ -1627,6 +1627,7 @@ async function syncCopies(id) {
 /* Background jobs: they run on the hub (closing the browser does not stop them); this only shows them. */
 
 const jobs = new Map();
+const closedJobs = new Set();  // finished jobs already shown here: resumeJobs does not bring them back
 let jobTimer = null;
 const JOB_ICON = { waiting: `<span class="muted" title="Waiting for this host">⏸</span>`, running: "⏳",
   ok: `<span class="ok">✓</span>`, failed: `<span class="bad">✗</span>` };
@@ -1759,10 +1760,15 @@ async function pollJobs() {
         const failed = fresh.items.filter((i) => i.state === "failed").length;
         toast(`${fresh.title}: ${failed ? `${failed} failed` : `all ${JOB_DONE[fresh.kind] ?? "done"}`}`, failed ? "bad" : "ok");
         afterJob(fresh);
+        closedJobs.add(fresh.id);
         // Successful jobs close themselves; failed ones stay until closed, so the reason can be read.
         if (!failed) setTimeout(() => { jobs.delete(fresh.id); renderJobs(); }, 30000);
       }
-    } catch { jobs.delete(j.id); }  // the manager restarted: the job is gone
+    } catch (e) {
+      // 404: the manager restarted and the job is gone. Anything else (network down while the computer
+      // slept, hub busy) is temporary: keep the job and ask again.
+      if (e.status === 404) jobs.delete(j.id);
+    }
   }
   renderJobs();
   jobTimer = setTimeout(pollJobs, 1500);
@@ -1770,14 +1776,29 @@ async function pollJobs() {
 
 $("#jobs").addEventListener("click", (ev) => {
   const b = ev.target.closest("[data-close-job]");
-  if (b) { jobs.delete(b.dataset.closeJob); renderJobs(); }
+  if (b) { jobs.delete(b.dataset.closeJob); closedJobs.add(b.dataset.closeJob); renderJobs(); }
 });
 
-// After a reload: show jobs that are still running on the hub.
+const RECENT_JOB_MS = 60 * 60 * 1000;
+
+// Show jobs the hub runs that this page does not know yet: after a reload or a sleeping computer, and jobs
+// started elsewhere (another browser, the phone). Also jobs that finished in the last hour while nobody
+// looked, so a failed copy still shows its reason; each finished job is shown once.
 async function resumeJobs() {
-  try {
-    for (const j of await api("/api/jobs")) if (!j.done) jobs.set(j.id, j);
-  } catch { return; }
+  let list;
+  try { list = await api("/api/jobs"); } catch { return; }
+  let added = false;
+  for (const j of list) {
+    if (jobs.has(j.id) || closedJobs.has(j.id)) continue;
+    if (j.done && !(j.finished && Date.now() - Date.parse(j.finished) < RECENT_JOB_MS)) continue;
+    jobs.set(j.id, j);
+    added = true;
+    if (j.done) {
+      closedJobs.add(j.id);
+      if (!j.items.some((i) => i.state === "failed")) setTimeout(() => { jobs.delete(j.id); renderJobs(); }, 30000);
+    }
+  }
+  if (!added) return;
   renderJobs();
   pollJobs();
 }
@@ -2805,7 +2826,10 @@ async function boot() {
   await loadStartTimes();
   await loadRecipes();
   resumeJobs();
-  setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); } }, 5000);
+  setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); resumeJobs(); } }, 5000);
+  // Back from sleep or another tab: catch up at once (also restarts the job poll after network errors).
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { resumeJobs(); pollJobs(); } });
+  window.addEventListener("online", () => { resumeJobs(); pollJobs(); });
   // Keep the ⏳ elapsed counter ticking between the 5 s polls.
   setInterval(() => { if (!document.hidden && startWatch.size) renderRecipes(); }, 1000);
   setInterval(() => { if (!document.hidden && state.tab === "schedules") loadSchedules(); }, 15000);

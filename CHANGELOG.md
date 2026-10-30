@@ -148,6 +148,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The "KV" figure in a card's stats line no longer drops onto its own line (it picked up the layout of
   the card's fact list).
 - On phones, the tab bar wraps instead of making the page wider than the screen.
+- The jobs panel no longer loses a running copy, pull or download when the dashboard briefly cannot reach
+  the hub (e.g. a laptop waking up from sleep): it keeps the job and asks again. It also picks up jobs
+  started in another browser or on the phone, and shows jobs that finished in the last hour while nobody
+  was looking (failed ones with their reason).
 
 ## [0.1.0] - 2026-10-26
 
