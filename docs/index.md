@@ -30,9 +30,13 @@ silicon, or any Linux box – from any browser on your network.
 
     Add more machines as agents and control them all from one dashboard.
 
+-   **[How it works](how-it-works.md)**
+
+    The idea in pictures: one dashboard, all your machines, models shared between them.
+
 -   **[Architecture](architecture.md)**
 
-    Diagrams of how the hub and the agents work together: status, start, join, copies.
+    For administrators: what talks to what, ports, keys and every step on the network.
 
 </div>
 

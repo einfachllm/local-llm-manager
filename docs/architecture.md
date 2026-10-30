@@ -1,7 +1,8 @@
 # Architecture
 
 How the hub and the agents work together: who talks to whom, what each side stores and decides,
-and what happens on the network when you start a model, add a machine or copy weights.
+and what happens on the network when you start a model, add a machine or copy weights. This page is for
+administrators; [How it works](how-it-works.md) explains the same in pictures, without the technical details.
 
 !!! info "One app, two modes"
     The hub and the agents are the **same program**. `DGXM_MODE` picks the role: the default `hub` serves
