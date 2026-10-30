@@ -135,6 +135,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that record, so it now shows **failed** instead of a misleading "stopped".
 
 ### Fixed
+- **No doubled `vllm serve` with `vllm/vllm-openai`:** that image already runs `vllm serve` itself, so the
+  vLLM preset's leading `vllm serve` is left out of its `docker run` (unless `--entrypoint` replaces it).
+  Importing such a command now also recognises the first word after the image as the model.
 - The command preview of an existing recipe showed an empty `local-llm-manager.recipe=` label; it now
   shows the recipe's id, as `start` sets it.
 - The "KV" figure in a card's stats line no longer drops onto its own line (it picked up the layout of
