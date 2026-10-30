@@ -601,8 +601,10 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
   box-shadow: 0 6px 24px rgba(0,0,0,.25); font-size: 13px; }
 .job-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 600; }
 .job-head .x { margin-left: auto; }
-.job-item { display: grid; grid-template-columns: 1.4em 1fr auto; gap: 6px; align-items: baseline; padding: 2px 0; }
+.job-item { display: grid; grid-template-columns: 1.4em auto 1fr; gap: 6px; align-items: baseline; padding: 2px 0; }
+.job-item > span:nth-child(2) { white-space: nowrap; }  /* the host name stays on one line */
 .job-item .muted { font-size: 12px; }
+.job-item > .muted:last-child, .job-item > .muted:nth-child(3) { text-align: right; overflow-wrap: anywhere; }
 .job-msg { grid-column: 2 / -1; font-size: 12px; overflow-wrap: anywhere; }
 .img-pull { margin-top: 4px; font-family: inherit; }
 .transfer-once { display: block; margin: 0 18px 8px; font-size: 13px; }
