@@ -152,8 +152,10 @@ log. Every other machine runs the same app as an **agent** that only executes wh
 | Hub | each agent, port `8090` | Start/stop models, status, logs (plain HTTP + token) |
 | Apps using a model | the machine running it, the recipe's port (e.g. `8100`) | The model's OpenAI-compatible API at `http://<machine>:<port>/v1` |
 
-Agents never connect to the hub. Keep all of this inside one private network - ideally Tailscale (next
-section) - and never expose these ports to the internet.
+Agents connect to the hub only to ask to be added (`DGXM_HUB_URL`), and to each other only to copy weights
+(see the [Architecture](https://einfachllm.github.io/local-llm-manager/architecture/) page). Keep all of
+this inside one private network - ideally Tailscale (next section) - and never expose these ports to the
+internet.
 
 ## Recommended: Tailscale only (also from your phone)
 
