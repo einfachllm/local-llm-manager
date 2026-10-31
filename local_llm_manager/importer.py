@@ -18,7 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
-from .recipes import FRAMEWORKS
+from .recipes import FRAMEWORKS, image_serves
 
 RUN_TIMEOUT = 20
 
@@ -244,12 +244,13 @@ def _group_flags(tokens: list[str]) -> list[str]:
     return [shlex.join(line) for line in lines]
 
 
-def _split_command(tokens: list[str], detect) -> dict[str, Any]:
+def _split_command(tokens: list[str], detect, serves: bool = False) -> dict[str, Any]:
     """Split a server command line into a command template and per-flag arguments.
 
     `detect(program)` picks the framework from the leading positional words. The model (argument
     after `...serve`, or --model / --model-path / llama.cpp's -m), --host and --port go into the
-    command template; everything else is returned as `remaining`.
+    command template; everything else is returned as `remaining`. With `serves` the image's own
+    entrypoint is `vllm serve`, so the first positional word is the model.
     """
     # Leading positional part of the container command, e.g. `serve /model`, `python3 -m sglang.launch_server`.
     program: list[str] = []
@@ -269,7 +270,7 @@ def _split_command(tokens: list[str], detect) -> dict[str, Any]:
 
     model, model_flag = "", ""
     for k, t in enumerate(program):
-        if k > 0 and program[k - 1].endswith("serve"):
+        if (k > 0 and program[k - 1].endswith("serve")) or (k == 0 and serves):
             model = t
             program[k] = "{model}"
             break
@@ -351,7 +352,8 @@ def recipe_from_argv(argv: list[str], description: str = "") -> tuple[dict[str, 
     image = argv[i]
     tokens = argv[i + 1:]
 
-    split = _split_command(tokens, lambda program: _detect_framework(image, entrypoint, program))
+    split = _split_command(tokens, lambda program: _detect_framework(image, entrypoint, program),
+                           serves=image_serves(image, docker_args))
     framework, command_str, model, port, remaining = (
         split["framework"], split["command"], split["model"], split["port"], split["remaining"])
 
