@@ -16,7 +16,7 @@
         <link rel="prev" href="..">
       
       
-        <link rel="next" href="../several-machines/">
+        <link rel="next" href="../recipes/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -393,6 +393,28 @@
   
   
     <li class="md-nav__item">
+      <a href="../recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Recipes
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../several-machines/" class="md-nav__link">
         
   
@@ -577,7 +599,7 @@ cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 and restart the service.</p>
 <h2 id="3-start-your-first-model">3. Start your first model<a class="headerlink" href="#3-start-your-first-model" title="Permanent link">&para;</a></h2>
 <ol>
-<li>Click <strong>⚡ Quick recipe</strong> (shortcut <code>q</code>).</li>
+<li>Click <strong>＋ Add recipe</strong> (shortcut <code>i</code>), then <strong>use Quick recipe</strong> in the dialog (shortcut <code>q</code>).</li>
 <li>Pick the <strong>Model</strong>: a folder or <code>.gguf</code> found in <code>DGXM_MODEL_DIR</code> on the host, registered weights, or a
    Hugging Face id such as <code>Qwen/Qwen3-8B</code>.</li>
 <li>Pick <strong>Settings from</strong>: an engine default (vLLM, SGLang, llama.cpp, MLX on a Mac) or, once you have
@@ -586,11 +608,12 @@ and restart the service.</p>
 <li>Check the <strong>Command</strong> shown below, then <strong>Create</strong>.</li>
 <li>Click <strong>Start</strong> on the new card. The status goes from <em>starting</em> to <em>loading</em> to <em>ready</em>.</li>
 </ol>
-<p>Every field by hand: <strong>+ New recipe</strong>.</p>
+<p>Every field by hand: <strong>＋ Add recipe</strong> → <strong>Start from scratch</strong>.</p>
 <div class="admonition tip">
 <p class="admonition-title">Already have a start script?</p>
-<p>Use <strong>📋 Import docker run / script…</strong> instead of steps 1–3. Paste the script or <code>docker run</code>
-command; it is checked for risky calls first and nothing in it is executed.</p>
+<p><strong>＋ Add recipe</strong> opens the import dialog directly. Paste the script, <code>docker run</code> command or a
+compact JSON/YAML recipe file; scripts are checked for risky calls first and nothing in them is
+executed. In the editor, <strong>Recipe file…</strong> exports the current settings the same way.</p>
 </div>
 <p>When the model is ready, its OpenAI-compatible API is at the endpoint shown on the card:</p>
 <div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://&lt;machine&gt;:&lt;port&gt;/v1/models
@@ -655,13 +678,13 @@ command; it is checked for risky calls first and nothing in it is executed.</p>
         
         
           
-          <a href="../several-machines/" class="md-footer__link md-footer__link--next" aria-label="Next: Several machines">
+          <a href="../recipes/" class="md-footer__link md-footer__link--next" aria-label="Next: Recipes">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Several machines
+                Recipes
               </div>
             </div>
             <div class="md-footer__button md-icon">
