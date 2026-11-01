@@ -1,8 +1,3 @@
-# Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121), b12x vLLM image.
-# Register the weights as "Qwen3.8-Flash-Next-FP4-Local" in the Weights tab, or change `weights:`.
-# Paste this file into Recipes -> Import; omitted settings come from the vLLM preset.
-# The b12x flags and the 524k context are tuned for the Spark's 128 GB unified memory.
-# On other GPUs: lower --gpu-memory-utilization / --max-model-len and drop the b12x flags.
 # Compact recipe file (Local LLM Manager): paste into Recipes -> Import.
 name: qwen38-flash-next-fp4
 description: 'Starter: nvidia/Qwen3.8-Flash-Next-FP4-Local on NVIDIA DGX Spark (GB10,

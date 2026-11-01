@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-11-01
 
 ### Added
 - **Compact recipe files (JSON/YAML):** Recipes → Import now accepts the editor's own fields as a JSON or
@@ -106,9 +106,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - [Configuration reference](docs/configuration.md): every `.env` key in one place - dashboard and network,
   hub/agent modes, models and recipes, storage, scheduler and monitoring, and how secret names are passed
   through to recipes.
-- `examples/recipes`: paste-ready recipes for **Recipes → Import** - starting with
-  `qwen38-flash-next-fp4.sh` (vLLM with b12x flags and tool calling on a DGX Spark); add your own as
-  further `.sh` files.
+- `examples/recipes`: paste-ready recipes for **Recipes → Import** - compact YAML files for Qwen3.8 27B (vLLM), Qwen3.8-Flash-Next-FP4 on a DGX Spark (b12x vLLM), Nemotron-3.5-Super-VL with speculative decoding, and a Hermes Agent gateway; add your own as further `.yaml` / `.json` files.
 - `examples/hermes-agent`: guide to run Hermes Agent (Telegram, local faster-whisper STT and Piper TTS) on an
   LLM recipe, with the Hermes gateway as a native-process recipe, tool-calling flags and security notes.
   The Docker variant now covers the container-network traps: `base_url` must use `host.docker.internal`
@@ -190,5 +188,5 @@ First public release.
 - The database (it stores agent tokens) is readable by its owner only.
 - See [SECURITY.md](https://github.com/einfachllm/local-llm-manager/blob/main/SECURITY.md) for the threat model and how to report vulnerabilities.
 
-[Unreleased]: https://github.com/einfachllm/local-llm-manager/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/einfachllm/local-llm-manager/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/einfachllm/local-llm-manager/releases/tag/v0.1.0

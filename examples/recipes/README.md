@@ -23,11 +23,8 @@ folder.
 | File | What it is |
 |---|---|
 | [`qwen38-27b.yaml`](qwen38-27b.yaml) | Qwen3.8 27B served by vLLM - a small compact recipe with registered weights. |
-| [`qwen38-27b-sglang.yaml`](qwen38-27b-sglang.yaml) | The same 27B model on SGLang: same port and served model name as the vLLM recipe. |
 | [`qwen38-flash-next-fp4.yaml`](qwen38-flash-next-fp4.yaml) | Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121): b12x image, tuned flags, caches, tool calling. Compact form. |
-| [`qwen3.8-flash-next-fp4-local.yaml`](qwen3.8-flash-next-fp4-local.yaml) | The same Flash weights on SGLang: conservative 32k context, own port 8110. |
 | [`nemotron-3.5-super-vl.yaml`](nemotron-3.5-super-vl.yaml) | Nemotron-3.5-Super-VL with a draft model for speculative decoding; both models sit in one registered folder. |
-| [`qwen38-flash-next-fp4.sh`](qwen38-flash-next-fp4.sh) | The same model as a `docker run` starter script. |
 | [`hermes-agent-docker.yaml`](hermes-agent-docker.yaml) | A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU. |
 
 ## Before you start

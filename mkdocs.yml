@@ -48,6 +48,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Quick start: quick-start.md
+  - Recipes: recipes.md
   - Several machines: several-machines.md
   - Configuration: configuration.md
 

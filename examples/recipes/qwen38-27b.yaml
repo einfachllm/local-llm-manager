@@ -1,7 +1,4 @@
-# Qwen3.8 27B served by vLLM.
-# Register the weights as "Qwen3.8-27B-NVFP4" in the Weights tab (or change `weights:` below).
-# Paste this file into Recipes -> Import; the vLLM preset fills in the command,
-# Docker flags, Hugging Face cache volume and HF_TOKEN.
+# Qwen3.8 27B served by vLLM. MTP
 name: qwen3.8
 framework: vllm
 image: vllm/vllm-openai:v0.32.0
