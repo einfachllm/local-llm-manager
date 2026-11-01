@@ -212,6 +212,29 @@ def uses_host_network(docker_args: list[str]) -> bool:
     return False
 
 
+# Images whose own entrypoint is already `vllm serve`: there the command starts at the model.
+SERVE_ENTRYPOINT_IMAGES = ("vllm/vllm-openai",)
+
+
+def image_serves(image: str, docker_args: list[str]) -> bool:
+    """True when the image itself runs `vllm serve` (and --entrypoint does not replace that)."""
+    if any(a == "--entrypoint" or a.startswith("--entrypoint=") for a in docker_args):
+        return False
+    repo = (image or "").split("@")[0]
+    if ":" in repo.rsplit("/", 1)[-1]:
+        repo = repo.rsplit(":", 1)[0]  # the tag, not a registry port
+    repo = re.sub(r"^(docker\.io|index\.docker\.io)/", "", repo)
+    return repo in SERVE_ENTRYPOINT_IMAGES
+
+
+def container_command(recipe: dict[str, Any], docker_args: list[str]) -> list[str]:
+    """The command after the image; a leading `vllm serve` is dropped when the image already runs it."""
+    command = split_args(substitute(recipe.get("command", ""), recipe))
+    if command[:2] == ["vllm", "serve"] and image_serves(recipe.get("image", ""), docker_args):
+        command = command[2:]
+    return command
+
+
 def build_run_argv(recipe: dict[str, Any]) -> list[str]:
     """Build the full `docker run` argv for a recipe."""
     argv = [
@@ -233,7 +256,7 @@ def build_run_argv(recipe: dict[str, Any]) -> list[str]:
         argv += ["-e", env]
     argv += docker_args
     argv.append(recipe["image"])
-    argv += split_args(substitute(recipe.get("command", ""), recipe))
+    argv += container_command(recipe, docker_args)
     argv += split_args(recipe.get("args", ""))
     return argv
 

@@ -84,6 +84,34 @@ def test_plain_docker_run_command():
     assert r["name"] == "Qwen3-8B"
 
 
+def test_vllm_openai_image_runs_serve_itself():
+    # vllm/vllm-openai's entrypoint is `vllm serve`, so the first word after the image is the model.
+    r, _ = recipe_from_argv([
+        "--network", "host", "-v", "/m/q:/model:ro", "vllm/vllm-openai:v0.32.0", "/model",
+        "--host", "0.0.0.0", "--port", "8000", "--served-model-name", "qwen3.8",
+    ])
+    assert r["framework"] == "vllm" and r["model"] == "/model"
+    assert r["command"] == "{model} --host 0.0.0.0 --port {port}"
+    rebuilt = build_run_argv({**r, "id": 1})
+    assert rebuilt[rebuilt.index("vllm/vllm-openai:v0.32.0") + 1:][:2] == ["/model", "--host"]
+
+
+@pytest.mark.parametrize("image, docker_args, dropped", [
+    ("vllm/vllm-openai:v0.32.0", "", True),
+    ("docker.io/vllm/vllm-openai", "", True),
+    ("vllm/vllm-openai@sha256:abc", "", True),
+    ("vllm/vllm-openai:latest", "--entrypoint vllm", False),  # then `serve` is needed again
+    ("nvcr.io/nvidia/vllm:25.11-py3", "", False),
+])
+def test_preset_vllm_serve_dropped_only_where_the_image_runs_it(image, docker_args, dropped):
+    recipe = {"id": 1, "container_name": "m", "image": image, "model": "/model", "host_port": 8000,
+              "container_port": 8000, "command": "vllm serve {model} --host {bind_host} --port {port}",
+              "docker_args": docker_args}
+    argv = build_run_argv(recipe)
+    after = argv[argv.index(image) + 1:]
+    assert after[:2] == (["/model", "--host"] if dropped else ["vllm", "serve"])
+
+
 def test_sglang_python_module():
     r, _ = recipe_from_argv([
         "--gpus", "all", "lmsysorg/sglang:spark", "python3", "-m", "sglang.launch_server",
@@ -178,3 +206,30 @@ def test_missing_modern_bash_gives_a_clear_error(monkeypatch):
     monkeypatch.setattr(importer, "find_bash", lambda: None)
     with pytest.raises(importer.ScriptImportError, match="brew install bash"):
         asyncio.run(importer.import_script("docker run img"))
+
+
+def test_mounts_and_manager_labels_are_integrated_into_the_recipe():
+    text = """docker run -d --name m \
+      --label local-llm-manager=1 --label local-llm-manager.recipe=7 --label team=llm \
+      --mount type=bind,source=/models/qwen,target=/model,readonly \
+      --mount type=volume,source=cache,target=/cache \
+      -e HF_TOKEN vllm/vllm-openai --model /model --port 8000
+"""
+    res = run_import(text)
+    r = res["recipe"]
+    # Bind mounts become editable volume lines (so {weights} can replace the host path).
+    assert r["volumes"] == "/models/qwen:/model:ro"
+    # The manager adds its own labels; other labels and named volumes stay Docker arguments.
+    assert "local-llm-manager" not in r["docker_args"]
+    assert "--label team=llm" in r["docker_args"]
+    assert "--mount type=volume,source=cache,target=/cache" in r["docker_args"]
+    assert any("simple bind mounts" in w for w in res["warnings"])
+
+
+def test_bind_mount_with_extra_options_stays_a_docker_argument():
+    text = ("docker run --mount type=bind,source=/models/qwen,target=/model,"
+            "bind-propagation=rshared img --model /model\n")
+    r = run_import(text)["recipe"]
+    assert r["volumes"] == ""
+    assert ("--mount type=bind,source=/models/qwen,target=/model,"
+            "bind-propagation=rshared") in r["docker_args"]
