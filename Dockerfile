@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 LABEL org.opencontainers.image.title="Local LLM Manager" \
       org.opencontainers.image.description="Web dashboard to run, schedule and monitor LLM serving recipes (vLLM, SGLang, MLX, llama.cpp, ...)" \
