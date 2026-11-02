@@ -81,7 +81,7 @@ because they suit different machines and model files. You don't need to know the
 | 👥 Several people or tools use the model at once | **vLLM** (or **SGLang**) | Fastest with many users at the same time |
 | 👤 Just you, on a Linux / NVIDIA machine | **vLLM** or **llama.cpp** | Both are fine |
 
-Everything else (**TensorFold**, **Custom**) is for special cases: a program not in the list, or a
+Everything else (**TensorFold**, experimental, and **Custom**) is for special cases: a program not in the list, or a
 start script you already have. **📋 Import** turns such a script into a recipe for you.
 
 ### The easy way: copy what already works
