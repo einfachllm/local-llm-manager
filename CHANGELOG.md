@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Hosts graph:** the Hosts tab opens with a map of your setup - the hub on top, a line to every agent PC,
+  and on each machine its memory, GPU and what runs there: models (🧠, with their port) and agents such as a
+  Hermes gateway (🤖), with a live status dot. Stopped recipes are counted. Line colours show the
+  connection: green for Tailscale / HTTPS, yellow for plain HTTP, red dotted for an offline machine.
+  Click a machine to edit it, or a recipe to open it. On narrow screens the machines stack beside a trunk line.
+- **CPU temperature per host:** every machine reports its CPU temperature next to the GPU's (Hosts graph,
+  hosts table, top-bar tooltip), turning yellow from 85 °C and red from 95 °C. It reads the CPU sensors
+  (`coretemp`, `k10temp`, ...) and the ACPI thermal zones that e.g. the DGX Spark uses; macOS shows none.
+  Agent PCs need this version too to report it.
+
 ## [0.2.0] - 2026-11-01
 
 ## [0.2.0] - 2026-10-30
