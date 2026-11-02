@@ -702,25 +702,24 @@ function agentCardHtml(r) {
       </article>`;
 }
 
-// A section head per kind; `hostId` (inside a host group) makes "+ New" create it on that host.
-function kindHeadHtml(kind, items, hostId = "") {
+// A section head per kind.
+function kindHeadHtml(kind, items) {
   const running = items.filter((r) => RUNNING.includes(r.status)).length;
   const count = `${items.length} ${kind === "agent" ? "agent" : "model"}${items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}`;
-  const add = (label) => `<button class="btn small" data-new-kind="${kind}" data-host="${esc(hostId)}">+ New ${label}</button>`;
   return kind === "agent"
     ? `<div class="kind-head agents"><h3>🤖 Agents <span>${count}</span></h3>
-        <span class="kind-sub">Programs that use a model. “Switch to” keeps them running.</span>${add("agent")}</div>`
+        <span class="kind-sub">Programs that use a model. “Switch to” keeps them running.</span></div>`
     : `<div class="kind-head models"><h3>🧠 Models <span>${count}</span></h3>
-        <span class="kind-sub">LLM servers with an OpenAI-compatible API.</span>${add("model")}</div>`;
+        <span class="kind-sub">LLM servers with an OpenAI-compatible API.</span></div>`;
 }
 
 // Agents above models: as rows, then as the usual card grid.
 function kindsHtml(items, hostId = "") {
   const agents = items.filter((r) => kindOf(r) === "agent");
   const models = items.filter((r) => kindOf(r) === "model");
-  return (agents.length ? `<section class="kind-section agents">${kindHeadHtml("agent", agents, hostId)}
+  return (agents.length ? `<section class="kind-section agents">${kindHeadHtml("agent", agents)}
       <div class="agent-list">${agents.map(agentCardHtml).join("")}</div></section>` : "")
-    + (models.length ? `<section class="kind-section models">${kindHeadHtml("model", models, hostId)}
+    + (models.length ? `<section class="kind-section models">${kindHeadHtml("model", models)}
       <div class="${view.layout === "tiles" ? "grid" : "row-list"}">${models.map(cardHtml).join("")}</div></section>` : "");
 }
 
@@ -737,8 +736,8 @@ function renderRecipes() {
   }
   let html = "";
   if (!view.kind && !state.recipes.some((r) => kindOf(r) === "agent")) {
-    html += `<div class="agent-empty">🤖 No agents yet. Agents, such as a Hermes gateway, run as recipes too and get
-      their own section here. <button class="btn small ghost" data-new-kind="agent">+ New agent</button></div>`;
+    html += `<div class="agent-empty">🤖 No agents yet. To add one (e.g. a Hermes gateway), use “Add recipe” with
+      <code>kind: agent</code> in a YAML recipe.</div>`;
   }
   $("#recipes").innerHTML = html + (view.group ? groupedHtml(list) : kindsHtml(list));
 }
@@ -829,8 +828,6 @@ function recipeBodyFrom(r, overrides = {}) {
 }
 
 $("#recipes").addEventListener("click", async (ev) => {
-  const add = ev.target.closest("[data-new-kind]");
-  if (add) { openRecipeEditor(null, add.dataset.newKind, add.dataset.host); return; }
   const head = ev.target.closest(".group-title");
   if (head) {
     const key = head.closest(".group").dataset.gkey;
@@ -1107,7 +1104,6 @@ function openRecipeEditor(r, kind = "model", hostId = "") {
     applyFramework(kind === "agent" || mac ? "process-custom" : "vllm", true);
   }
   // A new recipe usually starts from a command that already works: offer importing it first.
-  $("#import-cta").classList.toggle("hidden", !!r);
   updateWeightsStatus();
   scheduleImageStatus();
   syncHostNetworkPorts();
@@ -1116,7 +1112,9 @@ function openRecipeEditor(r, kind = "model", hostId = "") {
   $("#dlg-recipe").showModal();
 }
 
-$("#btn-add-recipe").addEventListener("click", () => { openRecipeEditor(null); openImport(); });
+// New recipes always come from a pasted YAML recipe or shell script; the editor then shows the result.
+let importForNew = false;
+$("#btn-add-recipe").addEventListener("click", () => { openRecipeEditor(null); importForNew = true; openImport(); });
 
 $("#sel-host").addEventListener("change", (e) => {
   updatePortHint();
@@ -1659,20 +1657,41 @@ async function runImportCheck() {
 
 function openImport() {
   resetImportReport();
-  $("#import-alternatives").classList.toggle("hidden", !!editingRecipe);
+  $("#import-examples").classList.toggle("hidden", !!editingRecipe);
   $("#dlg-import").showModal();
   $("#import-text").focus();
 }
 $("#btn-import").addEventListener("click", openImport);
-$("#import-cta [data-import]").addEventListener("click", openImport);
-$("#btn-import-manual").addEventListener("click", () => $("#dlg-import").close());
-$("#btn-import-cancel").addEventListener("click", () => {
-  if (!editingRecipe && $("#dlg-recipe").open) $("#dlg-recipe").close();
+// Closed without importing (Cancel, ×, Esc) while adding: nothing to edit, so the empty editor goes too.
+$("#dlg-import").addEventListener("close", () => {
+  if (importForNew && !editingRecipe && $("#dlg-recipe").open) $("#dlg-recipe").close();
+  importForNew = false;
 });
-$("#btn-import-quick").addEventListener("click", () => {
-  $("#dlg-import").close();
-  if ($("#dlg-recipe").open) $("#dlg-recipe").close();
-  openQuick();
+
+const IMPORT_EXAMPLES = {
+  yaml: `# Missing settings come from the framework's defaults.
+name: qwen3-8b
+framework: vllm          # vllm, sglang, llamacpp, …
+model: Qwen/Qwen3-8B     # a Hugging Face id, or  weights: <name in the Weights tab>
+port: 8101
+args: |
+  --max-model-len 32768
+`,
+  shell: `#!/usr/bin/env bash
+docker run --gpus all -p 8101:8000 \\
+  -v ~/.cache/huggingface:/root/.cache/huggingface \\
+  vllm/vllm-openai:latest \\
+  --model Qwen/Qwen3-8B --max-model-len 32768
+`,
+};
+$("#import-examples").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-example]");
+  if (!b) return;
+  const t = $("#import-text");
+  if (t.value.trim() && !confirm("Replace the text in the box with the example?")) return;
+  t.value = IMPORT_EXAMPLES[b.dataset.example];
+  resetImportReport();
+  t.focus();
 });
 
 $("#import-text").addEventListener("input", resetImportReport);
@@ -1721,7 +1740,7 @@ $("#form-import").addEventListener("submit", async (ev) => {
       ...(skipped.length ? [`• Not executed during import (${skipped.length}):`,
         ...skipped.slice(0, 12).map((s) => `    ${s}`), ...(skipped.length > 12 ? [`    … ${skipped.length - 12} more`] : [])] : []),
     ]);
-    $("#import-cta").classList.add("hidden");
+    importForNew = false;  // keep the editor open with the imported recipe
     $("#dlg-import").close();
     updatePreview();
   } catch (e) {
@@ -1953,177 +1972,6 @@ $("#form-copy").addEventListener("submit", async (ev) => {
     $("#copy-error").textContent = e.message;
   }
 });
-
-/* ---------------- quick recipe ---------------- */
-
-// Weights on the host + the settings of a recipe that already works (or a preset) = a new recipe.
-const quickForm = $("#form-quick");
-let quickFound = [];      // model folders / .gguf files on the hosts nobody registered yet
-let quickBaseTouched = false;
-let quickModelTouched = false;
-let quickTimer = null;
-let quickSeq = 0;
-
-const isGguf = (ref) => /\.gguf$/i.test(ref);
-
-function quickModelRef() {
-  const v = quickForm.elements.model_ref.value;
-  if (v !== "other") return v;
-  const t = quickForm.elements.other.value.trim();
-  return !t ? "" : /^[/~]/.test(t) ? `f:${t}` : `h:${t}`;
-}
-
-function renderQuickModels() {
-  const hostId = Number(quickForm.elements.host_id.value);
-  const cur = quickForm.elements.model_ref.value;
-  const reg = state.weights.filter((w) => w.locations[hostId]);
-  const found = quickFound.filter((f) => f.host_id === hostId);
-  const size = (f) => f.size_gb ? ` – ${f.size_gb} GB` : "";
-  quickForm.elements.model_ref.innerHTML = [
-    reg.length ? `<optgroup label="Registered weights">${reg.map((w) =>
-      `<option value="w:${w.id}">${esc(w.name)}</option>`).join("")}</optgroup>` : "",
-    found.length ? `<optgroup label="Found on this host">${found.map((f) =>
-      `<option value="f:${esc(f.path)}">${f.kind === "file" ? "📄" : "📁"} ${esc(f.name)}${size(f)}</option>`).join("")}</optgroup>` : "",
-    `<optgroup label="Other"><option value="other">Hugging Face id or another path…</option></optgroup>`,
-  ].join("");
-  const keep = quickModelTouched && [...quickForm.elements.model_ref.options].some((o) => o.value === cur);
-  quickForm.elements.model_ref.value = keep ? cur : quickForm.elements.model_ref.options[0].value;
-  $("#quick-other-row").classList.toggle("hidden", quickForm.elements.model_ref.value !== "other");
-}
-
-function renderQuickBases() {
-  const hostId = Number(quickForm.elements.host_id.value);
-  const cur = quickForm.elements.base.value;
-  const models = state.recipes.filter((r) => kindOf(r) === "model").sort(byName);
-  const opt = (r) => `<option value="r:${r.id}">${esc(r.name)} (${esc(state.meta.frameworks[r.framework]?.label ?? r.framework)})</option>`;
-  const here = models.filter((r) => r.host_id === hostId);
-  const elsewhere = models.filter((r) => r.host_id !== hostId);
-  const mac = hostPlatform(hostId) === "darwin";
-  const presets = Object.entries(state.meta.frameworks)
-    .filter(([k, v]) => !k.endsWith("custom") && (!mac || v.runtime === "process"));
-  quickForm.elements.base.innerHTML = [
-    here.length ? `<optgroup label="Recipes on this host">${here.map(opt).join("")}</optgroup>` : "",
-    elsewhere.length ? `<optgroup label="Recipes on other hosts">${elsewhere.map(opt).join("")}</optgroup>` : "",
-    `<optgroup label="Engine defaults">${presets.map(([k, v]) => `<option value="p:${k}">${esc(v.label)}</option>`).join("")}</optgroup>`,
-  ].join("");
-  if ([...quickForm.elements.base.options].some((o) => o.value === cur)) quickForm.elements.base.value = cur;
-}
-
-// The settings that most likely fit: a recipe on this host for the same kind of weights, else a preset.
-function suggestQuickBase() {
-  if (quickBaseTouched) return;
-  const hostId = Number(quickForm.elements.host_id.value);
-  const gguf = isGguf(quickModelRef());
-  const mac = hostPlatform(hostId) === "darwin";
-  const llama = (fw) => fw.startsWith("llamacpp");
-  const fits = (r) => kindOf(r) === "model" && r.host_id === hostId && (gguf ? llama(r.framework)
-    : !llama(r.framework) && (!mac || r.runtime === "process"));
-  const recent = state.recipes.filter(fits).sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""))[0];
-  quickForm.elements.base.value = recent ? `r:${recent.id}`
-    : `p:${gguf ? (mac ? "llamacpp-native" : "llamacpp") : mac ? "mlx" : "vllm"}`;
-}
-
-function quickBody(save) {
-  const f = quickForm.elements;
-  const ref = quickModelRef();
-  const base = f.base.value;
-  const body = { host_id: Number(f.host_id.value) || null, name: f.name.value.trim(), save,
-    context: f.context.value ? Number(f.context.value) : null };
-  if (base.startsWith("r:")) body.base_recipe_id = Number(base.slice(2));
-  else body.framework = base.slice(2);
-  if (ref.startsWith("w:")) body.weights_id = Number(ref.slice(2));
-  else if (ref.startsWith("f:")) body.path = ref.slice(2);
-  else if (ref.startsWith("h:")) body.model = ref.slice(2);
-  return body;
-}
-
-async function updateQuickPreview() {
-  const seq = ++quickSeq;
-  $("#quick-error").textContent = "";
-  if (!quickModelRef()) {
-    $("#quick-preview").textContent = "Pick the model first.";
-    $("#quick-notes").innerHTML = "";
-    return;
-  }
-  try {
-    const res = await api("/api/recipes/quick", { method: "POST", body: quickBody(false) });
-    if (seq !== quickSeq) return;
-    const r = res.recipe;
-    $("#quick-notes").innerHTML = [
-      `<b>${esc(r.name)}</b> on port <b>${r.host_port}</b> – endpoint <code>${esc(maskEndpoint(endpointUrl(r)))}</code>`,
-      ...res.notes.map(esc),
-    ].map((n) => `<li>${n}</li>`).join("");
-    $("#quick-preview").innerHTML = previewHtml(res.command, r.image);
-  } catch (e) {
-    if (seq !== quickSeq) return;
-    $("#quick-notes").innerHTML = "";
-    $("#quick-preview").textContent = `(incomplete) ${e.message}`;
-  }
-}
-
-function scheduleQuickPreview() {
-  clearTimeout(quickTimer);
-  quickTimer = setTimeout(updateQuickPreview, 250);
-}
-
-async function openQuick() {
-  quickForm.reset();
-  quickBaseTouched = false;
-  quickModelTouched = false;
-  $("#quick-error").textContent = "";
-  $("#quick-host").innerHTML = state.hosts.map((h) =>
-    `<option value="${h.id}">${esc(maskAddr(h.name))}${h.online ? "" : " (offline)"}</option>`).join("");
-  $("#quick-host-row").classList.toggle("hidden", !multiHost());
-  quickForm.elements.host_id.value = view.host || state.hosts.find((h) => h.is_local)?.id || "";
-  renderQuickModels();
-  renderQuickBases();
-  suggestQuickBase();
-  $("#dlg-quick").showModal();
-  updateQuickPreview();
-  // Unregistered folders take a round trip to every host: fill them in when they arrive.
-  try {
-    quickFound = (await api("/api/weights/discover")).unregistered;
-    if (!$("#dlg-quick").open) return;
-    renderQuickModels();
-    suggestQuickBase();
-    updateQuickPreview();
-  } catch { /* the registered weights and "Other" still work */ }
-}
-
-$("#quick-host").addEventListener("change", () => {
-  renderQuickModels();
-  renderQuickBases();
-  suggestQuickBase();
-  updateQuickPreview();
-});
-$("#quick-model").addEventListener("change", () => {
-  quickModelTouched = true;
-  $("#quick-other-row").classList.toggle("hidden", quickForm.elements.model_ref.value !== "other");
-  if (quickForm.elements.model_ref.value === "other") quickForm.elements.other.focus();
-  suggestQuickBase();
-  updateQuickPreview();
-});
-$("#quick-base").addEventListener("change", () => { quickBaseTouched = true; updateQuickPreview(); });
-quickForm.addEventListener("input", (ev) => {
-  if (ev.target.name === "other") suggestQuickBase();
-  if (["other", "context", "name"].includes(ev.target.name)) scheduleQuickPreview();
-});
-
-async function createQuick(edit) {
-  try {
-    const res = await api("/api/recipes/quick", { method: "POST", body: quickBody(true) });
-    $("#dlg-quick").close();
-    toast(`“${res.recipe.name}” created${edit ? "" : " – press Start on its card"}`, "ok");
-    await loadWeightsList();
-    await loadRecipes();
-    if (edit) openRecipeEditor(state.recipes.find((r) => r.id === res.recipe.id) || res.recipe);
-  } catch (e) {
-    $("#quick-error").textContent = e.message;
-  }
-}
-
-quickForm.addEventListener("submit", (ev) => { ev.preventDefault(); createQuick(false); });
-$("#btn-quick-edit").addEventListener("click", () => createQuick(true));
 
 /* ---------------- logs ---------------- */
 
@@ -2780,12 +2628,10 @@ document.addEventListener("keydown", (ev) => {
   }
   if (TAB_KEYS[k]) { $(`.tab[data-tab="${TAB_KEYS[k]}"]`).click(); ev.preventDefault(); return; }
   if (k === "/") { $('.tab[data-tab="recipes"]').click(); $("#recipe-search").focus(); ev.preventDefault(); return; }
-  if (k === "n" && state.tab === "recipes") { openRecipeEditor(null); ev.preventDefault(); return; }
   if (k === "i" && state.tab === "recipes") { $("#btn-add-recipe").click(); ev.preventDefault(); return; }
-  if (k === "q" && state.tab === "recipes") { openQuick(); ev.preventDefault(); return; }
   if (k === "t") { $("#btn-theme").click(); return; }
   if (k === "b") { $("#btn-blur").click(); return; }
-  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · i add/import a recipe · n new recipe · q quick recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
+  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · i add a recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
 });
 
 /* ---------------- boot ---------------- */

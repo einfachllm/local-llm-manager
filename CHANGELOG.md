@@ -13,6 +13,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "🔍 Search hosts" button, the *Recipes* column and the separate *Used by recipes* table are gone (the
   recipe editor and the start check still report a model missing on a host), and each model has one
   action - **⇉ Copy to other hosts…** when a host has it, else **⬇ Download…** - instead of two.
+- **Simpler "Add recipe":** a new recipe is always a pasted YAML recipe or shell script (`docker run`
+  included), with a one-click example of each under the box. "Start from scratch", **Quick recipe**
+  (and its `q` shortcut), the `n` shortcut and the "+ New model / + New agent" buttons are gone; closing
+  the dialog without importing no longer leaves an empty editor. Use **⧉ Duplicate** for a variant of an
+  existing recipe. `POST /api/recipes/quick` still exists for API users.
 
 ## [0.2.0] - 2026-11-01
 
