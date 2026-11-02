@@ -33,7 +33,8 @@ silicon, or any Linux box - from any browser on your network:
   background. Each host has its own action queue, so a slow start on one never blocks the others.
 - **Images and weights on every machine:** ⤓ pull an image on several hosts at once; download a Hugging
   Face model once and copy it host to host over your network (snowball-style, SHA-256 checked, resumable),
-  with progress per machine. The Hosts tab shows which connections are encrypted (Tailscale / HTTPS).
+  with progress per machine. The Hosts tab draws the hub and every agent PC as a graph with the models and
+  agents running on each, and shows which connections are encrypted (Tailscale / HTTPS).
 - **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
   ⭐ pinned recipes, collapsible groups and keyboard shortcuts (`?` shows them).
 

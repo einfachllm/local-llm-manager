@@ -277,7 +277,102 @@ function transportBadge(h) {
 }
 const plainHosts = (ids) => state.hosts.filter((h) => ids.includes(h.id) && h.transport === "plain");
 
+/* ---------------- hosts: topology graph ----------------
+ * The hub (this machine, running the dashboard) on top, a line to every agent machine below it, and
+ * on each machine what runs there: models (🧠) and agents such as a Hermes gateway (🤖). Stopped
+ * recipes are only counted, so a busy host stays readable. Click a machine to edit it, a recipe to
+ * open its editor. */
+function topoNode(h, role) {
+  const mine = state.recipes.filter((r) => r.host_id === h.id).sort(byName);
+  const shown = mine.filter((r) => RUNNING.includes(r.status) || r.status === "failed")
+    .sort((a, b) => (kindOf(a) === kindOf(b) ? 0 : kindOf(a) === "model" ? -1 : 1));
+  const stopped = mine.length - shown.length;
+  const m = h.system?.memory;
+  const gpu = h.system?.gpus?.[0];
+  const platform = h.info ? `${PLATFORM[h.info.platform] ?? h.info.platform} · ${h.info.machine}` : "";
+  const item = (r) => {
+    const agent = kindOf(r) === "agent";
+    const label = (agent ? AGENT_STATUS_LABEL : STATUS_LABEL)[r.status] ?? r.status;
+    return `<button type="button" class="topo-item ${agent ? "agent" : "model"} ${r.status}" data-recipe="${r.id}"
+        title="${esc(`${agent ? "Agent" : "Model"} · ${label}${agent ? "" : ` · port ${r.host_port}`}`)}">
+        <span class="topo-dot"></span><span class="topo-kind">${agent ? "🤖" : "🧠"}</span><span class="topo-name">${esc(r.name)}</span>
+        ${agent ? "" : `<span class="topo-port">:${r.host_port}</span>`}</button>`;
+  };
+  return `<div class="topo-node ${role} ${h.online ? "" : "offline"}" data-host="${h.id}" role="button" tabindex="0" title="Edit host">
+      <div class="topo-head">
+        <span class="topo-icon">${role === "hub" ? "🛰️" : "🖥️"}</span>
+        <b class="topo-host">${esc(maskAddr(h.name))}</b>
+        <span class="topo-role">${role === "hub" ? "Hub" : "Agent PC"}</span>
+      </div>
+      <div class="topo-sub">${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span>`}${platform ? ` · ${esc(platform)}` : ""}</div>
+      ${m ? `<div class="topo-mem"><div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
+        <small>${esc(memText(m))}${gpu ? ` · GPU ${gpu.utilization ?? "?"}%` : ""}</small></div>` : ""}
+      <div class="topo-items">${shown.map(item).join("") || `<span class="topo-none">${h.online ? "Nothing running" : "Unreachable"}</span>`}</div>
+      ${stopped ? `<div class="topo-stopped">${stopped} stopped</div>` : ""}
+    </div>`;
+}
+
+function renderTopology() {
+  const hub = state.hosts.find((h) => h.is_local) ?? state.hosts[0];
+  $("#topology").classList.toggle("hidden", !hub);
+  if (!hub) return;
+  const agents = state.hosts.filter((h) => h !== hub);
+  $("#topo-hub").innerHTML = topoNode(hub, "hub");
+  $("#topo-agents").innerHTML = agents.length ? agents.map((h) => topoNode(h, "agent")).join("")
+    : `<div class="topo-empty">No agent PCs yet – add one with <b>+ Add host</b> and it appears here, linked to the hub.</div>`;
+  requestAnimationFrame(drawTopoLinks);
+}
+
+// Lines from the hub to each agent PC, drawn over the laid-out cards (so they follow wrapping).
+function drawTopoLinks() {
+  const box = $("#topology"), svg = $("#topo-links");
+  const hubEl = $("#topo-hub .topo-node");
+  if (!hubEl || !box.offsetParent) return;
+  // Narrow screens stack the agent PCs, so the lines run down a trunk on the left instead of
+  // through the cards.
+  box.classList.toggle("narrow", box.clientWidth < 600);
+  const narrow = box.classList.contains("narrow");
+  const o = box.getBoundingClientRect();
+  svg.setAttribute("viewBox", `0 0 ${o.width} ${o.height}`);
+  const hr = hubEl.getBoundingClientRect();
+  const x1 = narrow ? 14 : hr.left + hr.width / 2 - o.left, y1 = narrow ? hr.top + hr.height / 2 - o.top : hr.bottom - o.top;
+  const hubLink = narrow ? `<path class="topo-link trunk" d="M${hr.left - o.left},${y1} H${x1}"></path>` : "";
+  svg.innerHTML = hubLink + $$("#topo-agents .topo-node").map((el) => {
+    const h = hostById(el.dataset.host);
+    const r = el.getBoundingClientRect();
+    const cls = !h?.online ? "offline" : h.transport === "plain" ? "plain" : "ok";
+    const tip = !h?.online ? "offline" : TRANSPORT[h.transport]?.[2] ?? "online";
+    let x2, y2, d;
+    if (narrow) {
+      x2 = r.left - o.left; y2 = Math.min(r.top - o.top + 22, r.bottom - o.top - 8);
+      d = `M${x1},${y1} V${y2 - 10} Q${x1},${y2} ${x1 + 10},${y2} H${x2}`;
+    } else {
+      x2 = r.left + r.width / 2 - o.left; y2 = r.top - o.top;
+      const my = (y1 + y2) / 2;
+      d = `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`;
+    }
+    return `<path class="topo-link ${cls}" d="${d}"><title>${esc(tip)}</title></path>
+      <circle class="topo-end ${cls}" cx="${x2}" cy="${y2}" r="3.5"></circle>`;
+  }).join("") + `<circle class="topo-end hub" cx="${x1}" cy="${y1}" r="4"></circle>`;
+}
+
+if (window.ResizeObserver) new ResizeObserver(() => drawTopoLinks()).observe($("#topology"));
+
+$("#topology").addEventListener("click", (ev) => {
+  const it = ev.target.closest("[data-recipe]");
+  if (it) { const r = state.recipes.find((x) => x.id === Number(it.dataset.recipe)); if (r) openRecipeEditor(r); return; }
+  const node = ev.target.closest(".topo-node");
+  if (node) openHostEditor(hostById(node.dataset.host));
+});
+$("#topology").addEventListener("keydown", (ev) => {
+  if ((ev.key === "Enter" || ev.key === " ") && ev.target.classList.contains("topo-node")) {
+    ev.preventDefault();
+    openHostEditor(hostById(ev.target.dataset.host));
+  }
+});
+
 function renderHosts() {
+  renderTopology();
   renderPorts();
   const running = (id) => state.recipes.filter((r) => r.host_id === id && RUNNING.includes(r.status)).length;
   const total = (id) => state.recipes.filter((r) => r.host_id === id).length;
@@ -363,6 +458,7 @@ async function loadRecipes() {
     recordMetrics(state.recipes);
     if (watchStarts(state.recipes)) await loadStartTimes();  // a boot just finished
     renderRecipes();
+    if (state.tab === "hosts") { renderTopology(); renderPorts(); }
   } catch (e) {
     $("#recipes").innerHTML = `<div class="empty">Failed to load recipes: ${esc(e.message)}</div>`;
   }
