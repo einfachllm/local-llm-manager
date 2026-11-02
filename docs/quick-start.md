@@ -67,21 +67,24 @@ and restart the service.
 
 ## 3. Start your first model
 
-1. Click **＋ Add recipe** (shortcut `i`), then **use Quick recipe** in the dialog (shortcut `q`).
-2. Pick the **Model**: a folder or `.gguf` found in `DGXM_MODEL_DIR` on the host, registered weights, or a
-   Hugging Face id such as `Qwen/Qwen3-8B`.
-3. Pick **Settings from**: an engine default (vLLM, SGLang, llama.cpp, MLX on a Mac) or, once you have
-   one, a recipe that already works - its image, flags, env and caches are copied, only the model, name,
-   served model name and (optionally) the context length change.
-4. Check the **Command** shown below, then **Create**.
-5. Click **Start** on the new card. The status goes from *starting* to *loading* to *ready*.
+1. Click **＋ Add recipe** (shortcut `i`).
+2. Paste a **YAML recipe** or a **shell script** / `docker run` command - or click **YAML recipe** or
+   **shell script** under the box for an example to edit. A YAML recipe only lists what differs from the
+   engine's defaults:
 
-Every field by hand: **＋ Add recipe** → **Start from scratch**.
+    ```yaml
+    name: qwen3-8b
+    framework: vllm          # vllm, sglang, llamacpp, mlx, …
+    model: Qwen/Qwen3-8B     # a Hugging Face id, or  weights: <name in the Weights tab>
+    port: 8101
+    ```
 
-!!! tip "Already have a start script?"
-    **＋ Add recipe** opens the import dialog directly. Paste the script, `docker run` command or a
-    compact JSON/YAML recipe file; scripts are checked for risky calls first and nothing in them is
-    executed. In the editor, **Recipe file…** exports the current settings the same way.
+    Scripts are checked for risky calls first; nothing in them is executed.
+3. **Import**, check the fields and the command preview, then **Save**.
+4. Click **Start** on the new card. The status goes from *starting* to *loading* to *ready*.
+
+A second model with the same settings: **⧉ Duplicate** on the card, then change the model. In the editor,
+**Recipe file…** exports a recipe as YAML.
 
 When the model is ready, its OpenAI-compatible API is at the endpoint shown on the card:
 
