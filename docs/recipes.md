@@ -54,9 +54,13 @@ There is no form to fill in. Click **＋ Add recipe** (shortcut `i`) and paste o
     The script is checked for risky lines first, then run with bash in a restricted mode in which only a
     fake `docker` (that records the command) and read-only text tools really run. Nothing is started.
 
+![Add a recipe: paste YAML or a shell script](screenshots/add-recipe-dark.png)
+
 Under the box, **YAML recipe** and **shell script** insert an example of each to edit. After **Import**
 the editor opens with every field filled and the exact `docker run` command beside it; check name, port
 and paths, then **Save**. For a variant of a recipe that already works, use **⧉ Duplicate** on its card.
+
+![Recipe editor with the command preview](screenshots/recipe-editor-dark.png)
 
 ## Move recipes between machines and managers
 

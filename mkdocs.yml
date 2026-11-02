@@ -56,7 +56,6 @@ nav:
   - Weights: weights.md
   - Several machines: several-machines.md
   - How it works: how-it-works.md
-  - Architecture: architecture.md
   - Configuration: configuration.md
 
 plugins:

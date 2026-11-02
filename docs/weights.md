@@ -4,6 +4,8 @@ Model weights are big (often 20-200 GB) and must be on the machine that runs the
 tab keeps track of where each model is on each machine, finds weights that are already there, downloads
 new ones from Hugging Face and copies them from machine to machine over your own network.
 
+![Weights tab: one row per model, one column per host, and what was found on the hosts](screenshots/weights-dark.png)
+
 ## One row per model, one column per host
 
 The tab is a table: one row per model, one column per host.
@@ -91,8 +93,7 @@ flowchart LR
   HTTP addresses.
 
 To copy *from* the hub's own machine, open the dashboard by its network name (not `localhost`) or set
-`DGXM_PUBLIC_URL`. How the copy works on the wire is on the [Architecture](architecture.md#copying-weights-host-to-host-like-a-snowball)
-page.
+`DGXM_PUBLIC_URL`.
 
 ## Machines with little disk space
 

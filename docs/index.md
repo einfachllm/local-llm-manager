@@ -58,9 +58,9 @@ silicon, or any Linux box – from any browser on your network.
 
     The idea in pictures: one dashboard, all your machines, models shared between them.
 
--   **[Architecture](architecture.md)**
+-   **[Configuration](configuration.md)**
 
-    For administrators: what talks to what, ports, keys and every step on the network.
+    Every setting in `.env`, with defaults.
 
 </div>
 

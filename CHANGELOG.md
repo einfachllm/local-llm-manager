@@ -6,73 +6,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-02
+
 ### Highlights
 - **Recipes across the broad inference engines in one place:** vLLM, SGLang, llama.cpp (Docker or native),
-  MLX and TensorFold (experimental) presets, plus any image or binary as *Custom*. The Recipes docs page
-  now has a table of the supported engines.
-- **Recipes from YAML or a shell script, and between managers:** **＋ Add recipe** is now only a paste box
-  for a compact YAML/JSON recipe or a start script / `docker run` (with an example of each). The
-  **Recipe file…** dialog became editable, so a recipe can be exported, tweaked as text, and imported on
-  another host or another manager installation; **⇉ Copy to hosts** rolls it out on one dashboard.
-- **Weights management:** the Weights tab is one table (model × host) that searches every host by
-  itself and offers what it finds under **Found on your hosts**. Each model has one action -
-  **⬇ Download…** from Hugging Face or **⇉ Copy to other hosts…** machine to machine.
+  MLX and TensorFold (experimental) presets, plus any image or binary as *Custom*.
+- **Recipes from YAML or a shell script, and between managers:** **＋ Add recipe** is a paste box for a
+  compact YAML/JSON recipe or a start script / `docker run` (with an example of each). **Recipe file…**
+  exports a recipe - editable, so it can be tweaked as text - to import on another host or another manager
+  installation; **⇉ Copy to hosts** rolls it out on one dashboard and keeps the copies in sync.
+- **Weights management:** the Weights tab is one table (model × host) that searches every host by itself
+  and offers what it finds under **Found on your hosts**. **⬇ Download** from Hugging Face once, then
+  **⇉ Copy to other hosts** machine to machine (SHA-256 checked, resumable). Recipes use `{weights}` and
+  run on any host without edits.
 - **Hosts graph with the important metrics:** the hub and every agent PC as a map with memory, GPU load,
   GPU and CPU temperature, running models and agents and connection encryption; **Ports & endpoints**
   shows live speed, requests and KV-cache use per model.
 - **Hub and agents:** start the hub, then connect each agent with its token - added on the hub, or by the
-  agent asking to join (`DGXM_HUB_URL`) and you approving matching join codes. The Hosts tab and
-  the docs now explain both ways.
-- **Documentation:** new [Weights](https://einfachllm.github.io/local-llm-manager/weights/) page; the
-  Recipes page explains adding recipes by paste and moving them between machines and managers; Several
-  machines gained a hub/agent overview and a Hosts tab section; the README and the docs home page lead
-  with the main use cases (best recipes in one place, no Docker/shell needed thanks to the examples, LLMs
-  on different hosts, hosts with little disk space) and these highlights.
-
-### Added
-- **Hosts graph:** the Hosts tab opens with a map of your setup - the hub on top, a line to every agent PC,
-  and on each machine its memory, GPU and what runs there: models (🧠, with their port) and agents such as a
-  Hermes gateway (🤖), with a live status dot. Stopped recipes are counted. Line colours show the
-  connection: green for Tailscale / HTTPS, yellow for plain HTTP, red dotted for an offline machine.
-  Click a machine to edit it, or a recipe to open it. On narrow screens the machines stack beside a trunk line.
-- **CPU temperature per host:** every machine reports its CPU temperature next to the GPU's (Hosts graph,
-  hosts table, top-bar tooltip), turning yellow from 85 °C and red from 95 °C. It reads the CPU sensors
-  (`coretemp`, `k10temp`, ...) and the ACPI thermal zones that e.g. the DGX Spark uses; macOS shows none.
-  Agent PCs need this version too to report it.
-- **Activity log controls:** choose how many recent entries to show (last 10, 50, 100 or 300) and clear
-  the log with one confirmed click. The chosen length is remembered in the browser.
-- **Editable recipe files:** the **Recipe file…** dialog is no longer read-only. Edit the YAML/JSON there
-  and press **Apply to editor** to load the changes without saving; Copy and Download use the edited text.
-- **Hosts, less repetition:** the host table now sits behind **Host details & actions** (collapsed by
-  default), so the topology graph is the overview. **Ports & endpoints** gained a **Metrics** column with
-  each running model's output/input speed, requests and KV-cache use. Remote hosts also get a **Remove
-  host** button in the editor, opened by clicking a graph node.
-
-### Changed
-- **Left sidebar navigation:** Recipes, Schedules, Activity, Hosts, Images and Weights moved from the top
-  bar into a left menu. The top bar now shows the current section, host status, Blur and Theme; on narrow
-  screens the menu becomes a drawer with a hamburger button.
-- **Copies are easier to find:** after **Copy to hosts** the new copy is revealed even when a host filter,
-  search or collapsed group would hide it. The saved host filter now also shows correctly in the selector,
-  and the Hosts graph lists stopped recipe names in the “N stopped” tooltip.
-- **Clearer start status:** a recipe whose Docker image is not on the host yet shows **Pulling image…**
-  instead of the generic **Working…**; stop/restart/switch show their own labels too.
-- **First start:** an empty database now gets the **qwen3.8** example from `examples/recipes`
-  (`qwen38-27b.yaml`) and its weights entry, instead of two hardcoded recipes. Register or download the
-  weights in the Weights tab before starting it.
-- **Simpler Weights tab:** the host search runs by itself when the tab opens; everything it can add (paths
-  for existing entries, new folders - one row per folder name across hosts - and recipes that mount a
-  folder directly) shows in one **Found on your hosts** box, hidden when there is nothing. The
-  "🔍 Search hosts" button, the *Recipes* column and the separate *Used by recipes* table are gone (the
-  recipe editor and the start check still report a model missing on a host), and each model has one
-  action - **⇉ Copy to other hosts…** when a host has it, else **⬇ Download…** - instead of two.
-- **Simpler "Add recipe":** a new recipe is always a pasted YAML recipe or shell script (`docker run`
-  included), with a one-click example of each under the box. "Start from scratch", **Quick recipe**
-  (and its `q` shortcut), the `n` shortcut and the "+ New model / + New agent" buttons are gone; closing
-  the dialog without importing no longer leaves an empty editor. Use **⧉ Duplicate** for a variant of an
-  existing recipe. `POST /api/recipes/quick` still exists for API users.
-
-## [0.2.0] - 2026-11-01
+  agent asking to join (`DGXM_HUB_URL`) and you approving matching join codes.
 
 ### Upgrading from 0.1.0
 - Upgrade the hub and all agents together: the new features need new agents.
@@ -80,49 +31,72 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The database is upgraded on the first start; back it up (`DGXM_DB`) if you may want to go back.
 
 ### Added
+**Recipes**
+- **＋ Add recipe by paste:** a YAML/JSON recipe file (the editor's fields; missing settings come from the
+  framework preset) or a starter script / `docker run`, checked for risky lines and run in a restricted
+  mode that only records the server command. One-click examples of each under the box; importable
+  examples in `examples/recipes` (Qwen3.8, Nemotron-3.5-Super-VL, EmbeddingGemma 2, SGLang Flint, Hermes).
+- **Recipe file…** in the editor: copy or download a recipe as compact YAML/JSON, edit it there and
+  **Apply to editor** without saving.
+- **Agents** (e.g. a Hermes gateway) as their own kind of recipe, apart from models, with their own section
+  per host, secret checks and a warning about stray second copies.
+- **TensorFold** preset (experimental); models shown as rows or tiles.
+- **More filters and grouping:** show All / Models / Agents, and group agents by host or tag like models.
+
 **Several machines**
 - **Agent self-registration:** an agent with `DGXM_HUB_URL` asks the hub to be added; approve it by
   comparing the join code.
-- **Copy to other hosts:** roll one recipe out to several machines; copies stay in sync with the original.
-- **Encryption per host:** the Hosts tab shows 🔒 Tailscale, 🔒 HTTPS or ⚠ plain HTTP.
+- **Copy to other hosts:** roll one recipe out to several machines; copies stay in sync with the original
+  and can be restarted on all machines at once, in the background.
+- **Hosts graph:** the Hosts tab opens with a map of your setup - the hub on top, a line to every agent PC,
+  and on each machine its memory, GPU and what runs there: models (🧠, with their port) and agents (🤖),
+  with a live status dot; stopped recipes are counted. Line colours show the connection: green for
+  Tailscale / HTTPS, yellow for plain HTTP, red dotted for an offline machine. Click a machine to edit or
+  remove it, or a recipe to open it. The host table moved behind **Host details & actions**.
+- **CPU temperature per host** next to the GPU's (graph, hosts table, top-bar tooltip), yellow from 85 °C
+  and red from 95 °C. Reads `coretemp`, `k10temp`, … and the ACPI thermal zones the DGX Spark uses; macOS
+  shows none.
+- **Ports & endpoints metrics:** each running model's output/input speed, requests and KV-cache use.
 
 **Weights and images**
-- **Search hosts** for model folders and `.gguf` files, and register them in one click. Which folders are
-  searched is set with `DGXM_MODEL_DIR` in `.env` (several allowed).
 - **Weights tab** and **weights registry:** one entry per model with its path on each host; recipes use
-  `{weights}` and work on any host.
-- **Download on hosts** from Hugging Face (gated models: `HF_TOKEN` in `.env`) and **pull images** on
+  `{weights}` and work on any host. Changing a recipe's host makes its model folder follow.
+- **Found on your hosts:** the tab searches each host's `DGXM_MODEL_DIR` (several allowed) for model
+  folders and `.gguf` files by itself and offers paths, new folders and recipes that mount a folder
+  directly, one click each.
+- **Download from Hugging Face** on hosts (gated models: `HF_TOKEN` in `.env`) and **pull images** on
   several hosts at once.
-- **Copy weights host to host:** download once, then machines copy from each other (SHA-256 checked,
-  resumable). Recommended for getting the same model onto several machines.
-- **Missing weights per host:** see on which hosts a recipe's weights are missing before you start or copy it.
+- **Copy weights host to host:** download once, then machines copy from each other (snowball-style,
+  SHA-256 checked, resumable, free disk space checked first).
+- **Missing weights per host:** the editor, the copy dialog and the start check say where a model is missing.
 - **Images tab** (experimental): which host has which image, and newer tags to switch to.
 
-**Recipes**
-- **⚡ Quick recipe:** a new recipe from a working one plus other weights, in one dialog.
-- **Added Agents** (e.g. a Hermes gateway) as their own kind of recipe, apart from models.
-- **TensorFold** preset; models shown as rows (or tiles).
-- **Simpler moves between hosts:** change a recipe's host and its model folder follows: `{weights}`
-  mounts the path that host has in the Weights tab, so you don't edit the volumes by hand.
-- **More filters and grouping:** show All / Models / Agents, and group agents by host or tag like models.
-
 **Operations and docs**
+- **Activity log controls:** show the last 10, 50, 100 or 300 entries and clear the log.
 - **Self-monitoring:** `/healthz` and opt-in Prometheus `/metrics` (`DGXM_METRICS=1`).
 - **Log retention:** old activity is pruned after `DGXM_RETENTION_DAYS` (default 90).
-- **Documentation site** with Quick start, Several machines, How it works, Architecture and a
-  configuration reference; recipe examples in `examples/`.
+- **Documentation site** with Quick start, Recipes (supported engines, adding and moving recipes),
+  Weights, Several machines (hub and agents, Hosts tab), How it works and a configuration
+  reference. The README leads with the main use cases.
 
 ### Changed
+- **Left sidebar navigation:** Recipes, Schedules, Activity, Hosts, Images and Weights moved into a left
+  menu (a drawer on phones); the top bar shows the section, host status, Blur and Theme.
 - **One lock per host:** a slow action on one machine no longer blocks the others.
-- **Recipe editor:** command preview beside the form, easier import (`i`).
+- **Recipe editor:** command preview beside the form.
 - **Model cards:** show the model folder, served model name and endpoint copy button.
-- A container killed for lack of memory now shows **failed** instead of "stopped".
+- **Clearer status:** **Pulling image…** while a missing image is fetched, own labels for stop / restart /
+  switch, and a container killed for lack of memory shows **failed** instead of "stopped".
+- **First start:** an empty database gets the **qwen3.8** example (`examples/recipes/qwen38-27b.yaml`) and
+  its weights entry. Register or download the weights in the Weights tab before starting it.
 
 ### Fixed
 - Empty recipe label in the command preview of an existing recipe.
 - "KV" stats figure wrapping onto its own line; tab bar too wide on phones.
 - Jobs panel losing a running copy after a laptop wakes from sleep; it now also shows jobs from other
   browsers and recently finished ones.
+- A copied recipe could be hidden by the host filter, search or a collapsed group; the saved host filter
+  now shows correctly in the selector.
 
 ## [0.1.0] - 2026-10-26
 

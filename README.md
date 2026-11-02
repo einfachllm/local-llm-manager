@@ -86,16 +86,20 @@ More examples:
 
 ## Screenshots
 
-| Light theme, models as tiles | Schedules & planned-runs timeline |
+| Add a recipe: paste YAML or a script | Weights on every host |
+|---|---|
+| ![Add a recipe](docs/screenshots/add-recipe-dark.png) | ![Weights](docs/screenshots/weights-dark.png) |
+
+| Hosts graph, ports & live metrics | Recipe editor with command preview |
+|---|---|
+| ![Hosts](docs/screenshots/hosts-dark.png) | ![Recipe editor](docs/screenshots/recipe-editor-dark.png) |
+
+| Light theme, grouped by host, tiles | Schedules & planned-runs timeline |
 |---|---|
 | ![Light theme, models as tiles](docs/screenshots/recipes-light.png) | ![Schedules](docs/screenshots/schedules-dark.png) |
 
-| Hosts, ports & endpoints | Recipe editor (an agent) |
-|---|---|
-| ![Hosts](docs/screenshots/hosts-dark.png) | ![Recipe editor, editing an agent](docs/screenshots/recipe-editor-dark.png) |
-
-The screenshots show a demo setup. The top-bar **🙈 Blur** toggle replaces host names and IPs with aliases such as
-`host-3f2a` (as in the Hosts screenshot) - handy for screenshots and screen shares.
+The screenshots show a demo setup: a hub `spark-01` and an agent `spark-02`. The top-bar **🙈 Blur** toggle
+replaces host names and IPs with aliases such as `host-3f2a` - handy for screenshots and screen shares.
 
 ## Quick start
 
@@ -195,8 +199,7 @@ Step by step: [Several machines](https://einfachllm.github.io/local-llm-manager/
 | Hub | each agent, port `8090` | Start/stop models, status, logs (plain HTTP + token) |
 | Apps using a model | the machine running it, the recipe's port (e.g. `8100`) | The model's OpenAI-compatible API at `http://<machine>:<port>/v1` |
 
-Agents connect to the hub only to ask to be added (`DGXM_HUB_URL`), and to each other only to copy weights
-(see the [Architecture](https://einfachllm.github.io/local-llm-manager/architecture/) page). Keep all of
+Agents connect to the hub only to ask to be added (`DGXM_HUB_URL`), and to each other only to copy weights. Keep all of
 this inside one private network - ideally Tailscale (next section) - and never expose these ports to the
 internet.
 
