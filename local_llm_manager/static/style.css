@@ -475,6 +475,9 @@ input[readonly] { opacity: .6; }
 .topo-item.failed .topo-dot { background: var(--red); }
 .topo-none, .topo-stopped { font-size: 12px; color: var(--muted); }
 .topo-empty { color: var(--muted); font-size: 13px; text-align: center; max-width: 420px; }
+.temp { white-space: nowrap; }
+.temp.warn { color: var(--yellow); }
+.temp.crit { color: var(--red); font-weight: 600; }
 .topo-link.trunk { stroke: var(--accent); }
 .topology.narrow { align-items: stretch; gap: 20px; padding-left: 34px; }
 .topology.narrow .topo-node, .topology.narrow .topo-node.hub { width: 100%; }
