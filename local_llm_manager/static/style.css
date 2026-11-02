@@ -619,9 +619,4 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
 .join-code { font-size: 22px; font-weight: 700; letter-spacing: 3px; }
 .join-actions { display: flex; gap: 6px; }
 @media (max-width: 700px) { .join-row { grid-template-columns: 1fr; } }
-
-/* Weights tab: the list of every model recipes use, collapsed by default */
-.models-more { margin-top: 24px; }
-.models-more > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
-.models-more > summary .muted { font-weight: 400; }
 .discover h4:first-child { margin-top: 0; }

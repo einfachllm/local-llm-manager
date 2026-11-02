@@ -227,8 +227,7 @@ an entry that has none on a host (a folder there with the same name as the entry
 name / source repo), folders nobody added yet, and recipes that mount their model folder directly (e.g.
 `~/models/x:/model:ro`) - adding those creates the entry (or reuses one of the same name) and switches the
 recipes to `{weights}`. A model missing on some hosts gets one button: **⇉ Copy to other hosts…** when a
-host has it, else **⬇ Download…** from Hugging Face. *All models your recipes use* (collapsed) lists every
-model recipes reference, Hugging Face ids included, missing ones first. Importing a `docker run` whose model mount is a registered path picks that entry, too.
+host has it, else **⬇ Download…** from Hugging Face. Importing a `docker run` whose model mount is a registered path picks that entry, too.
 
 Not to be confused with **agent mode** ([Several machines](#several-machines)), which is how the manager itself runs on a second machine.
 "Models as: Rows / Tiles" in the filter rail switches models between wide rows (default) and cards.

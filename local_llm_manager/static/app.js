@@ -51,7 +51,7 @@ $$(".tab").forEach((btn) => btn.addEventListener("click", () => {
   if (state.tab === "activity") loadEvents();
   if (state.tab === "hosts") renderHosts();
   if (state.tab === "images") loadImages();
-  if (state.tab === "models") { loadWeights(); loadModels(); }
+  if (state.tab === "models") loadWeights();
 }));
 
 $$("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
@@ -225,7 +225,7 @@ $("#btn-blur").addEventListener("click", () => {
   if (state.tab === "schedules") loadSchedules();
   if (state.tab === "activity") loadEvents();
   if (state.tab === "images") renderImages();
-  if (state.tab === "models") { renderWeights(); renderModels(); }
+  if (state.tab === "models") renderWeights();
 });
 renderBlurToggle();
 
@@ -1419,12 +1419,14 @@ $("#weights-status").addEventListener("click", (ev) => {
 
 let weightsData = null;
 let discoverData = null;
+let modelsData = null;  // what recipes use: offers folders recipes mount directly under "Found on your hosts"
 
 async function loadWeights() {
   const tbody = $("#weights");
   if (!weightsData) tbody.innerHTML = `<tr><td class="empty">Asking the hosts…</td></tr>`;
   // The folder search is a bonus: when it fails the registry still shows.
   api("/api/weights/discover").then((d) => { discoverData = d; renderDiscover(); }).catch(() => {});
+  api("/api/models").then((d) => { modelsData = d; renderDiscover(); }).catch(() => {});
   try {
     weightsData = await api("/api/weights");
   } catch (e) {
@@ -1456,20 +1458,16 @@ function weightActionHtml(w) {
 function renderWeights() {
   if (!weightsData) return;
   const hosts = state.hosts;
-  $("#weights-head").innerHTML = `<tr><th>Model</th><th>Used by</th>${hosts.map((h) => `<th>${esc(maskAddr(h.name))}</th>`).join("")}</tr>`;
+  $("#weights-head").innerHTML = `<tr><th>Model</th>${hosts.map((h) => `<th>${esc(maskAddr(h.name))}</th>`).join("")}</tr>`;
   const list = weightsData.weights;
   if (!list.length) {
-    $("#weights").innerHTML = `<tr><td colspan="${2 + hosts.length}" class="empty">No models yet. “+ Add” one, download one from Hugging Face, or add a folder found on your hosts (shown above when there is one).</td></tr>`;
+    $("#weights").innerHTML = `<tr><td colspan="${1 + hosts.length}" class="empty">No models yet. “+ Add” one, download one from Hugging Face, or add a folder found on your hosts (shown above when there is one).</td></tr>`;
     return;
   }
   $("#weights").innerHTML = list.map((w) => `<tr>
       <td><button type="button" class="link weight-name" data-weight="${w.id}" title="Rename, change paths or delete">${esc(w.name)}</button>
         ${w.source ? `<div class="muted mono weight-source">${esc(w.source)}</div>` : ""}
         <span class="weight-actions">${weightActionHtml(w)}</span></td>
-      <td>${w.recipe_ids.length ? w.recipe_ids.map((id) => {
-        const r = state.recipes.find((x) => x.id === id);
-        return r ? `<button class="chip small" data-recipe="${r.id}" title="Edit this recipe">${esc(r.name)}</button>` : "";
-      }).join(" ") : `<span class="muted">–</span>`}</td>
       ${hosts.map((h) => `<td>${weightCellHtml(w, w.hosts.find((c) => c.host_id === h.id) || { host_id: h.id, state: "unset" })}</td>`).join("")}
     </tr>`).join("");
 }
@@ -1489,12 +1487,11 @@ $("#weights").addEventListener("click", (ev) => {
     }
     return;
   }
-  const r = ev.target.closest("[data-recipe]");
-  if (r) { const rec = state.recipes.find((x) => x.id === Number(r.dataset.recipe)); if (rec) openRecipeEditor(rec); return; }
   const b = ev.target.closest("[data-weight]");
   if (b) openWeightEditor(state.weights.find((w) => w.id === Number(b.dataset.weight)), Number(b.dataset.host) || null);
 });
 $("#btn-new-weight").addEventListener("click", () => openWeightEditor(null));
+$("#btn-refresh-models").addEventListener("click", loadWeights);
 
 const normName = (n) => n.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -1586,7 +1583,7 @@ function openWeightEditor(w, focusHostId = null, prefill = null) {
 
 async function afterWeightsChange() {
   await loadWeightsList();
-  if (state.tab === "models") { loadWeights(); loadModels(); }  // also refreshes "Found on your hosts"
+  if (state.tab === "models") loadWeights();  // also refreshes "Found on your hosts"
   if ($("#dlg-recipe").open) updateWeightsStatus();
   renderRecipes();
 }
@@ -2755,91 +2752,6 @@ $("#images").addEventListener("click", async (ev) => {
   }
   await loadRecipes();
   loadImages();
-});
-
-/* ---------------- models used by recipes (collapsed under the Weights table) ---------------- */
-
-let modelsData = null;
-const modelsView = { open: new Set() };
-
-async function loadModels() {
-  const tbody = $("#models");
-  if (!modelsData) tbody.innerHTML = `<tr><td colspan="3" class="empty">Asking the hosts…</td></tr>`;
-  try {
-    modelsData = await api("/api/models");
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="3" class="empty">${esc(e.message)}</td></tr>`;
-    return;
-  }
-  renderModels();
-  renderDiscover();  // recipes that mount a folder directly are offered there
-}
-
-function modelHosts() {
-  const used = new Set(modelsData.models.flatMap((m) => m.hosts.map((h) => h.host_id)));
-  return state.hosts.filter((h) => used.has(h.id));
-}
-
-const modelHasMissing = (m) => m.hosts.some((h) => h.state === "missing");
-
-function modelCellHtml(m, h) {
-  if (!h) return `<span class="muted" title="No recipe on this host uses this model">–</span>`;
-  if (h.state === "unknown") {
-    return `<span class="muted" title="${esc(blurHostText(h.error || "not reachable", hostById(h.host_id)?.url))}">? unknown</span>`;
-  }
-  if (h.state === "present") {
-    return `<span class="ok" title="${esc(h.location || "present on this host")}">✓ present</span>`;
-  }
-  return `<span class="bad" title="${esc(h.location ? `Not found at: ${h.location}` : "Not on this host yet")}">✗ missing</span>`;
-}
-
-function renderModels() {
-  if (!modelsData) return;
-  const cols = modelHosts();
-  const all = modelsData.models;
-  const nMissing = all.filter(modelHasMissing).length;
-  $("#models-summary").innerHTML = `· ${all.length}${nMissing ? ` · <span class="bad">${nMissing} missing on a host</span>` : ""}`;
-  // Missing ones first: that is what this list is for.
-  const shown = [...all].sort((a, b) => modelHasMissing(b) - modelHasMissing(a));
-
-  $("#models-head").innerHTML = `<tr><th>Model</th><th>Recipes</th>${cols.map((h) => `<th>${esc(maskAddr(h.name))}</th>`).join("")}</tr>`;
-  const span = 2 + cols.length;
-  const tbody = $("#models");
-  if (!all.length) { tbody.innerHTML = `<tr><td colspan="${span}" class="empty">No model recipes with a model set yet.</td></tr>`; return; }
-
-  tbody.innerHTML = shown.map((m) => {
-    const open = modelsView.open.has(m.model);
-    const out = [`<tr>
-      <td class="mono">${esc(m.model)}</td>
-      <td><button class="chip small" data-model-toggle="${esc(m.model)}" aria-expanded="${open}">${m.recipes.length} recipe${m.recipes.length === 1 ? "" : "s"} ${open ? "▾" : "▸"}</button></td>
-      ${cols.map((h) => `<td class="img-cell">${modelCellHtml(m, m.hosts.find((x) => x.host_id === h.id))}</td>`).join("")}
-    </tr>`];
-    if (open) {
-      const groups = new Map();
-      for (const r of m.recipes) (groups.get(r.host_id) ?? groups.set(r.host_id, []).get(r.host_id)).push(r);
-      const order = (hid) => state.hosts.findIndex((h) => h.id === hid);
-      out.push(`<tr class="img-recipes"><td></td><td colspan="${span - 1}">${[...groups].sort((a, b) => order(a[0]) - order(b[0])).map(([hid, rs]) =>
-        `<div>${multiHost() ? `<b>${esc(maskAddr(hostName(hid)))}</b> ` : ""}${rs.map((r) => `<button class="chip small" data-recipe="${r.id}" title="Edit this recipe">${esc(r.name)}</button>`).join(" ")}</div>`).join("")}</td></tr>`);
-    }
-    return out.join("");
-  }).join("");
-}
-
-$("#btn-refresh-models").addEventListener("click", () => { loadWeights(); loadModels(); });
-
-$("#models").addEventListener("click", (ev) => {
-  const toggle = ev.target.closest("[data-model-toggle]");
-  if (toggle) {
-    const k = toggle.dataset.modelToggle;
-    modelsView.open.has(k) ? modelsView.open.delete(k) : modelsView.open.add(k);
-    renderModels();
-    return;
-  }
-  const recipeBtn = ev.target.closest("[data-recipe]");
-  if (recipeBtn) {
-    const r = state.recipes.find((x) => x.id === Number(recipeBtn.dataset.recipe));
-    if (r) openRecipeEditor(r);
-  }
 });
 
 /* ---------------- keyboard shortcuts ---------------- */

@@ -10,9 +10,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Simpler Weights tab:** the host search runs by itself when the tab opens; everything it can add (paths
   for existing entries, new folders - one row per folder name across hosts - and recipes that mount a
   folder directly) shows in one **Found on your hosts** box, hidden when there is nothing. The
-  "🔍 Search hosts" button is gone, the separate *Used by recipes* table is now a collapsed list (missing
-  first, without search and filters), and each model has one action - **⇉ Copy to other hosts…** when a
-  host has it, else **⬇ Download…** - instead of two.
+  "🔍 Search hosts" button, the *Recipes* column and the separate *Used by recipes* table are gone (the
+  recipe editor and the start check still report a model missing on a host), and each model has one
+  action - **⇉ Copy to other hosts…** when a host has it, else **⬇ Download…** - instead of two.
 
 ## [0.2.0] - 2026-11-01
 
