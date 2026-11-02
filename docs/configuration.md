@@ -29,8 +29,8 @@ Values marked *agent* matter only with `DGXM_MODE=agent`, *hub* only in the defa
 
 | Variable | Default | Description |
 |---|---|---|
-| `DGXM_MODEL_DIR` | `~/models` | Directories scanned for local model folders and `.gguf` files (Weights tab, "Search hosts", presence checks). Comma- or whitespace-separated, several allowed, searched up to three levels deep. |
-| `DGXM_HF_BIN` | `hf`, else `huggingface-cli` | Hugging Face CLI used by "Download on hosts" (Weights tab); downloads go into the first `DGXM_MODEL_DIR`. Gated models need `HF_TOKEN` in this machine's `.env`. |
+| `DGXM_MODEL_DIR` | `~/models` | Directories scanned for local model folders and `.gguf` files (Weights tab: "Found on your hosts" and presence checks). Comma- or whitespace-separated, several allowed, searched up to three levels deep. |
+| `DGXM_HF_BIN` | `hf`, else `huggingface-cli` | Hugging Face CLI used by "Download from Hugging Face" (Weights tab); downloads go into the first `DGXM_MODEL_DIR`. Gated models need `HF_TOKEN` in this machine's `.env`. |
 | `DGXM_PUBLIC_URL` | the address the dashboard is opened with | Where the other machines reach this hub, e.g. `http://spark1:8090` - needed to copy weights *from* the hub's own machine when you open the dashboard as `localhost`. |
 | `DGXM_HUB_URL` | – | Agent mode: ask this hub to add the machine; approve it under **Hosts** there when the join codes match. |
 | `DGXM_AGENT_URL` | `http://<DGXM_HOST or machine name>:<DGXM_PORT>` | Agent mode: the address the hub should use for this machine when it asks to join. |

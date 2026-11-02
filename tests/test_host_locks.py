@@ -82,6 +82,8 @@ def test_restart_job_runs_on_the_hub(setup):
     while not (job := client.get(f"/api/jobs/{job_id}").json())["done"] and time.time() < deadline:
         time.sleep(0.02)
     assert job["done"] and [i["state"] for i in job["items"]] == ["ok", "ok"]
+    # When it finished: the dashboard shows recently finished jobs to a page that missed them.
+    assert job["finished"] >= job["created"]
     assert ["stop", "a"] in hub_docker.calls and ["stop", "b"] in mac_docker.calls
     assert client.get("/api/jobs").json()[0]["id"] == job_id
     assert client.get("/api/jobs/nope").status_code == 404

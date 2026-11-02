@@ -11,10 +11,11 @@ silicon, or any Linux box - from any browser on your network:
 
 📖 **Documentation:** [einfachllm.github.io/local-llm-manager](https://einfachllm.github.io/local-llm-manager/) – start with the Quick start and Several machines.
 
-- **⚡ Quick recipe:** pick the weights and a recipe that already works (or an engine default) - the new
-  model gets the same image, flags and caches, its own name and endpoint, in one click.
+- **＋ Add recipe:** paste a YAML recipe or a shell script (`docker run …` works too) - or start from the
+  example of either. Only what differs from the engine's defaults needs to be written down. For a variant
+  of a recipe that already works, use **⧉ Duplicate** on its card.
 - **Recipes:** save how to start a model server (vLLM, SGLang, llama.cpp, TensorFold or any image / native binary),
-  as a Docker container or as a native process. Or import an existing starter script / `docker run` command.
+  as a Docker container or as a native process.
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).
 - **Agents next to models:** run the programs that use your models - e.g. a [Hermes Agent](examples/hermes-agent/)
   Telegram gateway - as recipes too. They get their own section per host (🤖 above 🧠), keep running when you
@@ -31,7 +32,8 @@ silicon, or any Linux box - from any browser on your network:
   background. Each host has its own action queue, so a slow start on one never blocks the others.
 - **Images and weights on every machine:** ⤓ pull an image on several hosts at once; download a Hugging
   Face model once and copy it host to host over your network (snowball-style, SHA-256 checked, resumable),
-  with progress per machine. The Hosts tab shows which connections are encrypted (Tailscale / HTTPS).
+  with progress per machine. The Hosts tab draws the hub and every agent PC as a graph with the models and
+  agents running on each, and shows which connections are encrypted (Tailscale / HTTPS).
 - **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
   ⭐ pinned recipes, collapsible groups and keyboard shortcuts (`?` shows them).
 
@@ -152,8 +154,10 @@ log. Every other machine runs the same app as an **agent** that only executes wh
 | Hub | each agent, port `8090` | Start/stop models, status, logs (plain HTTP + token) |
 | Apps using a model | the machine running it, the recipe's port (e.g. `8100`) | The model's OpenAI-compatible API at `http://<machine>:<port>/v1` |
 
-Agents never connect to the hub. Keep all of this inside one private network - ideally Tailscale (next
-section) - and never expose these ports to the internet.
+Agents connect to the hub only to ask to be added (`DGXM_HUB_URL`), and to each other only to copy weights
+(see the [Architecture](https://einfachllm.github.io/local-llm-manager/architecture/) page). Keep all of
+this inside one private network - ideally Tailscale (next section) - and never expose these ports to the
+internet.
 
 ## Recommended: Tailscale only (also from your phone)
 
@@ -185,9 +189,11 @@ command; change it to `--host {bind_host}` for native-process and `--network hos
   recipes.
 - **Native process** recipes run the command directly on the machine (needed for MLX on a Mac). Output
   goes to `data/processes/<name>.log`, and processes keep running if the manager restarts.
-- **Import script…** fills a recipe from a starter script by running it with bash in a restricted mode
-  that only records `docker run` / the server command and skips other commands. It is not a sandbox:
-  *Check script* lists risky lines first - only import scripts you trust.
+- **Import** fills a recipe from a starter script by running it with bash in a restricted mode that only
+  records `docker run` / the server command and skips other commands. It is not a sandbox: *Check*
+  lists risky lines first - only import scripts you trust. It also accepts a **compact JSON/YAML recipe
+  file** (the editor's fields; missing settings come from the framework preset), and **Recipe file…** in
+  the editor exports the current recipe that way - volumes, environment and extra Docker flags included.
 - Live stats come from the server's `/metrics` endpoint: on by default in vLLM, add `--enable-metrics`
   for SGLang and `--metrics` for llama.cpp.
 - Starting is refused if the port is already in use on that machine.
@@ -216,13 +222,14 @@ The editor shows right away whether the weights are on the selected host, and st
 host has no path set or nothing at that path. `~` in a path is the home directory of the machine that runs
 the recipe.
 
-You rarely type paths by hand: **🔍 Search hosts** looks for model folders (with `config.json` or weight
-files) and `.gguf` files in each host's `DGXM_MODEL_DIR` (default `~/models`, up to three levels deep).
-It suggests the path for an entry that has none on a host when a folder there has the same name as the
-entry's folder elsewhere (or its name / source repo), and lists folders nobody registered yet. Existing
-recipes that mount their model folder directly (e.g. `~/models/x:/model:ro`) show **→ Register** under
-*Used by recipes*: it creates the entry (or reuses one of the same name) and switches them to
-`{weights}`. Importing a `docker run` whose model mount is a registered path picks that entry, too.
+You rarely type paths by hand: opening the tab (or **Refresh**) looks for model folders (with
+`config.json` or weight files) and `.gguf` files in each host's `DGXM_MODEL_DIR` (default `~/models`, up
+to three levels deep) and lists what it can add under **Found on your hosts**, one click each: a path for
+an entry that has none on a host (a folder there with the same name as the entry's folder elsewhere, or its
+name / source repo), folders nobody added yet, and recipes that mount their model folder directly (e.g.
+`~/models/x:/model:ro`) - adding those creates the entry (or reuses one of the same name) and switches the
+recipes to `{weights}`. A model missing on some hosts gets one button: **⇉ Copy to other hosts…** when a
+host has it, else **⬇ Download…** from Hugging Face. Importing a `docker run` whose model mount is a registered path picks that entry, too.
 
 Not to be confused with **agent mode** ([Several machines](#several-machines)), which is how the manager itself runs on a second machine.
 "Models as: Rows / Tiles" in the filter rail switches models between wide rows (default) and cards.

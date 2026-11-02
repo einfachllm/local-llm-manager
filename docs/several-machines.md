@@ -2,7 +2,9 @@
 
 One installation is the **hub**: it serves the dashboard and stores recipes, schedules and the activity
 log. Every other machine runs the same app as an **agent**, which only carries out what the hub tells
-it to. Agents never connect to the hub.
+it to. Only two things go the other way: an agent can *ask* the hub to add it, and machines copy weights
+straight from each other once the hub has arranged it. The [Architecture](architecture.md) page shows
+all of this as diagrams.
 
 ```text
  your browser ──:8090──▶  HUB (dashboard, recipes, schedules)
@@ -61,11 +63,11 @@ E.g. a company where every employee has their own DGX Spark: set the recipe up o
 
 - **Images:** in the **Images** tab, **⤓ Pull…** on an image runs `docker pull` on the machines you tick,
   all at once (private registries: `docker login` on each machine once).
-- **Weights from Hugging Face:** in the **Weights** tab, **⬇ Download on hosts…**. By default only the first
+- **Weights from Hugging Face:** in the **Weights** tab, **⬇ Download from Hugging Face…**. By default only the first
   ticked machine downloads; the others then copy from it over your network, so the model comes over the
   internet once. Needs the `hf` command there (`pip install -U huggingface_hub`); gated models need
   `HF_TOKEN` in that machine's `.env`.
-- **Weights already on a machine** (e.g. from your SSD): **⇉ Copy…** on the weights entry. Machines copy
+- **Weights already on a machine** (e.g. from your SSD): **⇉ Copy to other hosts…** on the model's row. Machines copy
   straight from each other - the hub only arranges it - like a snowball: each machine that has the weights
   serves one copy at a time and every finished machine joins in, so 5 machines are done in 3 rounds.
   Every file is checked with SHA-256, files a machine already has are skipped, an interrupted copy
@@ -86,10 +88,12 @@ one copy for good, **unlink** it: it becomes a recipe of its own. Deleting the o
 | Your browser | hub, port `8090` | The dashboard |
 | Hub | each agent, port `8090` | Start and stop models, status, logs (plain HTTP plus the token) |
 | Apps using a model | the machine running it, the recipe's port (e.g. `8100`) | The model's API at `http://<machine>:<port>/v1` |
+| Agent | hub, port `8090` | Only with `DGXM_HUB_URL`: asking to be added, reporting a changed address |
+| Agent | other agents, port `8090` | Copying weights (read-only share with a ticket) |
 
 !!! warning
     Keep all of this inside one private network – ideally Tailscale, see below – and never expose these
-    ports to the internet. Traffic between hub and agents is plain HTTP.
+    ports to the internet. Traffic between hub and agents, and between agents copying weights, is plain HTTP unless you use Tailscale or HTTPS addresses.
 
 ## Recommended: Tailscale
 

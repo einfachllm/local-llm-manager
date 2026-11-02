@@ -22,7 +22,7 @@ async function api(path, opts = {}) {
   if (!res.ok) {
     let msg = data?.detail ?? data ?? res.statusText;
     if (Array.isArray(msg)) msg = msg.map((e) => `${(e.loc || []).slice(1).join(".")}: ${e.msg}`).join("\n");
-    throw new Error(msg);
+    throw Object.assign(new Error(msg), { status: res.status });
   }
   return data;
 }
@@ -51,7 +51,7 @@ $$(".tab").forEach((btn) => btn.addEventListener("click", () => {
   if (state.tab === "activity") loadEvents();
   if (state.tab === "hosts") renderHosts();
   if (state.tab === "images") loadImages();
-  if (state.tab === "models") { loadWeights(); loadModels(); }
+  if (state.tab === "models") loadWeights();
 }));
 
 $$("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
@@ -117,6 +117,11 @@ function blurText(s) {
   return str.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, (m) => maskAddr(m));
 }
 function memPct(m) { return m.total_gb ? (m.used_gb / m.total_gb) * 100 : 0; }
+// CPU temperature (°C) from a host's readings; null when the machine reports none (e.g. macOS, older agents).
+const cpuTemp = (h) => h.system?.cpu?.temperature ?? null;
+function tempHtml(t) {
+  return `<span class="temp${t >= 95 ? " crit" : t >= 85 ? " warn" : ""}" title="CPU temperature">CPU ${t}°C</span>`;
+}
 function barClass(pct) { return "bar-fill" + (pct > 90 ? " crit" : pct > 75 ? " warn" : ""); }
 
 // Address of a model endpoint: the host's own name for remote hosts, else the one in the address bar.
@@ -192,7 +197,8 @@ function renderHostsStrip() {
     const m = h.system.memory;
     const pct = memPct(m);
     const gpu = h.system.gpus[0];
-    const title = `${maskAddr(h.name)}: ${memText(m)} used, ${m.available_gb} GB free` + (gpu ? `\nGPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C · ${gpu.power_w ?? "?"} W` : "");
+    const title = `${maskAddr(h.name)}: ${memText(m)} used, ${m.available_gb} GB free` + (gpu ? `\nGPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C · ${gpu.power_w ?? "?"} W` : "")
+      + (cpuTemp(h) != null ? `\nCPU ${cpuTemp(h)}°C` : "");
     return `<button class="host-chip" data-host="${h.id}" title="${esc(title)}">
         <span class="host-name">${esc(maskAddr(h.name))} ${h.is_local ? '<span class="host-note">this machine</span>' : '<span class="host-note">remote</span>'}</span>
         <span class="bar"><span class="${barClass(pct)}" style="width:${pct.toFixed(1)}%"></span></span>
@@ -225,7 +231,7 @@ $("#btn-blur").addEventListener("click", () => {
   if (state.tab === "schedules") loadSchedules();
   if (state.tab === "activity") loadEvents();
   if (state.tab === "images") renderImages();
-  if (state.tab === "models") { renderWeights(); renderModels(); }
+  if (state.tab === "models") renderWeights();
 });
 renderBlurToggle();
 
@@ -277,7 +283,102 @@ function transportBadge(h) {
 }
 const plainHosts = (ids) => state.hosts.filter((h) => ids.includes(h.id) && h.transport === "plain");
 
+/* ---------------- hosts: topology graph ----------------
+ * The hub (this machine, running the dashboard) on top, a line to every agent machine below it, and
+ * on each machine what runs there: models (🧠) and agents such as a Hermes gateway (🤖). Stopped
+ * recipes are only counted, so a busy host stays readable. Click a machine to edit it, a recipe to
+ * open its editor. */
+function topoNode(h, role) {
+  const mine = state.recipes.filter((r) => r.host_id === h.id).sort(byName);
+  const shown = mine.filter((r) => RUNNING.includes(r.status) || r.status === "failed")
+    .sort((a, b) => (kindOf(a) === kindOf(b) ? 0 : kindOf(a) === "model" ? -1 : 1));
+  const stopped = mine.length - shown.length;
+  const m = h.system?.memory;
+  const gpu = h.system?.gpus?.[0];
+  const platform = h.info ? `${PLATFORM[h.info.platform] ?? h.info.platform} · ${h.info.machine}` : "";
+  const item = (r) => {
+    const agent = kindOf(r) === "agent";
+    const label = (agent ? AGENT_STATUS_LABEL : STATUS_LABEL)[r.status] ?? r.status;
+    return `<button type="button" class="topo-item ${agent ? "agent" : "model"} ${r.status}" data-recipe="${r.id}"
+        title="${esc(`${agent ? "Agent" : "Model"} · ${label}${agent ? "" : ` · port ${r.host_port}`}`)}">
+        <span class="topo-dot"></span><span class="topo-kind">${agent ? "🤖" : "🧠"}</span><span class="topo-name">${esc(r.name)}</span>
+        ${agent ? "" : `<span class="topo-port">:${r.host_port}</span>`}</button>`;
+  };
+  return `<div class="topo-node ${role} ${h.online ? "" : "offline"}" data-host="${h.id}" role="button" tabindex="0" title="Edit host">
+      <div class="topo-head">
+        <span class="topo-icon">${role === "hub" ? "🛰️" : "🖥️"}</span>
+        <b class="topo-host">${esc(maskAddr(h.name))}</b>
+        <span class="topo-role">${role === "hub" ? "Hub" : "Agent PC"}</span>
+      </div>
+      <div class="topo-sub">${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span>`}${platform ? ` · ${esc(platform)}` : ""}</div>
+      ${m ? `<div class="topo-mem"><div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
+        <small>${esc(memText(m))}${gpu ? ` · GPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C` : ""}${cpuTemp(h) != null ? ` · ${tempHtml(cpuTemp(h))}` : ""}</small></div>` : ""}
+      <div class="topo-items">${shown.map(item).join("") || `<span class="topo-none">${h.online ? "Nothing running" : "Unreachable"}</span>`}</div>
+      ${stopped ? `<div class="topo-stopped">${stopped} stopped</div>` : ""}
+    </div>`;
+}
+
+function renderTopology() {
+  const hub = state.hosts.find((h) => h.is_local) ?? state.hosts[0];
+  $("#topology").classList.toggle("hidden", !hub);
+  if (!hub) return;
+  const agents = state.hosts.filter((h) => h !== hub);
+  $("#topo-hub").innerHTML = topoNode(hub, "hub");
+  $("#topo-agents").innerHTML = agents.length ? agents.map((h) => topoNode(h, "agent")).join("")
+    : `<div class="topo-empty">No agent PCs yet – add one with <b>+ Add host</b> and it appears here, linked to the hub.</div>`;
+  requestAnimationFrame(drawTopoLinks);
+}
+
+// Lines from the hub to each agent PC, drawn over the laid-out cards (so they follow wrapping).
+function drawTopoLinks() {
+  const box = $("#topology"), svg = $("#topo-links");
+  const hubEl = $("#topo-hub .topo-node");
+  if (!hubEl || !box.offsetParent) return;
+  // Narrow screens stack the agent PCs, so the lines run down a trunk on the left instead of
+  // through the cards.
+  box.classList.toggle("narrow", box.clientWidth < 600);
+  const narrow = box.classList.contains("narrow");
+  const o = box.getBoundingClientRect();
+  svg.setAttribute("viewBox", `0 0 ${o.width} ${o.height}`);
+  const hr = hubEl.getBoundingClientRect();
+  const x1 = narrow ? 14 : hr.left + hr.width / 2 - o.left, y1 = narrow ? hr.top + hr.height / 2 - o.top : hr.bottom - o.top;
+  const hubLink = narrow ? `<path class="topo-link trunk" d="M${hr.left - o.left},${y1} H${x1}"></path>` : "";
+  svg.innerHTML = hubLink + $$("#topo-agents .topo-node").map((el) => {
+    const h = hostById(el.dataset.host);
+    const r = el.getBoundingClientRect();
+    const cls = !h?.online ? "offline" : h.transport === "plain" ? "plain" : "ok";
+    const tip = !h?.online ? "offline" : TRANSPORT[h.transport]?.[2] ?? "online";
+    let x2, y2, d;
+    if (narrow) {
+      x2 = r.left - o.left; y2 = Math.min(r.top - o.top + 22, r.bottom - o.top - 8);
+      d = `M${x1},${y1} V${y2 - 10} Q${x1},${y2} ${x1 + 10},${y2} H${x2}`;
+    } else {
+      x2 = r.left + r.width / 2 - o.left; y2 = r.top - o.top;
+      const my = (y1 + y2) / 2;
+      d = `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`;
+    }
+    return `<path class="topo-link ${cls}" d="${d}"><title>${esc(tip)}</title></path>
+      <circle class="topo-end ${cls}" cx="${x2}" cy="${y2}" r="3.5"></circle>`;
+  }).join("") + `<circle class="topo-end hub" cx="${x1}" cy="${y1}" r="4"></circle>`;
+}
+
+if (window.ResizeObserver) new ResizeObserver(() => drawTopoLinks()).observe($("#topology"));
+
+$("#topology").addEventListener("click", (ev) => {
+  const it = ev.target.closest("[data-recipe]");
+  if (it) { const r = state.recipes.find((x) => x.id === Number(it.dataset.recipe)); if (r) openRecipeEditor(r); return; }
+  const node = ev.target.closest(".topo-node");
+  if (node) openHostEditor(hostById(node.dataset.host));
+});
+$("#topology").addEventListener("keydown", (ev) => {
+  if ((ev.key === "Enter" || ev.key === " ") && ev.target.classList.contains("topo-node")) {
+    ev.preventDefault();
+    openHostEditor(hostById(ev.target.dataset.host));
+  }
+});
+
 function renderHosts() {
+  renderTopology();
   renderPorts();
   const running = (id) => state.recipes.filter((r) => r.host_id === id && RUNNING.includes(r.status)).length;
   const total = (id) => state.recipes.filter((r) => r.host_id === id).length;
@@ -290,7 +391,7 @@ function renderHosts() {
       <td>${h.info ? `${esc(PLATFORM[h.info.platform] ?? h.info.platform)} · ${esc(h.info.machine)}<br><small>${esc(maskAddr(h.info.hostname))} · v${esc(h.info.version)}</small>` : "–"}</td>
       <td style="min-width:160px">${m ? `<div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
         <small>${esc(memText(m))} · ${m.available_gb} GB free</small>` : "–"}</td>
-      <td>${gpu ? `${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C` : "–"}</td>
+      <td>${gpu ? `GPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C` : ""}${gpu && cpuTemp(h) != null ? "<br>" : ""}${cpuTemp(h) != null ? tempHtml(cpuTemp(h)) : ""}${!gpu && cpuTemp(h) == null ? "–" : ""}</td>
       <td>${running(h.id)} running / ${total(h.id)}</td>
       <td style="white-space:nowrap">
         <button class="btn small ghost" data-act="stop-all" ${h.online ? "" : "disabled"}>Stop all</button>
@@ -363,6 +464,7 @@ async function loadRecipes() {
     recordMetrics(state.recipes);
     if (watchStarts(state.recipes)) await loadStartTimes();  // a boot just finished
     renderRecipes();
+    if (state.tab === "hosts") { renderTopology(); renderPorts(); }
   } catch (e) {
     $("#recipes").innerHTML = `<div class="empty">Failed to load recipes: ${esc(e.message)}</div>`;
   }
@@ -702,32 +804,31 @@ function agentCardHtml(r) {
       </article>`;
 }
 
-// A section head per kind; `hostId` (inside a host group) makes "+ New" create it on that host.
-function kindHeadHtml(kind, items, hostId = "") {
+// A section head per kind.
+function kindHeadHtml(kind, items) {
   const running = items.filter((r) => RUNNING.includes(r.status)).length;
   const count = `${items.length} ${kind === "agent" ? "agent" : "model"}${items.length === 1 ? "" : "s"}${running ? ` · ${running} running` : ""}`;
-  const add = (label) => `<button class="btn small" data-new-kind="${kind}" data-host="${esc(hostId)}">+ New ${label}</button>`;
   return kind === "agent"
     ? `<div class="kind-head agents"><h3>🤖 Agents <span>${count}</span></h3>
-        <span class="kind-sub">Programs that use a model. “Switch to” keeps them running.</span>${add("agent")}</div>`
+        <span class="kind-sub">Programs that use a model. “Switch to” keeps them running.</span></div>`
     : `<div class="kind-head models"><h3>🧠 Models <span>${count}</span></h3>
-        <span class="kind-sub">LLM servers with an OpenAI-compatible API.</span>${add("model")}</div>`;
+        <span class="kind-sub">LLM servers with an OpenAI-compatible API.</span></div>`;
 }
 
 // Agents above models: as rows, then as the usual card grid.
 function kindsHtml(items, hostId = "") {
   const agents = items.filter((r) => kindOf(r) === "agent");
   const models = items.filter((r) => kindOf(r) === "model");
-  return (agents.length ? `<section class="kind-section agents">${kindHeadHtml("agent", agents, hostId)}
+  return (agents.length ? `<section class="kind-section agents">${kindHeadHtml("agent", agents)}
       <div class="agent-list">${agents.map(agentCardHtml).join("")}</div></section>` : "")
-    + (models.length ? `<section class="kind-section models">${kindHeadHtml("model", models, hostId)}
+    + (models.length ? `<section class="kind-section models">${kindHeadHtml("model", models)}
       <div class="${view.layout === "tiles" ? "grid" : "row-list"}">${models.map(cardHtml).join("")}</div></section>` : "");
 }
 
 function renderRecipes() {
   renderToolbar();
   if (!state.recipes.length) {
-    $("#recipes").innerHTML = `<div class="empty">No recipes yet. Click “New recipe”.</div>`;
+    $("#recipes").innerHTML = `<div class="empty">No recipes yet. Click “Add recipe”.</div>`;
     return;
   }
   const list = visibleRecipes();
@@ -737,8 +838,8 @@ function renderRecipes() {
   }
   let html = "";
   if (!view.kind && !state.recipes.some((r) => kindOf(r) === "agent")) {
-    html += `<div class="agent-empty">🤖 No agents yet. Agents, such as a Hermes gateway, run as recipes too and get
-      their own section here. <button class="btn small ghost" data-new-kind="agent">+ New agent</button></div>`;
+    html += `<div class="agent-empty">🤖 No agents yet. To add one (e.g. a Hermes gateway), use “Add recipe” with
+      <code>kind: agent</code> in a YAML recipe.</div>`;
   }
   $("#recipes").innerHTML = html + (view.group ? groupedHtml(list) : kindsHtml(list));
 }
@@ -829,8 +930,6 @@ function recipeBodyFrom(r, overrides = {}) {
 }
 
 $("#recipes").addEventListener("click", async (ev) => {
-  const add = ev.target.closest("[data-new-kind]");
-  if (add) { openRecipeEditor(null, add.dataset.newKind, add.dataset.host); return; }
   const head = ev.target.closest(".group-title");
   if (head) {
     const key = head.closest(".group").dataset.gkey;
@@ -1007,6 +1106,7 @@ function applyFramework(name, overwriteAll) {
   ["args", "docker_args", "volumes", "env"].forEach((k) => set(k, p[k]));
   syncRuntime();
   setKind(recipeForm.elements.kind.value, true);
+  scheduleImageStatus();
 }
 
 // Ports are per host: the same port may be used on two different machines.
@@ -1106,20 +1206,22 @@ function openRecipeEditor(r, kind = "model", hostId = "") {
     applyFramework(kind === "agent" || mac ? "process-custom" : "vllm", true);
   }
   // A new recipe usually starts from a command that already works: offer importing it first.
-  $("#import-cta").classList.toggle("hidden", !!r);
   updateWeightsStatus();
+  scheduleImageStatus();
   syncHostNetworkPorts();
   updatePortHint();
   updatePreview();
   $("#dlg-recipe").showModal();
 }
 
-$("#btn-new-recipe").addEventListener("click", () => openRecipeEditor(null));
-$("#btn-import-recipe").addEventListener("click", () => { openRecipeEditor(null); openImport(); });
+// New recipes always come from a pasted YAML recipe or shell script; the editor then shows the result.
+let importForNew = false;
+$("#btn-add-recipe").addEventListener("click", () => { openRecipeEditor(null); importForNew = true; openImport(); });
 
 $("#sel-host").addEventListener("change", (e) => {
   updatePortHint();
   updateWeightsStatus();
+  scheduleImageStatus();
   // New recipe moved to a Mac: switch to a native process (Docker on macOS has no GPU access).
   if (!editingRecipe && hostPlatform(e.target.value) === "darwin" && recipeForm.elements.runtime.value === "docker"
       && recipeForm.elements.kind.value !== "agent") {
@@ -1154,6 +1256,7 @@ function syncHostNetworkPorts() {
 recipeForm.addEventListener("input", () => {
   syncHostNetworkPorts();
   updatePortHint();
+  scheduleImageStatus();
   clearTimeout(previewTimer);
   previewTimer = setTimeout(updatePreview, 250);
 });
@@ -1188,6 +1291,62 @@ $("#btn-copy-preview").addEventListener("click", async () => {
   if (!cmd) return;
   try { await navigator.clipboard.writeText(cmd); toast("Command copied", "ok"); }
   catch { prompt("Copy the command:", cmd); }
+});
+
+/* Compact recipe files: the editor's fields as JSON/YAML, for another manager or examples/. */
+let exportFormat = "yaml";
+let exportSeq = 0;
+
+async function refreshExport() {
+  const seq = ++exportSeq;
+  const fw = recipeForm.elements.framework.value;
+  $("#export-framework").textContent = state.meta?.frameworks?.[fw]?.label || fw || "framework";
+  $("#export-text").value = "";
+  $("#export-error").textContent = "";
+  const id = editingRecipe ? `&recipe_id=${editingRecipe.id}` : "";
+  try {
+    const text = await api(`/api/recipes/export?format=${exportFormat}${id}`, { method: "POST", body: recipeFromForm() });
+    if (seq !== exportSeq) return;
+    $("#export-text").value = typeof text === "string" ? text : JSON.stringify(text, null, 2);
+    $("#export-error").textContent = "";
+  } catch (e) {
+    if (seq !== exportSeq) return;
+    $("#export-text").value = "";
+    $("#export-error").textContent = e.message;
+  }
+}
+
+$("#btn-export-recipe").addEventListener("click", () => {
+  $("#dlg-export").showModal();
+  refreshExport();
+});
+
+$("#export-format").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-format]");
+  if (!b || b.dataset.format === exportFormat) return;
+  exportFormat = b.dataset.format;
+  $$("#export-format button").forEach((x) => x.classList.toggle("on", x === b));
+  refreshExport();
+});
+
+$("#btn-export-copy").addEventListener("click", async () => {
+  const text = $("#export-text").value;
+  if (!text) return;
+  try { await navigator.clipboard.writeText(text); toast("Recipe file copied", "ok"); }
+  catch { prompt("Copy the recipe file:", text); }
+});
+
+$("#btn-export-download").addEventListener("click", () => {
+  const text = $("#export-text").value;
+  if (!text) return;
+  const ext = exportFormat === "json" ? "json" : "yaml";
+  const name = (recipeForm.elements.name.value || "recipe").replace(/[^a-zA-Z0-9_.-]+/g, "-").replace(/^-+|-+$/g, "");
+  const blob = new Blob([text], { type: exportFormat === "json" ? "application/json" : "text/yaml" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${name || "recipe"}.${ext}`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 });
 
 recipeForm.addEventListener("submit", async (ev) => {
@@ -1300,6 +1459,51 @@ async function updateWeightsStatus() {
   }
 }
 
+let imageCheckSeq = 0;
+let imageCheckTimer = null;
+
+async function updateImageStatus() {
+  const box = $("#image-status");
+  const f = recipeForm.elements;
+  const image = f.image.value.trim();
+  const hostId = Number(f.host_id.value) || state.hosts.find((h) => h.is_local)?.id;
+  const seq = ++imageCheckSeq;
+  if (f.runtime.value !== "docker" || !image || !hostId) {
+    box.textContent = "";
+    box.className = "port-hint";
+    return;
+  }
+  const host = esc(maskAddr(hostName(hostId)));
+  box.textContent = `Checking ${host}…`;
+  box.className = "port-hint";
+  try {
+    const c = await api(`/api/images/check?host_id=${hostId}&image=${encodeURIComponent(image)}`);
+    if (seq !== imageCheckSeq) return;
+    if (c.state === "present") {
+      const meta = c.local?.created ? ` · ${imageAge(c.local.created, true)}` : c.local?.size ? ` · ${c.local.size}` : "";
+      box.innerHTML = `✓ on ${host}${esc(meta)}`;
+      box.className = "port-hint ok";
+    } else if (c.state === "missing") {
+      const others = (c.other_tags || []).map((t) => t.tag);
+      const more = others.length ? ` (local: ${esc(others.slice(0, 4).join(", "))}${others.length > 4 ? ", …" : ""})` : "";
+      box.innerHTML = `✗ not on ${host} – Docker pulls it on first start${more}`;
+      box.className = "port-hint warn";
+    } else {
+      box.innerHTML = `? ${host} could not check${c.error ? ` (${esc(blurHostText(c.error, hostById(hostId)?.url))})` : ""}`;
+      box.className = "port-hint warn";
+    }
+  } catch (e) {
+    if (seq !== imageCheckSeq) return;
+    box.textContent = `? ${e.message}`;
+    box.className = "port-hint warn";
+  }
+}
+
+function scheduleImageStatus() {
+  clearTimeout(imageCheckTimer);
+  imageCheckTimer = setTimeout(updateImageStatus, 350);
+}
+
 $("#sel-weights").addEventListener("change", () => {
   applyWeightsSelection();
   syncHostNetworkPorts();
@@ -1311,13 +1515,18 @@ $("#weights-status").addEventListener("click", (ev) => {
   if (b) openWeightEditor(state.weights.find((w) => w.id === Number(b.dataset.editWeight)), Number(b.dataset.host));
 });
 
-/* Weights tab: the registry, one column per host */
+/* Weights tab: the registry, one column per host. Opening the tab also looks for new model folders. */
 
 let weightsData = null;
+let discoverData = null;
+let modelsData = null;  // what recipes use: offers folders recipes mount directly under "Found on your hosts"
 
 async function loadWeights() {
   const tbody = $("#weights");
   if (!weightsData) tbody.innerHTML = `<tr><td class="empty">Asking the hosts…</td></tr>`;
+  // The folder search is a bonus: when it fails the registry still shows.
+  api("/api/weights/discover").then((d) => { discoverData = d; renderDiscover(); }).catch(() => {});
+  api("/api/models").then((d) => { modelsData = d; renderDiscover(); }).catch(() => {});
   try {
     weightsData = await api("/api/weights");
   } catch (e) {
@@ -1333,99 +1542,93 @@ function weightCellHtml(w, c) {
     : c.state === "missing" ? `Not found at ${c.location || c.path}` : c.state === "present" ? c.location || c.path : "";
   const icon = { present: `<span class="ok">✓</span>`, missing: `<span class="bad">✗</span>`, unknown: `<span class="muted">?</span>` }[c.state];
   const size = c.state === "present" && c.size_gb != null ? `<span class="muted" title="Size on this host">${c.size_gb} GB</span>` : "";
-  const body = c.path ? `${icon} <code>${esc(c.path)}</code>${size}` : `<span class="muted">+ set path</span>`;
+  const body = c.path ? `${icon} <code>${esc(c.path)}</code> ${size}` : `<span class="muted">+ set path</span>`;
   return `<button type="button" class="weight-cell ${c.state}" data-weight="${w.id}" data-host="${c.host_id}" title="${esc(title)}">${body}</button>`;
+}
+
+// One button that puts the weights on the hosts that lack them: copy when a host has them, else download.
+function weightActionHtml(w) {
+  if (!w.hosts.some((c) => c.state !== "present")) return "";
+  if (w.hosts.some((c) => c.state === "present")) {
+    return state.hosts.length > 1 ? `<button class="btn small ghost" data-get-weight="${w.id}" title="Copy from the hosts that have it to the others, over your network">⇉ Copy to other hosts…</button>` : "";
+  }
+  return `<button class="btn small ghost" data-get-weight="${w.id}" title="Download from Hugging Face on the hosts that don't have it">⬇ Download…</button>`;
 }
 
 function renderWeights() {
   if (!weightsData) return;
   const hosts = state.hosts;
-  $("#weights-head").innerHTML = `<tr><th>Weights</th><th>Recipes</th>${hosts.map((h) => `<th>${esc(maskAddr(h.name))}</th>`).join("")}</tr>`;
+  $("#weights-head").innerHTML = `<tr><th>Model</th>${hosts.map((h) => `<th>${esc(maskAddr(h.name))}</th>`).join("")}</tr>`;
   const list = weightsData.weights;
   if (!list.length) {
-    $("#weights").innerHTML = `<tr><td colspan="${2 + hosts.length}" class="empty">Nothing registered yet. “+ Register weights” adds an entry; then pick it in a recipe's Weights field.</td></tr>`;
+    $("#weights").innerHTML = `<tr><td colspan="${1 + hosts.length}" class="empty">No models yet. “+ Add” one, download one from Hugging Face, or add a folder found on your hosts (shown above when there is one).</td></tr>`;
     return;
   }
   $("#weights").innerHTML = list.map((w) => `<tr>
-      <td><button type="button" class="link weight-name" data-weight="${w.id}" title="Edit name, source and paths">${esc(w.name)}</button>
+      <td><button type="button" class="link weight-name" data-weight="${w.id}" title="Rename, change paths or delete">${esc(w.name)}</button>
         ${w.source ? `<div class="muted mono weight-source">${esc(w.source)}</div>` : ""}
-        <span class="weight-actions">
-          ${w.hosts.some((c) => c.state === "present") && state.hosts.length > 1 ? `<button class="btn small ghost" data-copy-weight="${w.id}" title="Copy from the hosts that have it to the others, over your network">⇉ Copy…</button>` : ""}
-          <button class="btn small ghost" data-download-weight="${w.id}" title="Download from Hugging Face on the hosts that don't have it">⬇ Download…</button></span></td>
-      <td>${w.recipe_ids.length ? w.recipe_ids.map((id) => {
-        const r = state.recipes.find((x) => x.id === id);
-        return r ? `<button class="chip small" data-recipe="${r.id}" title="Edit this recipe">${esc(r.name)}</button>` : "";
-      }).join(" ") : `<span class="muted">–</span>`}</td>
+        <span class="weight-actions">${weightActionHtml(w)}</span></td>
       ${hosts.map((h) => `<td>${weightCellHtml(w, w.hosts.find((c) => c.host_id === h.id) || { host_id: h.id, state: "unset" })}</td>`).join("")}
     </tr>`).join("");
 }
 
 $("#weights").addEventListener("click", (ev) => {
-  const cp = ev.target.closest("[data-copy-weight]");
-  if (cp) {
-    const w = weightsData.weights.find((x) => x.id === Number(cp.dataset.copyWeight));
-    openTransfer({ kind: "copy", weight_id: w.id, label: w.name, sources: w.hosts.filter((c) => c.state === "present").map((c) => c.host_id) },
-      w.hosts.filter((c) => c.state !== "present").map((c) => c.host_id));
+  const get = ev.target.closest("[data-get-weight]");
+  if (get) {
+    const w = weightsData.weights.find((x) => x.id === Number(get.dataset.getWeight));
+    const have = w.hosts.filter((c) => c.state === "present").map((c) => c.host_id);
+    const lacking = w.hosts.filter((c) => c.state !== "present").map((c) => c.host_id);
+    if (have.length) {
+      openTransfer({ kind: "copy", weight_id: w.id, label: w.name, sources: have }, lacking);
+    } else {
+      const path = w.hosts.map((c) => c.path).find(Boolean) || "";
+      const folder = path.replace(/\/+$/, "").split("/").pop() || (/^[\w.-]+$/.test(w.name) ? w.name : "");
+      openTransfer({ kind: "download", repo: w.source, name: folder, weight_id: w.id }, lacking);
+    }
     return;
   }
-  const dl = ev.target.closest("[data-download-weight]");
-  if (dl) {
-    const w = weightsData.weights.find((x) => x.id === Number(dl.dataset.downloadWeight));
-    const path = w.hosts.map((c) => c.path).find(Boolean) || "";
-    const folder = path.replace(/\/+$/, "").split("/").pop() || (/^[\w.-]+$/.test(w.name) ? w.name : "");
-    openTransfer({ kind: "download", repo: w.source, name: folder, weight_id: w.id },
-      w.hosts.filter((c) => c.state !== "present").map((c) => c.host_id));
-    return;
-  }
-  const r = ev.target.closest("[data-recipe]");
-  if (r) { const rec = state.recipes.find((x) => x.id === Number(r.dataset.recipe)); if (rec) openRecipeEditor(rec); return; }
   const b = ev.target.closest("[data-weight]");
   if (b) openWeightEditor(state.weights.find((w) => w.id === Number(b.dataset.weight)), Number(b.dataset.host) || null);
 });
 $("#btn-new-weight").addEventListener("click", () => openWeightEditor(null));
-
-let discoverData = null;
-
-async function discoverWeights() {
-  const box = $("#weights-discover");
-  const btn = $("#btn-discover-weights");
-  box.classList.remove("hidden");
-  box.innerHTML = `<div class="muted">Searching the model folders on every host…</div>`;
-  btn.disabled = true;
-  try {
-    discoverData = await api("/api/weights/discover");
-    renderDiscover();
-  } catch (e) {
-    box.innerHTML = `<div class="bad">${esc(e.message)}</div>`;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-function renderDiscover() {
-  const d = discoverData;
-  const box = $("#weights-discover");
-  if (!d) { box.classList.add("hidden"); return; }
-  const host = (id) => esc(maskAddr(hostName(id)));
-  const size = (f) => f.size_gb ? ` <span class="muted">${f.size_gb} GB</span>` : "";
-  const hostsLine = d.hosts.map((h) => h.error
-    ? `<span class="bad" title="${esc(blurHostText(h.error, hostById(h.host_id)?.url))}">${host(h.host_id)}: ✗ ${esc(blurHostText(h.error, hostById(h.host_id)?.url))}</span>`
-    : `<span>${host(h.host_id)}: ${h.count} found in <code>${esc(h.dirs.join(", "))}</code></span>`).join(" · ");
-  const sugg = d.suggestions.length ? `<h4>Suggested paths <button class="btn small primary" data-use-all>Use all ${d.suggestions.length}</button></h4>
-      ${d.suggestions.map((s, i) => `<div class="discover-row"><b>${esc(s.name)}</b> on ${host(s.host_id)}: <code>${esc(s.path)}</code>${size(s)}
-        <button class="btn small" data-use="${i}">Use</button></div>`).join("")}` : "";
-  const unreg = d.unregistered.length ? `<h4>Found, not registered</h4>
-      ${d.unregistered.map((f, i) => `<div class="discover-row">${f.kind === "file" ? "📄" : "📁"} <b>${esc(f.name)}</b> on ${host(f.host_id)}: <code>${esc(f.path)}</code>${size(f)}
-        <button class="btn small" data-register="${i}">Register…</button></div>`).join("")}` : "";
-  box.innerHTML = `<div class="discover-head"><span class="muted">${hostsLine}</span><button type="button" class="x" data-close-discover title="Close">&times;</button></div>
-    ${sugg}${unreg}${!sugg && !unreg ? `<div class="muted">Nothing new: every folder found is registered and every entry has its paths. Folders are looked for in each host's <code>DGXM_MODEL_DIR</code>.</div>` : ""}`;
-}
+$("#btn-refresh-models").addEventListener("click", loadWeights);
 
 const normName = (n) => n.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-$("#btn-discover-weights").addEventListener("click", discoverWeights);
+// Unregistered folders with the same name on several hosts are most likely the same model: one row each.
+function unregisteredGroups() {
+  const groups = new Map();
+  for (const f of discoverData?.unregistered || []) {
+    const k = normName(f.name.replace(/\.gguf$/i, ""));
+    (groups.get(k) ?? groups.set(k, []).get(k)).push(f);
+  }
+  return [...groups.values()];
+}
+
+// "Found on your hosts": everything that can be added with one click. Hidden when there is nothing.
+function renderDiscover() {
+  const box = $("#weights-discover");
+  const sugg = discoverData?.suggestions || [];
+  const unreg = unregisteredGroups();
+  const adopt = (modelsData?.models || []).filter((m) => m.adoptable);
+  if (!sugg.length && !unreg.length && !adopt.length) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  const host = (id) => esc(maskAddr(hostName(id)));
+  const size = (f) => f.size_gb ? ` <span class="muted">${f.size_gb} GB</span>` : "";
+  const n = sugg.length + unreg.length + adopt.length;
+  box.classList.remove("hidden");
+  box.innerHTML = `<h4>Found on your hosts <span class="muted">${n}</span>
+      ${n > 1 && sugg.length === n ? `<button class="btn small primary" data-use-all>Use all</button>` : ""}</h4>
+    ${sugg.map((s, i) => `<div class="discover-row"><b>${esc(s.name)}</b> is also on ${host(s.host_id)}: <code>${esc(s.path)}</code>${size(s)}
+      <button class="btn small primary" data-use="${i}">Use</button></div>`).join("")}
+    ${unreg.map((g, i) => `<div class="discover-row">${g[0].kind === "file" ? "📄" : "📁"} <b>${esc(g[0].name)}</b>
+      on ${g.map((f) => host(f.host_id)).join(", ")}${g.length === 1 ? `: <code>${esc(g[0].path)}</code>` : ""}${size(g[0])}
+      <button class="btn small" data-register="${i}">Add…</button></div>`).join("")}
+    ${adopt.map((m, i) => `<div class="discover-row">🧩 <code>${esc(m.model)}</code> is mounted directly by
+      ${m.recipes.map((r) => `<b>${esc(r.name)}</b>`).join(", ")}
+      <button class="btn small" data-adopt="${i}" title="Add it here and let ${m.recipes.length === 1 ? "this recipe" : "these recipes"} use it on every host">Add…</button></div>`).join("")}`;
+}
+
 $("#weights-discover").addEventListener("click", async (ev) => {
-  if (ev.target.closest("[data-close-discover]")) { discoverData = null; renderDiscover(); return; }
   const use = ev.target.closest("[data-use]");
   const all = ev.target.closest("[data-use-all]");
   if (use || all) {
@@ -1439,14 +1642,23 @@ $("#weights-discover").addEventListener("click", async (ev) => {
   }
   const reg = ev.target.closest("[data-register]");
   if (reg) {
-    const f = discoverData.unregistered[Number(reg.dataset.register)];
-    // The same folder name on other hosts is most likely the same weights: fill those paths in too.
+    const g = unregisteredGroups()[Number(reg.dataset.register)];
     const locations = {};
-    for (const g of discoverData.unregistered) {
-      if (normName(g.name) === normName(f.name) && !(g.host_id in locations)) locations[g.host_id] = g.path;
-    }
-    locations[f.host_id] = f.path;
-    openWeightEditor(null, null, { name: f.name.replace(/\.gguf$/i, ""), locations });
+    for (const f of g) if (!(f.host_id in locations)) locations[f.host_id] = f.path;
+    openWeightEditor(null, null, { name: g[0].name.replace(/\.gguf$/i, ""), locations });
+    return;
+  }
+  const ad = ev.target.closest("[data-adopt]");
+  if (ad) {
+    const m = modelsData.models.filter((x) => x.adoptable)[Number(ad.dataset.adopt)];
+    const name = prompt(`Add “${m.model}” as a model named:`, m.model.replace(/\/+$/, "").split("/").pop());
+    if (name === null) return;
+    try {
+      const w = await api("/api/weights/adopt", { method: "POST", body: { recipe_ids: m.recipes.map((r) => r.id), name } });
+      toast(`Added “${w.name}” – ${m.recipes.length} recipe${m.recipes.length === 1 ? "" : "s"} now use${m.recipes.length === 1 ? "s" : ""} it`, "ok");
+      await loadRecipes();
+      await afterWeightsChange();
+    } catch (e) { toast(e.message, "bad"); }
   }
 });
 
@@ -1457,7 +1669,7 @@ function openWeightEditor(w, focusHostId = null, prefill = null) {
   const form = $("#form-weight");
   form.reset();
   $("#weight-error").textContent = "";
-  $("#weight-title").textContent = w ? `Weights – ${w.name}` : "Register weights";
+  $("#weight-title").textContent = w ? w.name : "Add a model";
   form.elements.name.value = w?.name ?? prefill?.name ?? "";
   form.elements.source.value = w?.source ?? "";
   $("#weight-paths").innerHTML = state.hosts.map((h) => `<label class="weight-path">
@@ -1471,8 +1683,7 @@ function openWeightEditor(w, focusHostId = null, prefill = null) {
 
 async function afterWeightsChange() {
   await loadWeightsList();
-  if (state.tab === "models") loadWeights();
-  if (discoverData) discoverWeights();  // the search results above the registry are stale now
+  if (state.tab === "models") loadWeights();  // also refreshes "Found on your hosts"
   if ($("#dlg-recipe").open) updateWeightsStatus();
   renderRecipes();
 }
@@ -1487,7 +1698,7 @@ $("#form-weight").addEventListener("submit", async (ev) => {
       ? await api(`/api/weights/${editingWeight.id}`, { method: "PUT", body })
       : await api("/api/weights", { method: "POST", body });
     $("#dlg-weight").close();
-    toast("Weights saved", "ok");
+    toast("Saved", "ok");
     await afterWeightsChange();
     // Registered from the recipe editor: pick the new entry there right away.
     if (!editingWeight && $("#dlg-recipe").open && !recipeForm.elements.weights_id.value) {
@@ -1500,11 +1711,11 @@ $("#form-weight").addEventListener("submit", async (ev) => {
 });
 
 $("#btn-weight-delete").addEventListener("click", async () => {
-  if (!editingWeight || !confirm(`Delete the weights entry “${editingWeight.name}”? The files stay where they are.`)) return;
+  if (!editingWeight || !confirm(`Remove “${editingWeight.name}” from this list? The files stay where they are.`)) return;
   try {
     await api(`/api/weights/${editingWeight.id}`, { method: "DELETE" });
     $("#dlg-weight").close();
-    toast("Weights entry deleted", "ok");
+    toast("Removed", "ok");
     await afterWeightsChange();
   } catch (e) {
     $("#weight-error").textContent = e.message;
@@ -1548,11 +1759,42 @@ async function runImportCheck() {
 
 function openImport() {
   resetImportReport();
+  $("#import-examples").classList.toggle("hidden", !!editingRecipe);
   $("#dlg-import").showModal();
   $("#import-text").focus();
 }
 $("#btn-import").addEventListener("click", openImport);
-$("#import-cta [data-import]").addEventListener("click", openImport);
+// Closed without importing (Cancel, ×, Esc) while adding: nothing to edit, so the empty editor goes too.
+$("#dlg-import").addEventListener("close", () => {
+  if (importForNew && !editingRecipe && $("#dlg-recipe").open) $("#dlg-recipe").close();
+  importForNew = false;
+});
+
+const IMPORT_EXAMPLES = {
+  yaml: `# Missing settings come from the framework's defaults.
+name: qwen3-8b
+framework: vllm          # vllm, sglang, llamacpp, …
+model: Qwen/Qwen3-8B     # a Hugging Face id, or  weights: <name in the Weights tab>
+port: 8101
+args: |
+  --max-model-len 32768
+`,
+  shell: `#!/usr/bin/env bash
+docker run --gpus all -p 8101:8000 \\
+  -v ~/.cache/huggingface:/root/.cache/huggingface \\
+  vllm/vllm-openai:latest \\
+  --model Qwen/Qwen3-8B --max-model-len 32768
+`,
+};
+$("#import-examples").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-example]");
+  if (!b) return;
+  const t = $("#import-text");
+  if (t.value.trim() && !confirm("Replace the text in the box with the example?")) return;
+  t.value = IMPORT_EXAMPLES[b.dataset.example];
+  resetImportReport();
+  t.focus();
+});
 
 $("#import-text").addEventListener("input", resetImportReport);
 
@@ -1589,6 +1831,7 @@ $("#form-import").addEventListener("submit", async (ev) => {
     const adopted = useRegisteredWeights();
     syncHostNetworkPorts();
     updateWeightsStatus();
+    scheduleImageStatus();
     const skipped = res.skipped_calls || [];
     const riskCount = res.check?.count ?? 0;
     showRecipeNote([
@@ -1599,7 +1842,7 @@ $("#form-import").addEventListener("submit", async (ev) => {
       ...(skipped.length ? [`• Not executed during import (${skipped.length}):`,
         ...skipped.slice(0, 12).map((s) => `    ${s}`), ...(skipped.length > 12 ? [`    … ${skipped.length - 12} more`] : [])] : []),
     ]);
-    $("#import-cta").classList.add("hidden");
+    importForNew = false;  // keep the editor open with the imported recipe
     $("#dlg-import").close();
     updatePreview();
   } catch (e) {
@@ -1627,6 +1870,7 @@ async function syncCopies(id) {
 /* Background jobs: they run on the hub (closing the browser does not stop them); this only shows them. */
 
 const jobs = new Map();
+const closedJobs = new Set();  // finished jobs already shown here: resumeJobs does not bring them back
 let jobTimer = null;
 const JOB_ICON = { waiting: `<span class="muted" title="Waiting for this host">⏸</span>`, running: "⏳",
   ok: `<span class="ok">✓</span>`, failed: `<span class="bad">✗</span>` };
@@ -1671,14 +1915,14 @@ function openTransfer(spec, missing = []) {
   form.reset();
   $("#transfer-error").textContent = "";
   const pull = spec.kind === "pull", copy = spec.kind === "copy";
-  $("#transfer-title").textContent = pull ? "Pull on hosts" : copy ? `Copy “${spec.label}” to hosts` : "Download on hosts";
+  $("#transfer-title").textContent = pull ? "Pull on hosts" : copy ? `Copy “${spec.label}” to hosts` : "Download from Hugging Face";
   $("#transfer-hint").innerHTML = pull
     ? `Each host runs <code>docker pull ${esc(spec.image)}</code> itself (private registries: <code>docker login</code> there once).`
     : copy ? `Copied host to host over your network – the hub only arranges it. Every host that has the weights serves
         one copy at a time and each finished host joins in, so many hosts are done in a few rounds. Each file is checked
         with SHA-256; files a host already has are skipped, and an interrupted copy continues where it stopped.`
     : `Downloads from Hugging Face (needs <code>hf</code> on the host: <code>pip install -U huggingface_hub</code>; gated
-        models: <code>HF_TOKEN</code> in its <code>.env</code>). The folders are registered in the Weights tab.`;
+        models: <code>HF_TOKEN</code> in its <code>.env</code>). The model is then added to the Weights tab.`;
   $$(".hf-only", form).forEach((el) => el.classList.toggle("hidden", pull || copy));
   form.elements.once.checked = true;
   form.elements.repo.value = spec.repo ?? "";
@@ -1759,10 +2003,15 @@ async function pollJobs() {
         const failed = fresh.items.filter((i) => i.state === "failed").length;
         toast(`${fresh.title}: ${failed ? `${failed} failed` : `all ${JOB_DONE[fresh.kind] ?? "done"}`}`, failed ? "bad" : "ok");
         afterJob(fresh);
+        closedJobs.add(fresh.id);
         // Successful jobs close themselves; failed ones stay until closed, so the reason can be read.
         if (!failed) setTimeout(() => { jobs.delete(fresh.id); renderJobs(); }, 30000);
       }
-    } catch { jobs.delete(j.id); }  // the manager restarted: the job is gone
+    } catch (e) {
+      // 404: the manager restarted and the job is gone. Anything else (network down while the computer
+      // slept, hub busy) is temporary: keep the job and ask again.
+      if (e.status === 404) jobs.delete(j.id);
+    }
   }
   renderJobs();
   jobTimer = setTimeout(pollJobs, 1500);
@@ -1770,14 +2019,29 @@ async function pollJobs() {
 
 $("#jobs").addEventListener("click", (ev) => {
   const b = ev.target.closest("[data-close-job]");
-  if (b) { jobs.delete(b.dataset.closeJob); renderJobs(); }
+  if (b) { jobs.delete(b.dataset.closeJob); closedJobs.add(b.dataset.closeJob); renderJobs(); }
 });
 
-// After a reload: show jobs that are still running on the hub.
+const RECENT_JOB_MS = 60 * 60 * 1000;
+
+// Show jobs the hub runs that this page does not know yet: after a reload or a sleeping computer, and jobs
+// started elsewhere (another browser, the phone). Also jobs that finished in the last hour while nobody
+// looked, so a failed copy still shows its reason; each finished job is shown once.
 async function resumeJobs() {
-  try {
-    for (const j of await api("/api/jobs")) if (!j.done) jobs.set(j.id, j);
-  } catch { return; }
+  let list;
+  try { list = await api("/api/jobs"); } catch { return; }
+  let added = false;
+  for (const j of list) {
+    if (jobs.has(j.id) || closedJobs.has(j.id)) continue;
+    if (j.done && !(j.finished && Date.now() - Date.parse(j.finished) < RECENT_JOB_MS)) continue;
+    jobs.set(j.id, j);
+    added = true;
+    if (j.done) {
+      closedJobs.add(j.id);
+      if (!j.items.some((i) => i.state === "failed")) setTimeout(() => { jobs.delete(j.id); renderJobs(); }, 30000);
+    }
+  }
+  if (!added) return;
   renderJobs();
   pollJobs();
 }
@@ -1831,178 +2095,6 @@ $("#form-copy").addEventListener("submit", async (ev) => {
     $("#copy-error").textContent = e.message;
   }
 });
-
-/* ---------------- quick recipe ---------------- */
-
-// Weights on the host + the settings of a recipe that already works (or a preset) = a new recipe.
-const quickForm = $("#form-quick");
-let quickFound = [];      // model folders / .gguf files on the hosts nobody registered yet
-let quickBaseTouched = false;
-let quickModelTouched = false;
-let quickTimer = null;
-let quickSeq = 0;
-
-const isGguf = (ref) => /\.gguf$/i.test(ref);
-
-function quickModelRef() {
-  const v = quickForm.elements.model_ref.value;
-  if (v !== "other") return v;
-  const t = quickForm.elements.other.value.trim();
-  return !t ? "" : /^[/~]/.test(t) ? `f:${t}` : `h:${t}`;
-}
-
-function renderQuickModels() {
-  const hostId = Number(quickForm.elements.host_id.value);
-  const cur = quickForm.elements.model_ref.value;
-  const reg = state.weights.filter((w) => w.locations[hostId]);
-  const found = quickFound.filter((f) => f.host_id === hostId);
-  const size = (f) => f.size_gb ? ` – ${f.size_gb} GB` : "";
-  quickForm.elements.model_ref.innerHTML = [
-    reg.length ? `<optgroup label="Registered weights">${reg.map((w) =>
-      `<option value="w:${w.id}">${esc(w.name)}</option>`).join("")}</optgroup>` : "",
-    found.length ? `<optgroup label="Found on this host">${found.map((f) =>
-      `<option value="f:${esc(f.path)}">${f.kind === "file" ? "📄" : "📁"} ${esc(f.name)}${size(f)}</option>`).join("")}</optgroup>` : "",
-    `<optgroup label="Other"><option value="other">Hugging Face id or another path…</option></optgroup>`,
-  ].join("");
-  const keep = quickModelTouched && [...quickForm.elements.model_ref.options].some((o) => o.value === cur);
-  quickForm.elements.model_ref.value = keep ? cur : quickForm.elements.model_ref.options[0].value;
-  $("#quick-other-row").classList.toggle("hidden", quickForm.elements.model_ref.value !== "other");
-}
-
-function renderQuickBases() {
-  const hostId = Number(quickForm.elements.host_id.value);
-  const cur = quickForm.elements.base.value;
-  const models = state.recipes.filter((r) => kindOf(r) === "model").sort(byName);
-  const opt = (r) => `<option value="r:${r.id}">${esc(r.name)} (${esc(state.meta.frameworks[r.framework]?.label ?? r.framework)})</option>`;
-  const here = models.filter((r) => r.host_id === hostId);
-  const elsewhere = models.filter((r) => r.host_id !== hostId);
-  const mac = hostPlatform(hostId) === "darwin";
-  const presets = Object.entries(state.meta.frameworks)
-    .filter(([k, v]) => !k.endsWith("custom") && (!mac || v.runtime === "process"));
-  quickForm.elements.base.innerHTML = [
-    here.length ? `<optgroup label="Recipes on this host">${here.map(opt).join("")}</optgroup>` : "",
-    elsewhere.length ? `<optgroup label="Recipes on other hosts">${elsewhere.map(opt).join("")}</optgroup>` : "",
-    `<optgroup label="Engine defaults">${presets.map(([k, v]) => `<option value="p:${k}">${esc(v.label)}</option>`).join("")}</optgroup>`,
-  ].join("");
-  if ([...quickForm.elements.base.options].some((o) => o.value === cur)) quickForm.elements.base.value = cur;
-}
-
-// The settings that most likely fit: a recipe on this host for the same kind of weights, else a preset.
-function suggestQuickBase() {
-  if (quickBaseTouched) return;
-  const hostId = Number(quickForm.elements.host_id.value);
-  const gguf = isGguf(quickModelRef());
-  const mac = hostPlatform(hostId) === "darwin";
-  const llama = (fw) => fw.startsWith("llamacpp");
-  const fits = (r) => kindOf(r) === "model" && r.host_id === hostId && (gguf ? llama(r.framework)
-    : !llama(r.framework) && (!mac || r.runtime === "process"));
-  const recent = state.recipes.filter(fits).sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""))[0];
-  quickForm.elements.base.value = recent ? `r:${recent.id}`
-    : `p:${gguf ? (mac ? "llamacpp-native" : "llamacpp") : mac ? "mlx" : "vllm"}`;
-}
-
-function quickBody(save) {
-  const f = quickForm.elements;
-  const ref = quickModelRef();
-  const base = f.base.value;
-  const body = { host_id: Number(f.host_id.value) || null, name: f.name.value.trim(), save,
-    context: f.context.value ? Number(f.context.value) : null };
-  if (base.startsWith("r:")) body.base_recipe_id = Number(base.slice(2));
-  else body.framework = base.slice(2);
-  if (ref.startsWith("w:")) body.weights_id = Number(ref.slice(2));
-  else if (ref.startsWith("f:")) body.path = ref.slice(2);
-  else if (ref.startsWith("h:")) body.model = ref.slice(2);
-  return body;
-}
-
-async function updateQuickPreview() {
-  const seq = ++quickSeq;
-  $("#quick-error").textContent = "";
-  if (!quickModelRef()) {
-    $("#quick-preview").textContent = "Pick the model first.";
-    $("#quick-notes").innerHTML = "";
-    return;
-  }
-  try {
-    const res = await api("/api/recipes/quick", { method: "POST", body: quickBody(false) });
-    if (seq !== quickSeq) return;
-    const r = res.recipe;
-    $("#quick-notes").innerHTML = [
-      `<b>${esc(r.name)}</b> on port <b>${r.host_port}</b> – endpoint <code>${esc(maskEndpoint(endpointUrl(r)))}</code>`,
-      ...res.notes.map(esc),
-    ].map((n) => `<li>${n}</li>`).join("");
-    $("#quick-preview").innerHTML = previewHtml(res.command, r.image);
-  } catch (e) {
-    if (seq !== quickSeq) return;
-    $("#quick-notes").innerHTML = "";
-    $("#quick-preview").textContent = `(incomplete) ${e.message}`;
-  }
-}
-
-function scheduleQuickPreview() {
-  clearTimeout(quickTimer);
-  quickTimer = setTimeout(updateQuickPreview, 250);
-}
-
-async function openQuick() {
-  quickForm.reset();
-  quickBaseTouched = false;
-  quickModelTouched = false;
-  $("#quick-error").textContent = "";
-  $("#quick-host").innerHTML = state.hosts.map((h) =>
-    `<option value="${h.id}">${esc(maskAddr(h.name))}${h.online ? "" : " (offline)"}</option>`).join("");
-  $("#quick-host-row").classList.toggle("hidden", !multiHost());
-  quickForm.elements.host_id.value = view.host || state.hosts.find((h) => h.is_local)?.id || "";
-  renderQuickModels();
-  renderQuickBases();
-  suggestQuickBase();
-  $("#dlg-quick").showModal();
-  updateQuickPreview();
-  // Unregistered folders take a round trip to every host: fill them in when they arrive.
-  try {
-    quickFound = (await api("/api/weights/discover")).unregistered;
-    if (!$("#dlg-quick").open) return;
-    renderQuickModels();
-    suggestQuickBase();
-    updateQuickPreview();
-  } catch { /* the registered weights and "Other" still work */ }
-}
-
-$("#btn-quick-recipe").addEventListener("click", openQuick);
-$("#quick-host").addEventListener("change", () => {
-  renderQuickModels();
-  renderQuickBases();
-  suggestQuickBase();
-  updateQuickPreview();
-});
-$("#quick-model").addEventListener("change", () => {
-  quickModelTouched = true;
-  $("#quick-other-row").classList.toggle("hidden", quickForm.elements.model_ref.value !== "other");
-  if (quickForm.elements.model_ref.value === "other") quickForm.elements.other.focus();
-  suggestQuickBase();
-  updateQuickPreview();
-});
-$("#quick-base").addEventListener("change", () => { quickBaseTouched = true; updateQuickPreview(); });
-quickForm.addEventListener("input", (ev) => {
-  if (ev.target.name === "other") suggestQuickBase();
-  if (["other", "context", "name"].includes(ev.target.name)) scheduleQuickPreview();
-});
-
-async function createQuick(edit) {
-  try {
-    const res = await api("/api/recipes/quick", { method: "POST", body: quickBody(true) });
-    $("#dlg-quick").close();
-    toast(`“${res.recipe.name}” created${edit ? "" : " – press Start on its card"}`, "ok");
-    await loadWeightsList();
-    await loadRecipes();
-    if (edit) openRecipeEditor(state.recipes.find((r) => r.id === res.recipe.id) || res.recipe);
-  } catch (e) {
-    $("#quick-error").textContent = e.message;
-  }
-}
-
-quickForm.addEventListener("submit", (ev) => { ev.preventDefault(); createQuick(false); });
-$("#btn-quick-edit").addEventListener("click", () => createQuick(true));
 
 /* ---------------- logs ---------------- */
 
@@ -2633,127 +2725,6 @@ $("#images").addEventListener("click", async (ev) => {
   loadImages();
 });
 
-/* ---------------- models tab ---------------- */
-
-let modelsData = null;
-const modelsView = { search: "", host: "", onlyMissing: false, open: new Set() };
-
-async function loadModels() {
-  const tbody = $("#models");
-  if (!modelsData) tbody.innerHTML = `<tr><td colspan="3" class="empty">Asking the hosts…</td></tr>`;
-  try {
-    modelsData = await api("/api/models");
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="3" class="empty">${esc(e.message)}</td></tr>`;
-    return;
-  }
-  renderModels();
-}
-
-function modelHosts() {
-  const used = new Set(modelsData.models.flatMap((m) => m.hosts.map((h) => h.host_id)));
-  return state.hosts.filter((h) => used.has(h.id));
-}
-
-const modelHasMissing = (m) => m.hosts.some((h) => h.state === "missing");
-
-function modelCellHtml(m, h) {
-  if (!h) return `<span class="muted" title="No recipe on this host uses this model">–</span>`;
-  if (h.state === "unknown") {
-    return `<span class="muted" title="${esc(blurHostText(h.error || "not reachable", hostById(h.host_id)?.url))}">? unknown</span>`;
-  }
-  if (h.state === "present") {
-    return `<span class="ok" title="${esc(h.location || "present on this host")}">✓ present</span>`;
-  }
-  return `<span class="bad" title="${esc(h.location ? `Not found at: ${h.location}` : "Not on this host yet")}">✗ missing</span>`;
-}
-
-function renderModels() {
-  if (!modelsData) return;
-  const hostSel = $("#models-host");
-  const hosts = modelHosts();
-  hostSel.innerHTML = `<option value="">All hosts</option>` + hosts.map((h) => `<option value="${h.id}">${esc(maskAddr(h.name))}</option>`).join("");
-  hostSel.value = hosts.some((h) => String(h.id) === modelsView.host) ? modelsView.host : "";
-  hostSel.closest("label").classList.toggle("hidden", hosts.length < 2);
-
-  const all = modelsData.models;
-  const nMissing = all.filter(modelHasMissing).length;
-  $("#models-only-missing").textContent = `✗ Missing on a host (${nMissing})`;
-  $("#models-only-missing").classList.toggle("on", modelsView.onlyMissing);
-  const nRecipes = new Set(all.flatMap((m) => m.recipes.map((r) => r.id))).size;
-  $("#models-summary").textContent = `${all.length} model${all.length === 1 ? "" : "s"} · ${nRecipes} recipe${nRecipes === 1 ? "" : "s"}`;
-
-  const cols = modelsView.host ? hosts.filter((h) => String(h.id) === modelsView.host) : hosts;
-  const q = modelsView.search.trim().toLowerCase();
-  const shown = all.filter((m) => {
-    const hs = modelsView.host ? m.hosts.filter((h) => String(h.host_id) === modelsView.host) : m.hosts;
-    if (modelsView.host && !hs.length) return false;
-    if (modelsView.onlyMissing && !hs.some((h) => h.state === "missing")) return false;
-    return !q || m.model.toLowerCase().includes(q) || m.recipes.some((r) => r.name.toLowerCase().includes(q));
-  });
-
-  $("#models-head").innerHTML = `<tr><th>Model</th><th>Recipes</th>${cols.map((h) => `<th>${esc(maskAddr(h.name))}</th>`).join("")}</tr>`;
-  const span = 2 + cols.length;
-  const tbody = $("#models");
-  if (!all.length) { tbody.innerHTML = `<tr><td colspan="${span}" class="empty">No model recipes with a model set yet.</td></tr>`; return; }
-  if (!shown.length) { tbody.innerHTML = `<tr><td colspan="${span}" class="empty">No model matches the filters.</td></tr>`; return; }
-
-  const rows = shown.map((m) => {
-    const open = modelsView.open.has(m.model);
-    const recipes = modelsView.host ? m.recipes.filter((r) => String(r.host_id) === modelsView.host) : m.recipes;
-    const out = [`<tr>
-      <td class="mono">${esc(m.model)}</td>
-      <td><button class="chip small" data-model-toggle="${esc(m.model)}" aria-expanded="${open}">${recipes.length} recipe${recipes.length === 1 ? "" : "s"} ${open ? "▾" : "▸"}</button>
-        ${m.adoptable ? `<button class="btn small" data-adopt="${esc(m.model)}" title="Register this folder in the Weights registry and switch ${recipes.length === 1 ? "its recipe" : "these recipes"} to {weights}">→ Register</button>` : ""}</td>
-      ${cols.map((h) => `<td class="img-cell">${modelCellHtml(m, m.hosts.find((x) => x.host_id === h.id))}</td>`).join("")}
-    </tr>`];
-    if (open) {
-      const groups = new Map();
-      for (const r of recipes) (groups.get(r.host_id) ?? groups.set(r.host_id, []).get(r.host_id)).push(r);
-      const order = (hid) => state.hosts.findIndex((h) => h.id === hid);
-      out.push(`<tr class="img-recipes"><td></td><td colspan="${span - 1}">${[...groups].sort((a, b) => order(a[0]) - order(b[0])).map(([hid, rs]) =>
-        `<div>${multiHost() ? `<b>${esc(maskAddr(hostName(hid)))}</b> ` : ""}${rs.map((r) => `<button class="chip small" data-recipe="${r.id}" title="Edit this recipe">${esc(r.name)}</button>`).join(" ")}</div>`).join("")}</td></tr>`);
-    }
-    return out.join("");
-  });
-  tbody.innerHTML = rows.join("");
-}
-
-$("#btn-refresh-models").addEventListener("click", loadModels);
-$("#models-search").addEventListener("input", (e) => { modelsView.search = e.target.value; renderModels(); });
-$("#models-host").addEventListener("change", (e) => { modelsView.host = e.target.value; renderModels(); });
-$("#models-only-missing").addEventListener("click", () => { modelsView.onlyMissing = !modelsView.onlyMissing; renderModels(); });
-
-$("#models").addEventListener("click", async (ev) => {
-  const adopt = ev.target.closest("[data-adopt]");
-  if (adopt) {
-    const m = modelsData.models.find((x) => x.model === adopt.dataset.adopt);
-    const name = prompt(`Register “${m.model}” as weights named:\n(its recipes then mount {weights}; set the path for other hosts in the registry)`,
-      m.model.replace(/\/+$/, "").split("/").pop());
-    if (name === null) return;
-    try {
-      const w = await api("/api/weights/adopt", { method: "POST", body: { recipe_ids: m.recipes.map((r) => r.id), name } });
-      toast(`Registered “${w.name}” – ${m.recipes.length} recipe${m.recipes.length === 1 ? "" : "s"} now use${m.recipes.length === 1 ? "s" : ""} {weights}`, "ok");
-      await loadRecipes();
-      await afterWeightsChange();
-      loadModels();
-    } catch (e) { toast(e.message, "bad"); }
-    return;
-  }
-  const toggle = ev.target.closest("[data-model-toggle]");
-  if (toggle) {
-    const k = toggle.dataset.modelToggle;
-    modelsView.open.has(k) ? modelsView.open.delete(k) : modelsView.open.add(k);
-    renderModels();
-    return;
-  }
-  const recipeBtn = ev.target.closest("[data-recipe]");
-  if (recipeBtn) {
-    const r = state.recipes.find((x) => x.id === Number(recipeBtn.dataset.recipe));
-    if (r) openRecipeEditor(r);
-  }
-});
-
 /* ---------------- keyboard shortcuts ---------------- */
 
 const TAB_KEYS = { "1": "recipes", "2": "schedules", "3": "activity", "4": "hosts", "5": "images", "6": "models" };
@@ -2780,12 +2751,10 @@ document.addEventListener("keydown", (ev) => {
   }
   if (TAB_KEYS[k]) { $(`.tab[data-tab="${TAB_KEYS[k]}"]`).click(); ev.preventDefault(); return; }
   if (k === "/") { $('.tab[data-tab="recipes"]').click(); $("#recipe-search").focus(); ev.preventDefault(); return; }
-  if (k === "n" && state.tab === "recipes") { $("#btn-new-recipe").click(); ev.preventDefault(); return; }
-  if (k === "i" && state.tab === "recipes") { $("#btn-import-recipe").click(); ev.preventDefault(); return; }
-  if (k === "q" && state.tab === "recipes") { $("#btn-quick-recipe").click(); ev.preventDefault(); return; }
+  if (k === "i" && state.tab === "recipes") { $("#btn-add-recipe").click(); ev.preventDefault(); return; }
   if (k === "t") { $("#btn-theme").click(); return; }
   if (k === "b") { $("#btn-blur").click(); return; }
-  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · q quick recipe · n new recipe · i import a docker run / script · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
+  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · i add a recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
 });
 
 /* ---------------- boot ---------------- */
@@ -2805,7 +2774,10 @@ async function boot() {
   await loadStartTimes();
   await loadRecipes();
   resumeJobs();
-  setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); } }, 5000);
+  setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); resumeJobs(); } }, 5000);
+  // Back from sleep or another tab: catch up at once (also restarts the job poll after network errors).
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { resumeJobs(); pollJobs(); } });
+  window.addEventListener("online", () => { resumeJobs(); pollJobs(); });
   // Keep the ⏳ elapsed counter ticking between the 5 s polls.
   setInterval(() => { if (!document.hidden && startWatch.size) renderRecipes(); }, 1000);
   setInterval(() => { if (!document.hidden && state.tab === "schedules") loadSchedules(); }, 15000);
