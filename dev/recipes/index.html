@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Run, switch and schedule local LLM servers (vLLM, SGLang, llama.cpp, TensorFold) across your GPU machines.">
+        <meta name="description" content="Manage your best LLM recipes in one place and run them on all your machines - vLLM, SGLang, llama.cpp, MLX and TensorFold (experimental).">
       
       
       
@@ -16,7 +16,7 @@
         <link rel="prev" href="../quick-start/">
       
       
-        <link rel="next" href="../several-machines/">
+        <link rel="next" href="../weights/">
       
       
         
@@ -378,6 +378,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#supported-engines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported engines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#add-a-recipe-paste-yaml-or-a-shell-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Add a recipe: paste YAML or a shell script
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#move-recipes-between-machines-and-managers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Move recipes between machines and managers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#importable-example-recipes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -403,6 +436,33 @@
   
 </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weights
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -542,6 +602,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#supported-engines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported engines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#add-a-recipe-paste-yaml-or-a-shell-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Add a recipe: paste YAML or a shell script
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#move-recipes-between-machines-and-managers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Move recipes between machines and managers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#importable-example-recipes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -590,6 +683,137 @@
 
 <h1 id="recipes">Recipes<a class="headerlink" href="#recipes" title="Permanent link">&para;</a></h1>
 <p>Recipes save how to start a model server (vLLM, SGLang, llama.cpp, MLX, TensorFold or any image / native binary) as a Docker container or a native process. You can also import an existing start script, <code>docker run</code> command or compact JSON/YAML recipe file, and export any recipe the same way.</p>
+<h2 id="supported-engines">Supported engines<a class="headerlink" href="#supported-engines" title="Permanent link">&para;</a></h2>
+<p>Every recipe names a <code>framework:</code>. The preset fills in the image, start command, container port and health
+check, so a recipe only writes down what differs from it.</p>
+<table>
+<thead>
+<tr>
+<th><code>framework:</code></th>
+<th>Engine</th>
+<th>Runs as</th>
+<th>Default image / command</th>
+<th>Good for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vllm</code></td>
+<td>vLLM</td>
+<td>Docker</td>
+<td><code>nvcr.io/nvidia/vllm:25.11-py3</code>, <code>vllm serve</code></td>
+<td>NVIDIA GPUs, DGX Spark, high throughput</td>
+</tr>
+<tr>
+<td><code>sglang</code></td>
+<td>SGLang</td>
+<td>Docker</td>
+<td><code>lmsysorg/sglang:spark</code>, <code>python3 -m sglang.launch_server</code></td>
+<td>NVIDIA GPUs, models that ship SGLang support first</td>
+</tr>
+<tr>
+<td><code>llamacpp</code></td>
+<td>llama.cpp server</td>
+<td>Docker</td>
+<td><code>ghcr.io/ggml-org/llama.cpp:server-cuda</code></td>
+<td><code>.gguf</code> files, smaller GPUs</td>
+</tr>
+<tr>
+<td><code>llamacpp-native</code></td>
+<td>llama.cpp server</td>
+<td>native process</td>
+<td><code>llama-server</code></td>
+<td><code>.gguf</code> on a Mac or without Docker</td>
+</tr>
+<tr>
+<td><code>mlx</code></td>
+<td>MLX</td>
+<td>native process</td>
+<td><code>mlx_lm.server</code></td>
+<td>Macs with Apple silicon</td>
+</tr>
+<tr>
+<td><code>tensorfold</code></td>
+<td>TensorFold <em>(experimental)</em></td>
+<td>native process</td>
+<td><code>tensorfold serve</code></td>
+<td>trying TensorFold</td>
+</tr>
+<tr>
+<td><code>custom</code> / <code>process-custom</code></td>
+<td>anything else</td>
+<td>Docker / native process</td>
+<td>your image or binary</td>
+<td>other servers, agents such as a Hermes gateway</td>
+</tr>
+</tbody>
+</table>
+<p>vLLM, SGLang, llama.cpp and MLX all serve an OpenAI-compatible API at <code>http://&lt;host&gt;:&lt;port&gt;/v1</code>, so your
+apps don't care which engine runs behind the endpoint. Live stats (tokens/s, requests, KV cache) come from
+the server's <code>/metrics</code>: on by default in vLLM, add <code>--enable-metrics</code> for SGLang and <code>--metrics</code> for
+llama.cpp.</p>
+<h2 id="add-a-recipe-paste-yaml-or-a-shell-script">Add a recipe: paste YAML or a shell script<a class="headerlink" href="#add-a-recipe-paste-yaml-or-a-shell-script" title="Permanent link">&para;</a></h2>
+<p>There is no form to fill in. Click <strong>＋ Add recipe</strong> (shortcut <code>i</code>) and paste one of:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">YAML recipe</label><label for="__tabbed_1_2">Shell script / docker run</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p>Only what differs from the engine's defaults - the framework preset fills in the rest:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen3-8b</span>
+<span class="nt">framework</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vllm</span><span class="w">          </span><span class="c1"># vllm, sglang, llamacpp, mlx, tensorfold, custom, …</span>
+<span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Qwen/Qwen3-8B</span><span class="w">     </span><span class="c1"># a Hugging Face id - or  weights: &lt;row in the Weights tab&gt;</span>
+<span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8101</span>
+<span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--max-model-len 32768 --gpu-memory-utilization 0.8</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>The start script you already use - a plain <code>docker run …</code>, or a script that computes values first:</p>
+<div class="highlight"><pre><span></span><code><span class="ch">#!/usr/bin/env bash</span>
+<span class="c1"># Flint served by SGLang      &lt;- the first comment line becomes the description</span>
+docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>--gpus<span class="w"> </span>all<span class="w"> </span>-p<span class="w"> </span><span class="m">30000</span>:30000<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-v<span class="w"> </span>~/.cache/huggingface:/root/.cache/huggingface<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>lmsysorg/sglang:spark<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>python3<span class="w"> </span>-m<span class="w"> </span>sglang.launch_server<span class="w"> </span>--model-path<span class="w"> </span>RecursiveSI/flint<span class="w"> </span>--port<span class="w"> </span><span class="m">30000</span>
+</code></pre></div>
+<p>The script is checked for risky lines first, then run with bash in a restricted mode in which only a
+fake <code>docker</code> (that records the command) and read-only text tools really run. Nothing is started.</p>
+</div>
+</div>
+</div>
+<p>Under the box, <strong>YAML recipe</strong> and <strong>shell script</strong> insert an example of each to edit. After <strong>Import</strong>
+the editor opens with every field filled and the exact <code>docker run</code> command beside it; check name, port
+and paths, then <strong>Save</strong>. For a variant of a recipe that already works, use <strong>⧉ Duplicate</strong> on its card.</p>
+<h2 id="move-recipes-between-machines-and-managers">Move recipes between machines and managers<a class="headerlink" href="#move-recipes-between-machines-and-managers" title="Permanent link">&para;</a></h2>
+<p>A recipe is not tied to the machine it was written on:</p>
+<table>
+<thead>
+<tr>
+<th>You want to…</th>
+<th>Do this</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Run it on <strong>another host of the same dashboard</strong></td>
+<td>Change its <strong>Host</strong> field. With <code>{weights}</code> the model folder follows: each host mounts its own path from the <a href="../weights/">Weights</a> tab.</td>
+</tr>
+<tr>
+<td>Run it on <strong>several hosts at once</strong> and keep them equal</td>
+<td><strong>⇉</strong> on the card copies it to the hosts you tick; later changes to the original are offered to all copies, which can be restarted together. See <a href="../several-machines/#the-same-recipe-on-several-machines">Several machines</a>.</td>
+</tr>
+<tr>
+<td>Take it to <strong>another installation</strong> (a colleague's hub, a test instance) or into Git</td>
+<td>In the editor, <strong>Recipe file…</strong> shows the recipe as compact YAML or JSON - <strong>Copy</strong> or <strong>Download</strong> it, and paste it into <strong>＋ Add recipe</strong> on the other manager.</td>
+</tr>
+<tr>
+<td>Tweak a recipe as text</td>
+<td>Edit the YAML in <strong>Recipe file…</strong> and press <strong>Apply to editor</strong>; nothing is saved until you click <strong>Save</strong>.</td>
+</tr>
+</tbody>
+</table>
+<p>The recipe file contains everything the container needs - image, model, ports, arguments, environment
+names, volumes and extra Docker flags - but <strong>no secret values</strong>: a bare <code>HF_TOKEN</code> line is filled from
+the <code>.env</code> of the machine that runs it. Use <code>weights:</code> instead of fixed paths, and the same file works on
+every machine that has the model.</p>
 <h2 id="importable-example-recipes">Importable example recipes<a class="headerlink" href="#importable-example-recipes" title="Permanent link">&para;</a></h2>
 <p>Ready-made recipes you paste into the manager instead of typing fields: click <strong>＋ Add recipe</strong>, paste a whole file from <a href="https://github.com/einfachllm/local-llm-manager/tree/main/examples/recipes"><code>examples/recipes</code></a>, review the draft (name, port, paths) and create.</p>
 <p>Two formats are accepted:</p>
@@ -699,13 +923,13 @@
         
         
           
-          <a href="../several-machines/" class="md-footer__link md-footer__link--next" aria-label="Next: Several machines">
+          <a href="../weights/" class="md-footer__link md-footer__link--next" aria-label="Next: Weights">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Several machines
+                Weights
               </div>
             </div>
             <div class="md-footer__button md-icon">

@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Run, switch and schedule local LLM servers (vLLM, SGLang, llama.cpp, TensorFold) across your GPU machines.">
+        <meta name="description" content="Manage your best LLM recipes in one place and run them on all your machines - vLLM, SGLang, llama.cpp, MLX and TensorFold (experimental).">
       
       
       
@@ -322,6 +322,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#who-it-is-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who it is for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#where-to-start" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -382,6 +404,33 @@
     
   
     Recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weights
   
 
     
@@ -529,6 +578,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#who-it-is-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who it is for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#where-to-start" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -568,22 +639,34 @@
 <p>A small web dashboard to run local LLMs on your own machines – an NVIDIA DGX Spark, a Mac with Apple
 silicon, or any Linux box – from any browser on your network.</p>
 <p><img alt="Model recipes, dark theme" src="screenshots/recipes-dark.png" /></p>
+<h2 id="who-it-is-for">Who it is for<a class="headerlink" href="#who-it-is-for" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Recipes</strong> save how to start a model server (vLLM, SGLang, llama.cpp, TensorFold or any image /
-  native binary), as a Docker container or a native process. You can also import an existing start script,
-  <code>docker run</code> command or compact JSON/YAML recipe file, and export any recipe the same way.</li>
-<li><strong>Start, stop, restart or "switch to"</strong> a model. Switching stops the other models on that machine and
-  frees memory first.</li>
-<li><strong>Live status, logs and stats:</strong> loading / ready / failed, tokens per second, running requests and
-  KV-cache usage.</li>
-<li><strong>Schedules</strong> start, stop or switch models at set times.</li>
-<li>
-<p><strong>Several machines, one dashboard:</strong> e.g. a DGX Spark and a Mac Studio side by side.</p>
-</li>
-<li>
-<p><strong>Images and weights on every machine:</strong> pull Docker images, download from Hugging Face and copy weights
-  from machine to machine (checked with SHA-256).</p>
-</li>
+<li><strong>You want your best model recipes in one place</strong>, across the broad inference engines - vLLM, SGLang,
+  llama.cpp, MLX and TensorFold (experimental) - each one start-ready with a single click.</li>
+<li><strong>You don't want to deal with Docker or shell scripts:</strong> paste one of the
+  <a href="recipes/#importable-example-recipes">example recipes</a>, download the model in the Weights tab, press
+  <strong>Start</strong>.</li>
+<li><strong>You run LLMs on different machines</strong> - a DGX Spark, a Mac, a Linux PC - and want one dashboard for all.</li>
+<li><strong>Some of your machines have little disk space:</strong> see which model is where and how big it is, and copy
+  models only to the machines that need them.</li>
+</ul>
+<h2 id="what-it-does">What it does<a class="headerlink" href="#what-it-does" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>All the broad inference engines.</strong> vLLM, SGLang, llama.cpp, MLX and TensorFold (experimental) have
+  presets; any other Docker image or native binary works as <em>Custom</em>. → <a href="recipes/#supported-engines">Recipes</a></li>
+<li><strong>Recipes from YAML or a shell script.</strong> Paste a short YAML recipe or the <code>docker run</code> / start script you
+  already have into <strong>＋ Add recipe</strong> - no forms. Export any recipe as YAML and import it on another
+  machine or another manager. → <a href="recipes/">Recipes</a></li>
+<li><strong>Weights management.</strong> One table shows which model is where on every machine. Download from Hugging
+  Face once, then copy host to host over your network (SHA-256 checked, resumable). Recipes use
+  <code>{weights}</code>, so they run on any host without edits. → <a href="weights/">Weights</a></li>
+<li><strong>Hub and agents.</strong> Start the hub, install agents on your other machines, and connect them with a token -
+  or let them ask to join and approve them by comparing a join code. → <a href="several-machines/">Several machines</a></li>
+<li><strong>Hosts at a glance.</strong> A graph of the hub and every agent PC with memory, GPU and CPU temperature, what
+  runs where, and live tokens/s, requests and KV-cache use per model.
+  → <a href="several-machines/#the-hosts-tab">Several machines</a></li>
+<li><strong>Start, stop, restart or "switch to"</strong> a model - switching stops the other models on that machine and
+  frees memory first - plus live status, logs and <strong>schedules</strong>.</li>
 </ul>
 <h2 id="where-to-start">Where to start<a class="headerlink" href="#where-to-start" title="Permanent link">&para;</a></h2>
 <div class="grid cards">
@@ -591,6 +674,14 @@ silicon, or any Linux box – from any browser on your network.</p>
 <li>
 <p><strong><a href="quick-start/">Quick start</a></strong></p>
 <p>Install the manager on one machine, log in and start your first model.</p>
+</li>
+<li>
+<p><strong><a href="recipes/">Recipes</a></strong></p>
+<p>Add recipes by pasting YAML or a script, and move them between machines and managers.</p>
+</li>
+<li>
+<p><strong><a href="weights/">Weights</a></strong></p>
+<p>Find, download and copy model weights to every machine.</p>
 </li>
 <li>
 <p><strong><a href="several-machines/">Several machines</a></strong></p>
@@ -606,8 +697,8 @@ silicon, or any Linux box – from any browser on your network.</p>
 </li>
 </ul>
 </div>
-<p>Everything else – recipes in detail, agents, schedules, security and configuration – is in the
-<a href="https://github.com/einfachllm/local-llm-manager#readme">README on GitHub</a> for now.</p>
+<p>Settings are in the <a href="configuration/">Configuration</a> reference. Schedules, security, upgrading and
+monitoring are in the <a href="https://github.com/einfachllm/local-llm-manager#readme">README on GitHub</a> for now.</p>
 
 
 
