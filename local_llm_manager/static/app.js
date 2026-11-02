@@ -4,7 +4,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const state = { meta: null, recipes: [], schedules: [], hosts: [], weights: [], busy: new Set(), tab: "recipes", blur: true, schedPaused: false };
+const state = { meta: null, recipes: [], schedules: [], hosts: [], weights: [], busy: new Map(), tab: "recipes", blur: true, schedPaused: false };
 try { state.blur = localStorage.getItem("llm.blur") !== "0"; } catch { /* storage unavailable */ }
 const STATUS_LABEL = { ready: "Ready", loading: "Loading model", starting: "Starting", stopped: "Stopped", failed: "Failed", offline: "Host offline" };
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -282,9 +282,11 @@ renderThemeToggle();
 function renderHostOptions() {
   const opts = state.hosts.map((h) => `<option value="${h.id}">${esc(maskAddr(h.name))}${h.is_local ? " (this machine)" : ""}</option>`).join("");
   const filter = $("#recipe-host");
-  const cur = filter.value;
+  // The saved filter may arrive before the host options exist; keep it in sync with the view.
+  const cur = view.host || filter.value;
   filter.innerHTML = `<option value="">All hosts</option>` + opts;
   filter.value = state.hosts.some((h) => String(h.id) === cur) ? cur : "";
+  if (view.host !== filter.value) { view.host = filter.value; saveView(); }
   filter.closest("label").classList.toggle("hidden", !multiHost());
   // Editor selects are refreshed when their dialog opens, so an open form keeps its choice.
 }
@@ -310,7 +312,8 @@ function topoNode(h, role) {
   const mine = state.recipes.filter((r) => r.host_id === h.id).sort(byName);
   const shown = mine.filter((r) => RUNNING.includes(r.status) || r.status === "failed")
     .sort((a, b) => (kindOf(a) === kindOf(b) ? 0 : kindOf(a) === "model" ? -1 : 1));
-  const stopped = mine.length - shown.length;
+  const stoppedItems = mine.filter((r) => !shown.includes(r));
+  const stopped = stoppedItems.length;
   const m = h.system?.memory;
   const gpu = h.system?.gpus?.[0];
   const platform = h.info ? `${PLATFORM[h.info.platform] ?? h.info.platform} · ${h.info.machine}` : "";
@@ -333,7 +336,7 @@ function topoNode(h, role) {
       ${m ? `<div class="topo-mem"><div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
         <small>${esc(memText(m))}${gpu ? ` · GPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C` : ""}${cpuTemp(h) != null ? ` · ${tempHtml(cpuTemp(h))}` : ""}</small></div>` : ""}
       <div class="topo-items">${shown.map(item).join("") || `<span class="topo-none">${h.online ? "Nothing running" : "Unreachable"}</span>`}</div>
-      ${stopped ? `<div class="topo-stopped">${stopped} stopped</div>` : ""}
+      ${stopped ? `<div class="topo-stopped" title="${esc(stoppedItems.map((r) => r.name).join("\n"))}">${stopped} stopped</div>` : ""}
     </div>`;
 }
 
@@ -725,6 +728,7 @@ function copiesFact(r) {
 
 function cardHtml(r) {
   const busy = state.busy.has(r.id);
+  const busyLabel = state.busy.get(r.id) ?? "Working…";
   const running = RUNNING.includes(r.status);
   const fw = state.meta?.frameworks[r.framework]?.label ?? r.framework;
   const url = `http://${endpointHost(r.host_id)}:${r.host_port}`;
@@ -781,7 +785,7 @@ function cardHtml(r) {
             ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
           </div>
-          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? "Working…" : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}
+          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}
             ${r.tags?.length ? r.tags.map((t) =>
               `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("") : ""}</div>
           ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
@@ -801,7 +805,7 @@ function cardHtml(r) {
           </div>
         </div>
         ${multiHost() ? `<div class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</div>` : ""}
-        <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? "Working…" : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}</div>
+        <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}</div>
         ${r.tags?.length ? `<div class="card-tags">${r.tags.map((t) =>
           `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}</div>` : ""}
         ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
@@ -817,6 +821,7 @@ const AGENT_STATUS_LABEL = { ...STATUS_LABEL, ready: "Running", loading: "Starti
 
 function agentCardHtml(r) {
   const busy = state.busy.has(r.id);
+  const busyLabel = state.busy.get(r.id) ?? "Working…";
   const running = RUNNING.includes(r.status);
   const active = new Set(view.tags.map((t) => t.toLowerCase()));
   const uptime = r.container?.status ? `<span class="muted mono agent-uptime">${esc(r.container.status)}</span>` : "";
@@ -832,7 +837,7 @@ function agentCardHtml(r) {
             ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
           </div>
-          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? "Working…" : AGENT_STATUS_LABEL[r.status] ?? r.status}</span>${uptime}</div>
+          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : AGENT_STATUS_LABEL[r.status] ?? r.status}</span>${uptime}</div>
           ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
           <div class="agent-facts">
             ${r.model ? `<span class="agent-uses" title="The model this agent talks to">uses <b>${esc(r.model)}</b></span>` : ""}
@@ -960,8 +965,8 @@ $("#recipe-search").value = view.search;
 $("#recipe-sort").value = SORTS[view.sort] ? view.sort : "name";
 $("#recipe-group").value = ["host", "tag"].includes(view.group) ? view.group : "";
 
-async function runAction(key, path, okMsg) {
-  state.busy.add(key);
+async function runAction(key, path, okMsg, busyLabel = "Working…") {
+  state.busy.set(key, busyLabel);
   renderRecipes();
   try {
     const res = await api(path, { method: "POST" });
@@ -974,6 +979,17 @@ async function runAction(key, path, okMsg) {
     state.busy.delete(key);
     await loadRecipes();
     loadHosts();
+  }
+}
+
+// The start request includes the image pull, which can take minutes. Say so instead of "Working…".
+async function startBusyLabel(r) {
+  if (r.runtime !== "docker" || !r.image) return "Starting…";
+  try {
+    const c = await api(`/api/images/check?host_id=${r.host_id}&image=${encodeURIComponent(r.image)}`);
+    return c.state === "missing" ? "Pulling image…" : "Starting…";
+  } catch {
+    return "Starting…";
   }
 }
 
@@ -1012,16 +1028,19 @@ $("#recipes").addEventListener("click", async (ev) => {
   const r = state.recipes.find((x) => x.id === id);
   const act = btn.dataset.act;
   if (act === "start") {
-    const res = await runAction(id, `/api/recipes/${id}/start`);
+    const res = await runAction(id, `/api/recipes/${id}/start`, null, await startBusyLabel(r));
     if (res instanceof Error && /memory/i.test(res.message) && confirm(`${res.message}\n\nStart anyway?`)) {
-      await runAction(id, `/api/recipes/${id}/start?force=true`);
+      await runAction(id, `/api/recipes/${id}/start?force=true`, null, "Starting…");
     }
   } else if (act === "stop") {
-    await runAction(id, `/api/recipes/${id}/stop`);
+    await runAction(id, `/api/recipes/${id}/stop`, null, "Stopping…");
   } else if (act === "restart") {
-    await runAction(id, `/api/recipes/${id}/restart`);
+    await runAction(id, `/api/recipes/${id}/restart`, null, "Restarting…");
   } else if (act === "switch") {
-    if (confirm(`Stop all other models, free memory and start “${r.name}”?`)) await runAction(id, `/api/recipes/${id}/switch`);
+    if (confirm(`Stop all other models, free memory and start “${r.name}”?`)) {
+      const label = await startBusyLabel(r);
+      await runAction(id, `/api/recipes/${id}/switch`, null, label === "Pulling image…" ? label : "Switching…");
+    }
   } else if (act === "logs") {
     openLogs(r);
   } else if (act === "edit") {
@@ -2207,12 +2226,37 @@ $("#form-copy").addEventListener("submit", async (ev) => {
   try {
     const res = await api(`/api/recipes/${copyFrom.id}/copies`, { method: "POST", body: { host_ids: ids } });
     $("#dlg-copy").close();
-    toast(`${res.created.length} cop${res.created.length === 1 ? "y" : "ies"} created${res.updated.length ? `, ${res.updated.length} updated` : ""}`, "ok");
+    const made = [...res.created, ...res.updated];
+    const where = made.map((r) => maskAddr(hostName(r.host_id))).join(", ");
+    toast(`${res.created.length} cop${res.created.length === 1 ? "y" : "ies"} created${res.updated.length ? `, ${res.updated.length} updated` : ""}${where ? ` on ${where}` : ""}`, "ok");
     await loadRecipes();
+    // A host filter, search or collapsed group can hide the new copy: clear what would hide it.
+    revealRecipes(made.map((r) => r.id));
   } catch (e) {
     $("#copy-error").textContent = e.message;
   }
 });
+
+function revealRecipes(ids) {
+  const wanted = state.recipes.filter((r) => ids.includes(r.id));
+  if (!wanted.length) return;
+  const visible = new Set(visibleRecipes().map((r) => r.id));
+  if (wanted.some((r) => !visible.has(r.id))) {
+    view.host = "";
+    view.kind = "";
+    view.search = "";
+    view.tags = [];
+    view.collapsed = {};
+    $("#recipe-host").value = "";
+    $("#recipe-search").value = "";
+    saveView();
+    renderRecipes();
+  }
+  requestAnimationFrame(() => {
+    const card = wanted.map((r) => $(`.card[data-id="${r.id}"]`, $("#recipes"))).find(Boolean);
+    if (card) card.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
+}
 
 /* ---------------- logs ---------------- */
 

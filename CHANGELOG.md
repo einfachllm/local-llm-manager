@@ -29,6 +29,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Left sidebar navigation:** Recipes, Schedules, Activity, Hosts, Images and Weights moved from the top
   bar into a left menu. The top bar now shows the current section, host status, Blur and Theme; on narrow
   screens the menu becomes a drawer with a hamburger button.
+- **Copies are easier to find:** after **Copy to hosts** the new copy is revealed even when a host filter,
+  search or collapsed group would hide it. The saved host filter now also shows correctly in the selector,
+  and the Hosts graph lists stopped recipe names in the “N stopped” tooltip.
+- **Clearer start status:** a recipe whose Docker image is not on the host yet shows **Pulling image…**
+  instead of the generic **Working…**; stop/restart/switch show their own labels too.
 - **First start:** an empty database now gets the **qwen3.8** example from `examples/recipes`
   (`qwen38-27b.yaml`) and its weights entry, instead of two hardcoded recipes. Register or download the
   weights in the Weights tab before starting it.
