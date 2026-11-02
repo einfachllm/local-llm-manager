@@ -2,6 +2,26 @@
 
 Recipes save how to start a model server (vLLM, SGLang, llama.cpp, MLX, TensorFold or any image / native binary) as a Docker container or a native process. You can also import an existing start script, `docker run` command or compact JSON/YAML recipe file, and export any recipe the same way.
 
+## Supported engines
+
+Every recipe names a `framework:`. The preset fills in the image, start command, container port and health
+check, so a recipe only writes down what differs from it.
+
+| `framework:` | Engine | Runs as | Default image / command | Good for |
+|---|---|---|---|---|
+| `vllm` | vLLM | Docker | `nvcr.io/nvidia/vllm:25.11-py3`, `vllm serve` | NVIDIA GPUs, DGX Spark, high throughput |
+| `sglang` | SGLang | Docker | `lmsysorg/sglang:spark`, `python3 -m sglang.launch_server` | NVIDIA GPUs, models that ship SGLang support first |
+| `llamacpp` | llama.cpp server | Docker | `ghcr.io/ggml-org/llama.cpp:server-cuda` | `.gguf` files, smaller GPUs |
+| `llamacpp-native` | llama.cpp server | native process | `llama-server` | `.gguf` on a Mac or without Docker |
+| `mlx` | MLX | native process | `mlx_lm.server` | Macs with Apple silicon |
+| `tensorfold` | TensorFold *(experimental)* | native process | `tensorfold serve` | trying TensorFold |
+| `custom` / `process-custom` | anything else | Docker / native process | your image or binary | other servers, agents such as a Hermes gateway |
+
+vLLM, SGLang, llama.cpp and MLX all serve an OpenAI-compatible API at `http://<host>:<port>/v1`, so your
+apps don't care which engine runs behind the endpoint. Live stats (tokens/s, requests, KV cache) come from
+the server's `/metrics`: on by default in vLLM, add `--enable-metrics` for SGLang and `--metrics` for
+llama.cpp.
+
 ## Add a recipe: paste YAML or a shell script
 
 There is no form to fill in. Click **＋ Add recipe** (shortcut `i`) and paste one of:

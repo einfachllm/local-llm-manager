@@ -7,6 +7,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Highlights
+- **Recipes across the broad inference engines in one place:** vLLM, SGLang, llama.cpp (Docker or native),
+  MLX and TensorFold (experimental) presets, plus any image or binary as *Custom*. The Recipes docs page
+  now has a table of the supported engines.
 - **Recipes from YAML or a shell script, and between managers:** **＋ Add recipe** is now only a paste box
   for a compact YAML/JSON recipe or a start script / `docker run` (with an example of each). The
   **Recipe file…** dialog became editable, so a recipe can be exported, tweaked as text, and imported on

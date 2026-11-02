@@ -7,7 +7,8 @@ silicon, or any Linux box – from any browser on your network.
 
 ## Who it is for
 
-- **You want your best model recipes in one place**, each one start-ready with a single click.
+- **You want your best model recipes in one place**, across the broad inference engines - vLLM, SGLang,
+  llama.cpp, MLX and TensorFold (experimental) - each one start-ready with a single click.
 - **You don't want to deal with Docker or shell scripts:** paste one of the
   [example recipes](recipes.md#importable-example-recipes), download the model in the Weights tab, press
   **Start**.
@@ -17,6 +18,8 @@ silicon, or any Linux box – from any browser on your network.
 
 ## What it does
 
+- **All the broad inference engines.** vLLM, SGLang, llama.cpp, MLX and TensorFold (experimental) have
+  presets; any other Docker image or native binary works as *Custom*. → [Recipes](recipes.md#supported-engines)
 - **Recipes from YAML or a shell script.** Paste a short YAML recipe or the `docker run` / start script you
   already have into **＋ Add recipe** - no forms. Export any recipe as YAML and import it on another
   machine or another manager. → [Recipes](recipes.md)

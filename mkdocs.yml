@@ -1,5 +1,5 @@
 site_name: Local LLM Manager
-site_description: Run, switch and schedule local LLM servers (vLLM, SGLang, llama.cpp, TensorFold) across your GPU machines.
+site_description: Manage your best LLM recipes in one place and run them on all your machines - vLLM, SGLang, llama.cpp, MLX and TensorFold (experimental).
 site_url: https://einfachllm.github.io/local-llm-manager/
 repo_name: einfachllm/local-llm-manager
 repo_url: https://github.com/einfachllm/local-llm-manager

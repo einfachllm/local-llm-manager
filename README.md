@@ -13,6 +13,10 @@ silicon, or any Linux box - from any browser on your network:
 
 ### Highlights
 
+- **⚙️ One place for recipes across the broad inference engines:** **vLLM**, **SGLang**, **llama.cpp**
+  (Docker or native), **MLX** on Apple silicon and **TensorFold** (experimental) - plus any other Docker
+  image or native binary. Each engine has a preset (image, command, port, health check), so a recipe
+  only lists what differs.
 - **📋 Recipes from YAML or a shell script.** **＋ Add recipe** takes a short YAML recipe or the start script
   / `docker run` you already have - no forms. Only what differs from the engine's defaults is written down.
   **Recipe file…** exports any recipe as YAML/JSON, so you can move it to another manager, keep it in Git or
@@ -31,8 +35,6 @@ silicon, or any Linux box - from any browser on your network:
 
 ### Everything else
 
-- **Recipes** for vLLM, SGLang, llama.cpp, MLX, TensorFold or any image / native binary, as a Docker
-  container or as a native process.
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).
 - **Agents next to models:** run the programs that use your models - e.g. a [Hermes Agent](examples/hermes-agent/)
   Telegram gateway - as recipes too. They get their own section per host (🤖 above 🧠), keep running when you
@@ -53,8 +55,9 @@ download / copy weights for you (Images and Weights tabs), or you put them there
 
 Who it is for:
 
-- **Your best model recipes in one place.** Keep every working setup (engine, image, flags, port) as a
-  recipe you can start with one click, instead of scattered shell scripts and notes.
+- **Your best model recipes in one place, whatever the engine.** Keep every working setup - vLLM,
+  SGLang, llama.cpp, MLX or TensorFold (experimental), with its image, flags and port - as a recipe you can
+  start with one click, instead of scattered shell scripts and notes.
 - **No Docker or shell needed.** Paste one of the [example recipes](examples/recipes/) into **＋ Add recipe**,
   let the Weights tab download the model, and press **Start**. You never write a `docker run` yourself.
 - **LLMs on different machines.** A DGX Spark, a Mac Studio and a Linux PC in one dashboard: each runs the
