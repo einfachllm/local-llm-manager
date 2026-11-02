@@ -550,33 +550,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../configuration/" class="md-nav__link">
         
   
@@ -729,6 +702,7 @@
 <p>Model weights are big (often 20-200 GB) and must be on the machine that runs the model. The <strong>Weights</strong>
 tab keeps track of where each model is on each machine, finds weights that are already there, downloads
 new ones from Hugging Face and copies them from machine to machine over your own network.</p>
+<p><img alt="Weights tab: one row per model, one column per host, and what was found on the hosts" src="../screenshots/weights-dark.png" /></p>
 <h2 id="one-row-per-model-one-column-per-host">One row per model, one column per host<a class="headerlink" href="#one-row-per-model-one-column-per-host" title="Permanent link">&para;</a></h2>
 <p>The tab is a table: one row per model, one column per host.</p>
 <table>
@@ -817,8 +791,7 @@ left per machine.</p>
   HTTP addresses.</li>
 </ul>
 <p>To copy <em>from</em> the hub's own machine, open the dashboard by its network name (not <code>localhost</code>) or set
-<code>DGXM_PUBLIC_URL</code>. How the copy works on the wire is on the <a href="../architecture/#copying-weights-host-to-host-like-a-snowball">Architecture</a>
-page.</p>
+<code>DGXM_PUBLIC_URL</code>.</p>
 <h2 id="machines-with-little-disk-space">Machines with little disk space<a class="headerlink" href="#machines-with-little-disk-space" title="Permanent link">&para;</a></h2>
 <p>Not every machine can hold every model. The table shows each model's size per host, so you see at a
 glance what fills a disk. Keep a model on one machine (or a NAS-mounted folder) and <strong>⇉ copy</strong> it only

@@ -550,33 +550,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../configuration/" class="md-nav__link">
         
   
@@ -729,8 +702,7 @@
 <p>One installation is the <strong>hub</strong>: it serves the dashboard and stores recipes, schedules and the activity
 log. Every other machine runs the same app as an <strong>agent</strong>, which only carries out what the hub tells
 it to. Only two things go the other way: an agent can <em>ask</em> the hub to add it, and machines copy weights
-straight from each other once the hub has arranged it. The <a href="../architecture/">Architecture</a> page shows
-all of this as diagrams.</p>
+straight from each other once the hub has arranged it.</p>
 <div class="highlight"><pre><span></span><code> your browser ──:8090──▶  HUB (dashboard, recipes, schedules)
                            │
                            ├──:8090──▶  AGENT  e.g. Mac Studio
@@ -801,6 +773,7 @@ later, the machine tells the hub itself.</p>
 <p>The new machine appears in the host strip at the top and in the Hosts graph. Recipes now have a <strong>Host</strong>
 field that decides where they run.</p>
 <h2 id="the-hosts-tab">The Hosts tab<a class="headerlink" href="#the-hosts-tab" title="Permanent link">&para;</a></h2>
+<p><img alt="Hosts tab: the hub and an agent PC as a graph, with ports, endpoints and live metrics" src="../screenshots/hosts-dark.png" /></p>
 <p>The tab opens with a <strong>graph of your setup</strong>: the hub on top and a line to every agent PC. Each machine
 shows what matters at a glance:</p>
 <ul>
