@@ -222,14 +222,6 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 }
 .import-btn { border-color: rgba(79,140,255,.6); color: var(--chip-on-text); background: rgba(79,140,255,.12); }
 .import-btn:hover { border-color: var(--accent); background: rgba(79,140,255,.2); }
-.import-cta {
-  display: flex; align-items: center; gap: 12px; margin: 16px 18px 0; padding: 12px 14px;
-  border: 1px dashed rgba(79,140,255,.6); border-radius: 10px; background: rgba(79,140,255,.08);
-}
-.import-cta > div { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.import-cta small { font-size: 12.5px; }
-.import-cta code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
-.import-cta-icon { font-size: 24px; }
 .error { color: var(--red); padding: 8px 18px 0; min-height: 8px; white-space: pre-wrap; }
 .when { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
 .when label { flex: 0 0 auto; }
@@ -642,10 +634,6 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
 .discover-row code { word-break: break-all; }
 .discover-row .btn { margin-left: auto; }
 
-/* Quick recipe */
-.quick-notes { margin: 4px 18px 10px; padding-left: 18px; font-size: 13px; color: var(--muted); }
-.quick-notes:empty { display: none; }
-.quick-preview pre { max-height: 220px; }
 
 /* Copy to other hosts */
 .copy-hint { margin: 12px 18px 0; }
@@ -680,3 +668,4 @@ td .copy { margin-left: 6px; padding: 1px 8px; }
 .join-code { font-size: 22px; font-weight: 700; letter-spacing: 3px; }
 .join-actions { display: flex; gap: 6px; }
 @media (max-width: 700px) { .join-row { grid-template-columns: 1fr; } }
+.discover h4:first-child { margin-top: 0; }

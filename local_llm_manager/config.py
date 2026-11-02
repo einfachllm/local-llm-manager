@@ -45,7 +45,7 @@ DOCKER_BIN = os.environ.get("DGXM_DOCKER", "docker")
 # Address other machines reach this hub at, e.g. http://spark1:8090 - needed when weights are copied
 # *from* the hub's own host. Default: the address the dashboard was opened with (unless localhost).
 PUBLIC_URL = os.environ.get("DGXM_PUBLIC_URL", "").strip().rstrip("/")
-# Hugging Face CLI for "Download on hosts" (default: `hf`, else `huggingface-cli`, whichever is on PATH).
+# Hugging Face CLI for "Download from Hugging Face" (default: `hf`, else `huggingface-cli`, whichever is on PATH).
 HF_BIN = os.environ.get("DGXM_HF_BIN", "")
 STOP_TIMEOUT = int(os.environ.get("DGXM_STOP_TIMEOUT", "30"))
 

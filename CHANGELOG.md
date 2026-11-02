@@ -17,9 +17,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`coretemp`, `k10temp`, ...) and the ACPI thermal zones that e.g. the DGX Spark uses; macOS shows none.
   Agent PCs need this version too to report it.
 
-## [0.2.0] - 2026-11-01
+### Changed
+- **Simpler Weights tab:** the host search runs by itself when the tab opens; everything it can add (paths
+  for existing entries, new folders - one row per folder name across hosts - and recipes that mount a
+  folder directly) shows in one **Found on your hosts** box, hidden when there is nothing. The
+  "🔍 Search hosts" button, the *Recipes* column and the separate *Used by recipes* table are gone (the
+  recipe editor and the start check still report a model missing on a host), and each model has one
+  action - **⇉ Copy to other hosts…** when a host has it, else **⬇ Download…** - instead of two.
+- **Simpler "Add recipe":** a new recipe is always a pasted YAML recipe or shell script (`docker run`
+  included), with a one-click example of each under the box. "Start from scratch", **Quick recipe**
+  (and its `q` shortcut), the `n` shortcut and the "+ New model / + New agent" buttons are gone; closing
+  the dialog without importing no longer leaves an empty editor. Use **⧉ Duplicate** for a variant of an
+  existing recipe. `POST /api/recipes/quick` still exists for API users.
 
-## [0.2.0] - 2026-10-30
+## [0.2.0] - 2026-11-01
 
 ### Upgrading from 0.1.0
 - Upgrade the hub and all agents together: the new features need new agents.
