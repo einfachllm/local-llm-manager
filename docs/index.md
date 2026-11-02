@@ -15,9 +15,8 @@ silicon, or any Linux box – from any browser on your network.
 - **Schedules** start, stop or switch models at set times.
 - **Several machines, one dashboard:** e.g. a DGX Spark and a Mac Studio side by side.
 
-!!! note
-    Model weights and Docker images must already be on the machine that runs them; the manager does not
-    download them.
+- **Images and weights on every machine:** pull Docker images, download from Hugging Face and copy weights
+  from machine to machine (checked with SHA-256).
 
 ## Where to start
 
@@ -30,6 +29,14 @@ silicon, or any Linux box – from any browser on your network.
 -   **[Several machines](several-machines.md)**
 
     Add more machines as agents and control them all from one dashboard.
+
+-   **[How it works](how-it-works.md)**
+
+    The idea in pictures: one dashboard, all your machines, models shared between them.
+
+-   **[Architecture](architecture.md)**
+
+    For administrators: what talks to what, ports, keys and every step on the network.
 
 </div>
 

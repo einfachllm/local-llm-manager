@@ -3,7 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from local_llm_manager import config
+from local_llm_manager import __version__, config
 from local_llm_manager.db import Database
 from local_llm_manager.main import create_app
 from local_llm_manager.selfmetrics import Sink
@@ -51,7 +51,7 @@ def test_metrics_enabled_shows_self_metrics(client, monkeypatch):
     r = client.get("/metrics")
     assert r.status_code == 200
     body = r.text
-    assert 'dgxm_build_info{mode="hub",version="0.1.0"} 1' in body
+    assert f'dgxm_build_info{{mode="hub",version="{__version__}"}} 1' in body
     assert "dgxm_uptime_seconds" in body
     assert "dgxm_recipes_total 0" in body
     assert "dgxm_hosts_total 1" in body
@@ -83,7 +83,7 @@ def test_agent_healthz_and_metrics(fake_docker, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "METRICS_ENABLED", True)
     with TestClient(app) as c:
         body = c.get("/metrics").text
-        assert 'dgxm_build_info{mode="agent",version="0.1.0"} 1' in body
+        assert f'dgxm_build_info{{mode="agent",version="{__version__}"}} 1' in body
         assert "dgxm_uptime_seconds" in body
         # A token-less call to a protected route is counted as a request (routed, then rejected):
         # one in the first block, one here.
