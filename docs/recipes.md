@@ -2,6 +2,58 @@
 
 Recipes save how to start a model server (vLLM, SGLang, llama.cpp, MLX, TensorFold or any image / native binary) as a Docker container or a native process. You can also import an existing start script, `docker run` command or compact JSON/YAML recipe file, and export any recipe the same way.
 
+## Add a recipe: paste YAML or a shell script
+
+There is no form to fill in. Click **＋ Add recipe** (shortcut `i`) and paste one of:
+
+=== "YAML recipe"
+
+    Only what differs from the engine's defaults - the framework preset fills in the rest:
+
+    ```yaml
+    name: qwen3-8b
+    framework: vllm          # vllm, sglang, llamacpp, mlx, tensorfold, custom, …
+    model: Qwen/Qwen3-8B     # a Hugging Face id - or  weights: <row in the Weights tab>
+    port: 8101
+    args: --max-model-len 32768 --gpu-memory-utilization 0.8
+    ```
+
+=== "Shell script / docker run"
+
+    The start script you already use - a plain `docker run …`, or a script that computes values first:
+
+    ```bash
+    #!/usr/bin/env bash
+    # Flint served by SGLang      <- the first comment line becomes the description
+    docker run -d --gpus all -p 30000:30000 \
+      -v ~/.cache/huggingface:/root/.cache/huggingface \
+      lmsysorg/sglang:spark \
+      python3 -m sglang.launch_server --model-path RecursiveSI/flint --port 30000
+    ```
+
+    The script is checked for risky lines first, then run with bash in a restricted mode in which only a
+    fake `docker` (that records the command) and read-only text tools really run. Nothing is started.
+
+Under the box, **YAML recipe** and **shell script** insert an example of each to edit. After **Import**
+the editor opens with every field filled and the exact `docker run` command beside it; check name, port
+and paths, then **Save**. For a variant of a recipe that already works, use **⧉ Duplicate** on its card.
+
+## Move recipes between machines and managers
+
+A recipe is not tied to the machine it was written on:
+
+| You want to… | Do this |
+|---|---|
+| Run it on **another host of the same dashboard** | Change its **Host** field. With `{weights}` the model folder follows: each host mounts its own path from the [Weights](weights.md) tab. |
+| Run it on **several hosts at once** and keep them equal | **⇉** on the card copies it to the hosts you tick; later changes to the original are offered to all copies, which can be restarted together. See [Several machines](several-machines.md#the-same-recipe-on-several-machines). |
+| Take it to **another installation** (a colleague's hub, a test instance) or into Git | In the editor, **Recipe file…** shows the recipe as compact YAML or JSON - **Copy** or **Download** it, and paste it into **＋ Add recipe** on the other manager. |
+| Tweak a recipe as text | Edit the YAML in **Recipe file…** and press **Apply to editor**; nothing is saved until you click **Save**. |
+
+The recipe file contains everything the container needs - image, model, ports, arguments, environment
+names, volumes and extra Docker flags - but **no secret values**: a bare `HF_TOKEN` line is filled from
+the `.env` of the machine that runs it. Use `weights:` instead of fixed paths, and the same file works on
+every machine that has the model.
+
 ## Importable example recipes
 
 Ready-made recipes you paste into the manager instead of typing fields: click **＋ Add recipe**, paste a whole file from [`examples/recipes`](https://github.com/einfachllm/local-llm-manager/tree/main/examples/recipes), review the draft (name, port, paths) and create.

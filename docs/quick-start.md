@@ -8,7 +8,8 @@ This page sets up the manager on one machine and starts a first model. For more 
 - Python 3.10 or newer.
 - For Docker recipes: Docker, usable by your user without `sudo`, with the NVIDIA container runtime for
   GPUs.
-- The model weights and Docker images you want to run, already on the machine.
+- Disk space for the model weights. The manager can pull Docker images and download weights from Hugging
+  Face for you ([Weights](weights.md)), or you put them on the machine yourself.
 
 ## 1. Install
 
@@ -94,6 +95,8 @@ curl http://<machine>:<port>/v1/models
 
 ## Next steps
 
+- Get model weights onto the machine (download, or register what is already there): [Weights](weights.md).
+- Move recipes between machines or managers, and the example recipes: [Recipes](recipes.md).
 - Run models on more than one machine: [Several machines](several-machines.md).
 - Upgrading, uninstalling, schedules and all settings are described in the
   [README](https://github.com/einfachllm/local-llm-manager#readme).

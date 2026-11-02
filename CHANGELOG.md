@@ -6,6 +6,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Highlights
+- **Recipes from YAML or a shell script, and between managers:** **＋ Add recipe** is now only a paste box
+  for a compact YAML/JSON recipe or a start script / `docker run` (with an example of each). The
+  **Recipe file…** dialog became editable, so a recipe can be exported, tweaked as text, and imported on
+  another host or another manager installation; **⇉ Copy to hosts** rolls it out on one dashboard.
+- **Weights management:** the Weights tab is one table (model × host) that searches every host by
+  itself and offers what it finds under **Found on your hosts**. Each model has one action -
+  **⬇ Download…** from Hugging Face or **⇉ Copy to other hosts…** machine to machine.
+- **Hosts graph with the important metrics:** the hub and every agent PC as a map with memory, GPU load,
+  GPU and CPU temperature, running models and agents and connection encryption; **Ports & endpoints**
+  shows live speed, requests and KV-cache use per model.
+- **Hub and agents:** start the hub, then connect each agent with its token - added on the hub, or by the
+  agent asking to join (`DGXM_HUB_URL`) and you approving matching join codes. The Hosts tab and
+  the docs now explain both ways.
+- **Documentation:** new [Weights](https://einfachllm.github.io/local-llm-manager/weights/) page; the
+  Recipes page explains adding recipes by paste and moving them between machines and managers; Several
+  machines gained a hub/agent overview and a Hosts tab section; the README and the docs home page lead
+  with the main use cases (best recipes in one place, no Docker/shell needed thanks to the examples, LLMs
+  on different hosts, hosts with little disk space) and these highlights.
+
 ### Added
 - **Hosts graph:** the Hosts tab opens with a map of your setup - the hub on top, a line to every agent PC,
   and on each machine its memory, GPU and what runs there: models (🧠, with their port) and agents such as a

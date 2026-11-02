@@ -53,6 +53,7 @@ nav:
   - Home: index.md
   - Quick start: quick-start.md
   - Recipes: recipes.md
+  - Weights: weights.md
   - Several machines: several-machines.md
   - How it works: how-it-works.md
   - Architecture: architecture.md

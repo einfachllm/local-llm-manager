@@ -15,6 +15,21 @@ all of this as diagrams.
  apps using a model ──recipe port, e.g. :8100──▶  the machine running it
 ```
 
+## Hub and agents in short
+
+| | Hub | Agent |
+|---|---|---|
+| Runs | the dashboard, the database (recipes, weights, schedules, activity) | only what the hub asks: start/stop, status, logs, pulls and copies |
+| `.env` | `DGXM_PASSWORD` (the installer sets it) | `DGXM_MODE=agent`, `DGXM_AGENT_TOKEN` (≥ 32 characters, the installer generates it), optionally `DGXM_HUB_URL` |
+| You open it | in the browser, `http://<hub>:8090` | never - its start page only shows its join code |
+
+There are two ways to connect an agent, both protected by the agent's **token**:
+
+- **You add it on the hub:** **Hosts → + Add host** with the agent's URL and its token.
+- **It asks to join:** the agent gets `DGXM_HUB_URL` and announces itself; the hub lists it under
+  **Asking to be added** with a **join code** derived from its token, and you approve it when the code is
+  the same as on the agent. The token itself never has to be typed or copied.
+
 ## Add a machine
 
 1. Install the manager on the new machine as in the [Quick start](quick-start.md).
@@ -39,8 +54,32 @@ all of this as diagrams.
     the hub reaches it, default `http://<its name>:8090`) and `DGXM_AGENT_NAME`. If its address changes
     later, the machine tells the hub itself.
 
-The new machine appears in the host strip at the top. Recipes now have a **Host** field that decides where
-they run.
+The new machine appears in the host strip at the top and in the Hosts graph. Recipes now have a **Host**
+field that decides where they run.
+
+## The Hosts tab
+
+The tab opens with a **graph of your setup**: the hub on top and a line to every agent PC. Each machine
+shows what matters at a glance:
+
+- **online / offline**, operating system and CPU architecture (e.g. `Linux · aarch64`);
+- a **memory bar** (used / total GB), **GPU load** and **GPU and CPU temperature** (the CPU value turns yellow from 85 °C, red
+  from 95 °C);
+- what **runs there**: models (🧠, with their port) and agents (🤖) with a live status dot, plus the number
+  of stopped recipes (hover for their names).
+
+The line colour shows the connection: **green** for Tailscale / HTTPS, **yellow** for plain HTTP,
+**red dotted** for a machine that does not answer. Click a machine to edit or remove it, or a recipe to
+open it. On a phone the machines stack along one line.
+
+Below the graph:
+
+- **Host details & actions** (collapsed): the host table with status, platform, memory, GPU / CPU and
+  models, plus **Stop all** and **Free memory** (stop all models and drop the page cache) per machine.
+- **Ports & endpoints:** every recipe's port per host, its status, live **metrics** of running models
+  (output/input tokens per second, running requests, KV-cache use) and its endpoint
+  `http://<host>:<port>/v1` with a **Copy** button. Recipes that share a port on one host are marked
+  *shared* - only one of them can run at a time, which is exactly what **Switch to** uses.
 
 !!! info "Keep versions in sync"
     Upgrade the hub and all agents to the same version.
@@ -49,12 +88,14 @@ they run.
 
 E.g. a company where every employee has their own DGX Spark: set the recipe up once, then roll it out.
 
-1. On the recipe's card click **⇉** (*Copy to other hosts*) and tick the machines. For each one the dialog
+1. Make sure the model is on those machines: [Weights](weights.md) downloads it once and copies it to
+   the others.
+2. On the recipe's card click **⇉** (*Copy to other hosts*) and tick the machines. For each one the dialog
    checks first whether the weights (Weights tab) and the Docker image are there, and whether another
    recipe uses the same port.
-2. **Copy**: every machine gets its own copy, named `<recipe> · <host>`, with the same settings and port -
+3. **Copy**: every machine gets its own copy, named `<recipe> · <host>`, with the same settings and port -
    so every employee has the same endpoint `http://<their-spark>:<port>/v1` and the same model name.
-3. Later, edit the **original** (new image, other flags) and save: the manager offers to update all copies.
+4. Later, edit the **original** (new image, other flags) and save: the manager offers to update all copies.
    Running copies are listed and can be restarted right away: the hub restarts them on all machines at
    the same time, also if you close the browser, and a panel shows the progress per machine. Cards show **✓ in sync** or **⟳ differs**,
    with **sync** to catch up.
@@ -63,6 +104,8 @@ E.g. a company where every employee has their own DGX Spark: set the recipe up o
 
 - **Images:** in the **Images** tab, **⤓ Pull…** on an image runs `docker pull` on the machines you tick,
   all at once (private registries: `docker login` on each machine once).
+Details on the Weights tab: [Weights](weights.md).
+
 - **Weights from Hugging Face:** in the **Weights** tab, **⬇ Download from Hugging Face…**. By default only the first
   ticked machine downloads; the others then copy from it over your network, so the model comes over the
   internet once. Needs the `hf` command there (`pip install -U huggingface_hub`); gated models need

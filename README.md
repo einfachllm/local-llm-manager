@@ -11,11 +11,28 @@ silicon, or any Linux box - from any browser on your network:
 
 📖 **Documentation:** [einfachllm.github.io/local-llm-manager](https://einfachllm.github.io/local-llm-manager/) – start with the Quick start and Several machines.
 
-- **＋ Add recipe:** paste a YAML recipe or a shell script (`docker run …` works too) - or start from the
-  example of either. Only what differs from the engine's defaults needs to be written down. For a variant
-  of a recipe that already works, use **⧉ Duplicate** on its card.
-- **Recipes:** save how to start a model server (vLLM, SGLang, llama.cpp, TensorFold or any image / native binary),
-  as a Docker container or as a native process.
+### Highlights
+
+- **📋 Recipes from YAML or a shell script.** **＋ Add recipe** takes a short YAML recipe or the start script
+  / `docker run` you already have - no forms. Only what differs from the engine's defaults is written down.
+  **Recipe file…** exports any recipe as YAML/JSON, so you can move it to another manager, keep it in Git or
+  share it; on one dashboard, **⇉** copies a recipe to other hosts and keeps the copies in sync.
+  [More](https://einfachllm.github.io/local-llm-manager/recipes/)
+- **📦 Weights management.** One table shows which model is where on every machine and finds folders and
+  `.gguf` files on its own. **⬇ Download from Hugging Face** once, then **⇉ copy to other hosts** machine to
+  machine over your network (snowball-style, SHA-256 checked, resumable). Recipes use `{weights}`, so they
+  run on any host without edits. [More](https://einfachllm.github.io/local-llm-manager/weights/)
+- **🔗 Hub and agents.** Start the hub, install the same app on your other machines in agent mode, and
+  connect them with a token - or let them ask to join (`DGXM_HUB_URL`) and approve them when both show the
+  same join code. [More](https://einfachllm.github.io/local-llm-manager/several-machines/)
+- **🗺️ Hosts at a glance.** The Hosts tab draws the hub and every agent PC as a graph: memory, GPU load,
+  GPU and CPU temperature, what runs where, and whether each connection is encrypted. **Ports & endpoints**
+  lists every endpoint with live tokens/s, requests and KV-cache use.
+
+### Everything else
+
+- **Recipes** for vLLM, SGLang, llama.cpp, MLX, TensorFold or any image / native binary, as a Docker
+  container or as a native process.
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).
 - **Agents next to models:** run the programs that use your models - e.g. a [Hermes Agent](examples/hermes-agent/)
   Telegram gateway - as recipes too. They get their own section per host (🤖 above 🧠), keep running when you
@@ -23,17 +40,9 @@ silicon, or any Linux box - from any browser on your network:
 - **Live status, logs and stats:** loading/ready/failed, tokens/s with a throughput sparkline, running
   requests, KV cache usage - and an estimate of how long a start typically takes (measured trigger → ready).
 - **Schedules:** start, stop or switch models at set times, with a timeline of what will run when.
-- **Images:** see which Docker images your recipes use, whether each host has them, and switch recipes to a
-  newer local tag (e.g. a fresh vLLM nightly) with one click.
-- **Several machines, one dashboard:** e.g. a DGX Spark and a Mac Studio side by side. A new machine can
-  ask the hub to be added (`DGXM_HUB_URL`); you approve it when both show the same join code.
-- **One recipe on many machines:** ⇉ copies a recipe to other hosts (e.g. every employee's DGX Spark) and
-  keeps the copies in sync; after a change the hub restarts them on all machines at once, in the
-  background. Each host has its own action queue, so a slow start on one never blocks the others.
-- **Images and weights on every machine:** ⤓ pull an image on several hosts at once; download a Hugging
-  Face model once and copy it host to host over your network (snowball-style, SHA-256 checked, resumable),
-  with progress per machine. The Hosts tab draws the hub and every agent PC as a graph with the models and
-  agents running on each, and shows which connections are encrypted (Tailscale / HTTPS).
+- **Images:** see which Docker images your recipes use, whether each host has them, pull them on several
+  hosts at once, and switch recipes to a newer local tag (e.g. a fresh vLLM nightly) with one click.
+- **Activity log** of every start, stop and switch with the exact command and result.
 - **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
   ⭐ pinned recipes, collapsible groups and keyboard shortcuts (`?` shows them).
 
@@ -41,6 +50,19 @@ Model weights and Docker images must be on the machine that runs them. The manag
 download / copy weights for you (Images and Weights tabs), or you put them there yourself.
 
 ## Use cases
+
+Who it is for:
+
+- **Your best model recipes in one place.** Keep every working setup (engine, image, flags, port) as a
+  recipe you can start with one click, instead of scattered shell scripts and notes.
+- **No Docker or shell needed.** Paste one of the [example recipes](examples/recipes/) into **＋ Add recipe**,
+  let the Weights tab download the model, and press **Start**. You never write a `docker run` yourself.
+- **LLMs on different machines.** A DGX Spark, a Mac Studio and a Linux PC in one dashboard: each runs the
+  engine that suits it (vLLM / SGLang on the Spark, MLX on the Mac), and recipes move between them.
+- **Machines with little disk space.** The Weights tab tracks which model is on which machine and how big
+  it is. Copy a model to a machine only when you need it there, and see right away what each one holds.
+
+More examples:
 
 - **Run local AI servers for clients:** add each client's machine as a host (over Tailscale) and roll out a
   recipe or an updated one - new image, model or flags - from one dashboard, then restart it there.
@@ -138,13 +160,29 @@ With Docker Compose: `docker compose down` (your data is in `./data`, delete it 
 One installation is the **hub**: it serves the dashboard and stores recipes, schedules and the activity
 log. Every other machine runs the same app as an **agent** that only executes what the hub tells it to.
 
-1. On the agent machine, uncomment these two lines in its `.env` and (re)install; the installer already filled in a random token (at least 32 characters):
+```text
+ your browser ──▶ HUB :8090  (dashboard, recipes, weights, schedules)
+                   ├──▶ AGENT :8090  e.g. Mac Studio      ─┐ weights are copied
+                   └──▶ AGENT :8090  e.g. second Spark    ─┘ agent to agent
+```
+
+1. **Start the hub:** install as in [Quick start](#quick-start) - that machine is the hub.
+2. **Install an agent** on the other machine and uncomment these lines in its `.env`; the installer already
+   filled in a random token (at least 32 characters). Then rerun the installer:
    ```bash
    DGXM_MODE=agent
-   DGXM_AGENT_TOKEN=3f9c…   # generated
+   DGXM_AGENT_TOKEN=3f9c…              # generated
+   DGXM_HUB_URL=http://<hub>:8090      # optional: ask the hub to be added
    ```
-2. In the hub's dashboard: **Hosts → Add host**, with the agent's URL (e.g. `http://mac-studio:8090`)
-   and the same token. Recipes then get a **Host** field.
+3. **Connect it**, either way:
+   - **It asks to join** (with `DGXM_HUB_URL`): the agent prints a **join code** such as `K7Q2-X9PM`
+     (installer output, log, its start page). On the hub it shows up under **Hosts → Asking to be added**
+     with a code - click **Codes match – add** if both are the same.
+   - **You add it:** **Hosts → + Add host** with the agent's URL (e.g. `http://mac-studio:8090`) and the
+     same token.
+
+Recipes then get a **Host** field, and the agent appears in the Hosts graph.
+Step by step: [Several machines](https://einfachllm.github.io/local-llm-manager/several-machines/).
 
 **Network access needed:**
 
@@ -195,6 +233,9 @@ command; change it to `--host {bind_host}` for native-process and `--network hos
   cannot block need an explicit "I trust this script". It also accepts a **compact JSON/YAML recipe
   file** (the editor's fields; missing settings come from the framework preset), and **Recipe file…** in
   the editor exports the current recipe that way - volumes, environment and extra Docker flags included.
+- **Moving recipes:** change a recipe's **Host** to run it elsewhere (with `{weights}` the model folder
+  follows), **⇉** to copy it to several hosts, or **Recipe file…** → paste into **＋ Add recipe** to take it
+  to another manager. See [Recipes](https://einfachllm.github.io/local-llm-manager/recipes/#move-recipes-between-machines-and-managers).
 - Live stats come from the server's `/metrics` endpoint: on by default in vLLM, add `--enable-metrics`
   for SGLang and `--metrics` for llama.cpp.
 - Starting is refused if the port is already in use on that machine.
@@ -231,6 +272,9 @@ name / source repo), folders nobody added yet, and recipes that mount their mode
 `~/models/x:/model:ro`) - adding those creates the entry (or reuses one of the same name) and switches the
 recipes to `{weights}`. A model missing on some hosts gets one button: **⇉ Copy to other hosts…** when a
 host has it, else **⬇ Download…** from Hugging Face. Importing a `docker run` whose model mount is a registered path picks that entry, too.
+
+The full guide - the table, downloading from Hugging Face and copying between hosts - is on the
+[Weights](https://einfachllm.github.io/local-llm-manager/weights/) page.
 
 Not to be confused with **agent mode** ([Several machines](#several-machines)), which is how the manager itself runs on a second machine.
 "Models as: Rows / Tiles" in the filter rail switches models between wide rows (default) and cards.
