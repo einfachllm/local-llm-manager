@@ -591,7 +591,7 @@
 <h1 id="recipes">Recipes<a class="headerlink" href="#recipes" title="Permanent link">&para;</a></h1>
 <p>Recipes save how to start a model server (vLLM, SGLang, llama.cpp, MLX, TensorFold or any image / native binary) as a Docker container or a native process. You can also import an existing start script, <code>docker run</code> command or compact JSON/YAML recipe file, and export any recipe the same way.</p>
 <h2 id="importable-example-recipes">Importable example recipes<a class="headerlink" href="#importable-example-recipes" title="Permanent link">&para;</a></h2>
-<p>Ready-made recipes you paste into the manager instead of typing fields: open <strong>Recipes → Import</strong>, paste a whole file from <a href="https://github.com/einfachllm/local-llm-manager/tree/main/examples/recipes"><code>examples/recipes</code></a>, review the draft (name, port, paths) and create.</p>
+<p>Ready-made recipes you paste into the manager instead of typing fields: click <strong>＋ Add recipe</strong>, paste a whole file from <a href="https://github.com/einfachllm/local-llm-manager/tree/main/examples/recipes"><code>examples/recipes</code></a>, review the draft (name, port, paths) and create.</p>
 <p>Two formats are accepted:</p>
 <ul>
 <li><strong><code>.yaml</code> / <code>.json</code> - compact recipe files.</strong> The manager's own fields: image, model, ports, <code>args</code>, <code>env</code>, <code>volumes</code>, <code>docker_args</code>, command, health path, tags. Missing settings come from the framework preset, so only what differs is written down. <code>weights:</code> names a registered Weights-tab entry (its per-host path fills <code>{weights}</code>); omit <code>model:</code> for the usual <code>/model</code> mount, or set it to another path. <code>host_port:</code> is the port on the host (<code>port:</code> is shorthand for it). <code>args</code>, <code>env</code>, <code>volumes</code> and <code>docker_args</code> can be multi-line strings or lists.</li>
@@ -621,6 +621,18 @@
 <tr>
 <td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/hermes-agent-docker.yaml"><code>hermes-agent-docker.yaml</code></a></td>
 <td>A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/embeddinggemma-2-llamacpp.yaml"><code>embeddinggemma-2-llamacpp.yaml</code></a></td>
+<td>EmbeddingGemma 2 (GGUF) as an OpenAI-compatible <code>/v1/embeddings</code> server via llama.cpp.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/sglang-flint.sh"><code>sglang-flint.sh</code></a></td>
+<td>RecursiveSI/flint served natively by SGLang's <code>sglang serve</code> CLI, port 30000.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/sglang-flint-docker.sh"><code>sglang-flint-docker.sh</code></a></td>
+<td>The same model in the official <code>lmsysorg/sglang</code> Docker image (<code>python3 -m sglang.launch_server</code>).</td>
 </tr>
 </tbody>
 </table>
