@@ -61,11 +61,11 @@ E.g. a company where every employee has their own DGX Spark: set the recipe up o
 
 - **Images:** in the **Images** tab, **⤓ Pull…** on an image runs `docker pull` on the machines you tick,
   all at once (private registries: `docker login` on each machine once).
-- **Weights from Hugging Face:** in the **Weights** tab, **⬇ Download on hosts…**. By default only the first
+- **Weights from Hugging Face:** in the **Weights** tab, **⬇ Download from Hugging Face…**. By default only the first
   ticked machine downloads; the others then copy from it over your network, so the model comes over the
   internet once. Needs the `hf` command there (`pip install -U huggingface_hub`); gated models need
   `HF_TOKEN` in that machine's `.env`.
-- **Weights already on a machine** (e.g. from your SSD): **⇉ Copy…** on the weights entry. Machines copy
+- **Weights already on a machine** (e.g. from your SSD): **⇉ Copy to other hosts…** on the model's row. Machines copy
   straight from each other - the hub only arranges it - like a snowball: each machine that has the weights
   serves one copy at a time and every finished machine joins in, so 5 machines are done in 3 rounds.
   Every file is checked with SHA-256, files a machine already has are skipped, an interrupted copy

@@ -220,13 +220,15 @@ The editor shows right away whether the weights are on the selected host, and st
 host has no path set or nothing at that path. `~` in a path is the home directory of the machine that runs
 the recipe.
 
-You rarely type paths by hand: **🔍 Search hosts** looks for model folders (with `config.json` or weight
-files) and `.gguf` files in each host's `DGXM_MODEL_DIR` (default `~/models`, up to three levels deep).
-It suggests the path for an entry that has none on a host when a folder there has the same name as the
-entry's folder elsewhere (or its name / source repo), and lists folders nobody registered yet. Existing
-recipes that mount their model folder directly (e.g. `~/models/x:/model:ro`) show **→ Register** under
-*Used by recipes*: it creates the entry (or reuses one of the same name) and switches them to
-`{weights}`. Importing a `docker run` whose model mount is a registered path picks that entry, too.
+You rarely type paths by hand: opening the tab (or **Refresh**) looks for model folders (with
+`config.json` or weight files) and `.gguf` files in each host's `DGXM_MODEL_DIR` (default `~/models`, up
+to three levels deep) and lists what it can add under **Found on your hosts**, one click each: a path for
+an entry that has none on a host (a folder there with the same name as the entry's folder elsewhere, or its
+name / source repo), folders nobody added yet, and recipes that mount their model folder directly (e.g.
+`~/models/x:/model:ro`) - adding those creates the entry (or reuses one of the same name) and switches the
+recipes to `{weights}`. A model missing on some hosts gets one button: **⇉ Copy to other hosts…** when a
+host has it, else **⬇ Download…** from Hugging Face. *All models your recipes use* (collapsed) lists every
+model recipes reference, Hugging Face ids included, missing ones first. Importing a `docker run` whose model mount is a registered path picks that entry, too.
 
 Not to be confused with **agent mode** ([Several machines](#several-machines)), which is how the manager itself runs on a second machine.
 "Models as: Rows / Tiles" in the filter rail switches models between wide rows (default) and cards.
