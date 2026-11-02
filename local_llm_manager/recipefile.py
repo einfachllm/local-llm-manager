@@ -210,6 +210,9 @@ def recipe_from_file(data: dict[str, Any], registered_weights: Optional[list[dic
     host_port = _int(data.get("host_port", data.get("port")), "host_port", container_port)
     if "port" in data and "host_port" in data and str(data["port"]) != str(data["host_port"]):
         warnings.append("Both port and host_port are set: host_port wins.")
+    if runtime == "process":
+        # A native process listens on the host directly: like the editor and the API, use one port.
+        container_port = host_port
 
     gpus = (_text(data["gpus"], "gpus").strip() if "gpus" in data
             else ("all" if runtime == "docker" and kind != "agent" else ""))
@@ -342,5 +345,5 @@ def dump_recipe_file(data: dict[str, Any], fmt: str = "yaml") -> str:
         return dumper.represent_scalar("tag:yaml.org,2002:str", value, style="|" if "\n" in value else None)
 
     _Dumper.add_representer(str, _represent_text)
-    header = "# Compact recipe file (Local LLM Manager): paste into Recipes -> Import.\n"
+    header = "# Compact recipe file (Local LLM Manager): paste into + Add recipe.\n"
     return header + yaml.dump(data, Dumper=_Dumper, sort_keys=False, allow_unicode=True, default_flow_style=False)

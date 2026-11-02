@@ -1,6 +1,6 @@
 # Importable recipes
 
-Ready-made recipes you paste into the manager instead of typing fields: open **Recipes → Import**, paste
+Ready-made recipes you paste into the manager instead of typing fields: click **＋ Add recipe**, paste
 a whole file from this folder, review the draft (name, port, paths) and create.
 
 Two formats are accepted:
@@ -26,6 +26,9 @@ folder.
 | [`qwen38-flash-next-fp4.yaml`](qwen38-flash-next-fp4.yaml) | Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121): b12x image, tuned flags, caches, tool calling. Compact form. |
 | [`nemotron-3.5-super-vl.yaml`](nemotron-3.5-super-vl.yaml) | Nemotron-3.5-Super-VL with a draft model for speculative decoding; both models sit in one registered folder. |
 | [`hermes-agent-docker.yaml`](hermes-agent-docker.yaml) | A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU. |
+| [`embeddinggemma-2-llamacpp.yaml`](embeddinggemma-2-llamacpp.yaml) | EmbeddingGemma 2 (GGUF) as an OpenAI-compatible `/v1/embeddings` server via llama.cpp. |
+| [`sglang-flint.sh`](sglang-flint.sh) | RecursiveSI/flint served natively by SGLang's `sglang serve` CLI, port 30000. |
+| [`sglang-flint-docker.sh`](sglang-flint-docker.sh) | The same model in the official `lmsysorg/sglang` Docker image (`python3 -m sglang.launch_server`). |
 
 ## Before you start
 

@@ -54,7 +54,7 @@ download / copy weights for you (Images and Weights tabs), or you put them there
 ## Examples
 
 - [Importable recipes](examples/recipes/): paste-ready model recipes - e.g. Qwen3.8-Flash-Next-FP4 with
-  vLLM on a DGX Spark - into **Recipes → Import**, no field-typing needed.
+  vLLM on a DGX Spark - into **＋ Add recipe**, no field-typing needed.
 - [Hermes Agent](examples/hermes-agent/): a full personal agent on Telegram with local speech-to-text and
   text-to-speech, running on a model from this manager; the Hermes gateway itself is an agent recipe (native
   process or Docker).
@@ -191,7 +191,8 @@ command; change it to `--host {bind_host}` for native-process and `--network hos
   goes to `data/processes/<name>.log`, and processes keep running if the manager restarts.
 - **Import** fills a recipe from a starter script by running it with bash in a restricted mode that only
   records `docker run` / the server command and skips other commands. It is not a sandbox: *Check*
-  lists risky lines first - only import scripts you trust. It also accepts a **compact JSON/YAML recipe
+  lists risky lines first. Calls the restricted run merely skips are shown for information; risks it
+  cannot block need an explicit "I trust this script". It also accepts a **compact JSON/YAML recipe
   file** (the editor's fields; missing settings come from the framework preset), and **Recipe file…** in
   the editor exports the current recipe that way - volumes, environment and extra Docker flags included.
 - Live stats come from the server's `/metrics` endpoint: on by default in vLLM, add `--enable-metrics`
@@ -278,7 +279,7 @@ service after changes (`sudo systemctl restart local-llm-manager`, or rerun the 
 | `DGXM_METRICS` | *(off)* | `1`: serve the manager's own metrics at `/metrics` (Prometheus format) |
 | `DGXM_DB` | `./data/manager.db` | SQLite database |
 | `DGXM_STOP_TIMEOUT` | `30` | Seconds to wait on stop before killing |
-| `DGXM_SEED` | `1` | Add two example recipes to an empty database |
+| `DGXM_SEED` | `1` | Add the qwen3.8 example recipe to an empty database |
 | `HF_TOKEN`, … | | Passed to recipes that list the bare name in their environment |
 
 Less common: `DGXM_HEALTH_HOST` (`DGXM_PUBLISH_IP`, else `127.0.0.1`), `DGXM_PROC_DIR` (`<db folder>/processes`),

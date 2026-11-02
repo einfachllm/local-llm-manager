@@ -16,9 +16,7 @@ args: |
   --trust-remote-code
   --gpu-memory-utilization 0.75
   --max-num-batched-tokens 8192
-  --speculative-config.model /models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4-LiLiCorr
-  --speculative-config.num_speculative_tokens 7
-  --speculative-config.method dflash
+  --speculative-config '{"method":"dflash","model":"/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4-LiLiCorr","num_speculative_tokens":7,"rejection_sample_method":"standard","attention_backend":"FLASHINFER","draft_load_config":{"load_format":"auto"}}'
   --mamba-backend flashinfer
   --mamba-ssm-cache-dtype float16
   --enable-mamba-cache-stochastic-rounding

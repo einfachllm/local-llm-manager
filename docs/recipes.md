@@ -4,7 +4,7 @@ Recipes save how to start a model server (vLLM, SGLang, llama.cpp, MLX, TensorFo
 
 ## Importable example recipes
 
-Ready-made recipes you paste into the manager instead of typing fields: open **Recipes → Import**, paste a whole file from [`examples/recipes`](https://github.com/einfachllm/local-llm-manager/tree/main/examples/recipes), review the draft (name, port, paths) and create.
+Ready-made recipes you paste into the manager instead of typing fields: click **＋ Add recipe**, paste a whole file from [`examples/recipes`](https://github.com/einfachllm/local-llm-manager/tree/main/examples/recipes), review the draft (name, port, paths) and create.
 
 Two formats are accepted:
 
@@ -19,6 +19,9 @@ The current examples:
 | [`qwen38-flash-next-fp4.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-fp4.yaml) | Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121): b12x image, tuned flags, caches, tool calling. Compact form. |
 | [`nemotron-3.5-super-vl.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/nemotron-3.5-super-vl.yaml) | Nemotron-3.5-Super-VL with a draft model for speculative decoding; both models sit in one registered folder. |
 | [`hermes-agent-docker.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/hermes-agent-docker.yaml) | A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU. |
+| [`embeddinggemma-2-llamacpp.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/embeddinggemma-2-llamacpp.yaml) | EmbeddingGemma 2 (GGUF) as an OpenAI-compatible `/v1/embeddings` server via llama.cpp. |
+| [`sglang-flint.sh`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/sglang-flint.sh) | RecursiveSI/flint served natively by SGLang's `sglang serve` CLI, port 30000. |
+| [`sglang-flint-docker.sh`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/sglang-flint-docker.sh) | The same model in the official `lmsysorg/sglang` Docker image (`python3 -m sglang.launch_server`). |
 
 ## Before you start
 

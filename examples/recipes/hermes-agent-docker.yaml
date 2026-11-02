@@ -1,10 +1,13 @@
-# Compact recipe file (Local LLM Manager): paste into Recipes -> Import.
+# Compact recipe file (Local LLM Manager): paste into + Add recipe.
+# Hermes Agent gateway in Docker - no model or GPU. health_path is empty because the gateway
+# opens no HTTP port; --add-host lets the container reach the LLM on the host via
+# http://host.docker.internal:<port>/v1.
 name: hermes-agent-docker
-description: Hermes Agent 1
+description: Hermes Agent gateway (Docker), no model or GPU
 framework: custom
 image: nousresearch/hermes-agent
 command: gateway run
-docker_args: ''
+docker_args: --add-host=host.docker.internal:host-gateway
 env: |-
   TELEGRAM_BOT_TOKEN
   TELEGRAM_ALLOWED_USERS
@@ -15,4 +18,5 @@ env: |-
 volumes: ~/.hermes:/opt/data
 host_port: 8198
 container_port: 8198
+health_path: ''
 kind: agent

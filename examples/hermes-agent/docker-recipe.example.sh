@@ -1,7 +1,10 @@
 # Importable recipe example: Hermes Agent gateway as a Docker recipe.
 #
-# Paste this whole file into the manager's Recipes -> Import box and review the draft.
+# Paste this whole file into the manager's + Add recipe box and review the draft.
 # Then clear the Health path field (the gateway opens no HTTP port) and create the recipe.
+#
+# --add-host makes host.docker.internal resolve to the host, so the gateway's config can reach
+# the LLM on http://host.docker.internal:8101/v1 from inside the container.
 #
 # Secrets are NOT in this file: the bare names below are passed through from the
 # manager's own environment, so put the values (TELEGRAM_BOT_TOKEN, ...) in the
@@ -14,6 +17,7 @@
 
 docker run -d --name hermes-agent-docker \
   -p 8198:8198 \
+  --add-host=host.docker.internal:host-gateway \
   -v ~/.hermes:/opt/data \
   -e TELEGRAM_BOT_TOKEN \
   -e TELEGRAM_ALLOWED_USERS \

@@ -84,18 +84,28 @@ messages and to send voice bubbles. Try it once in the terminal with `hermes` be
 
 ## 3. The Hermes gateway as a recipe
 
-Add a recipe on the same host with **+ New agent** (or pick *This recipe runs: An agent* in the editor).
-That puts it in the dashboard's **Agents** section, and **Switch to** on a model leaves it running:
+Add a recipe on the same host with **＋ Add recipe** and paste this YAML (the editor also lets you change
+every field afterwards). *This recipe runs: An agent* puts it in the dashboard's **Agents** section, and
+**Switch to** on a model leaves it running:
 
-| Field | Value |
-|---|---|
-| Runtime | Native process |
-| Name | `hermes-gateway` |
-| Command | `/home/you/.local/bin/hermes gateway run` (the path from `which hermes`) |
-| Port | a free placeholder port, e.g. `8199` (Hermes does not listen on it) |
-| Health path | *(empty - the gateway has no HTTP endpoint)* |
-| Model | e.g. `local (Qwen3-30B on :8101)` - only shown on the card |
-| Environment | your secret **names**, e.g. `TELEGRAM_BOT_TOKEN` (see the Docker variant below) |
+```yaml
+name: hermes-gateway
+description: Hermes gateway (native process)
+framework: process-custom
+runtime: process
+command: /home/you/.local/bin/hermes gateway run
+host_port: 8199
+health_path: ''
+kind: agent
+env: |-
+  TELEGRAM_BOT_TOKEN
+```
+
+`command` is the absolute path from `which hermes` above; replace `/home/you`. A plain shell script
+containing an arbitrary native command is not a recognised model server, so paste it as YAML instead (a
+`docker run` script works too - see the Docker variant below). In the editor, set **Model** to a label
+such as `local (Qwen3-30B on :8101)` - it is only shown on the card - and add your secret **names** to
+**Environment** if you keep config outside the YAML.
 
 Start it and watch the log in the dashboard; then message your bot on Telegram, by text or voice.
 
@@ -130,9 +140,11 @@ the host and list only the bare **names** (`TELEGRAM_BOT_TOKEN`, one per line) i
 passes them through from its environment, so no secret ever lands in the recipe, the database or the
 dashboard.
 
-No typing needed: [`docker-recipe.example.sh`](docker-recipe.example.sh) is an importable version of
-exactly this command - paste it into **Recipes → Import**, clear the pre-filled *Health path*, adjust
-`HERMES_UID/GID`, create.
+No typing needed: [`../recipes/hermes-agent-docker.yaml`](../recipes/hermes-agent-docker.yaml) is the
+complete recipe - *Health path* already empty, `--add-host=host.docker.internal:host-gateway` included.
+Paste it into **＋ Add recipe**, adjust `HERMES_UID/GID` if needed, create. The equivalent
+[`docker-recipe.example.sh`](docker-recipe.example.sh) imports the same command from a shell script, but
+pre-fills *Health path* with `/health`, so clear it after import.
 
 One difference to the native install matters most: **inside the container, `127.0.0.1` is the container
 itself**, not your host. The `~/.hermes` config you mount must therefore point at the LLM through the

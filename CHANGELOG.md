@@ -16,8 +16,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   hosts table, top-bar tooltip), turning yellow from 85 °C and red from 95 °C. It reads the CPU sensors
   (`coretemp`, `k10temp`, ...) and the ACPI thermal zones that e.g. the DGX Spark uses; macOS shows none.
   Agent PCs need this version too to report it.
+- **Activity log controls:** choose how many recent entries to show (last 10, 50, 100 or 300) and clear
+  the log with one confirmed click. The chosen length is remembered in the browser.
+- **Editable recipe files:** the **Recipe file…** dialog is no longer read-only. Edit the YAML/JSON there
+  and press **Apply to editor** to load the changes without saving; Copy and Download use the edited text.
+- **Hosts, less repetition:** the host table now sits behind **Host details & actions** (collapsed by
+  default), so the topology graph is the overview. **Ports & endpoints** gained a **Metrics** column with
+  each running model's output/input speed, requests and KV-cache use. Remote hosts also get a **Remove
+  host** button in the editor, opened by clicking a graph node.
 
 ### Changed
+- **Left sidebar navigation:** Recipes, Schedules, Activity, Hosts, Images and Weights moved from the top
+  bar into a left menu. The top bar now shows the current section, host status, Blur and Theme; on narrow
+  screens the menu becomes a drawer with a hamburger button.
+- **First start:** an empty database now gets the **qwen3.8** example from `examples/recipes`
+  (`qwen38-27b.yaml`) and its weights entry, instead of two hardcoded recipes. Register or download the
+  weights in the Weights tab before starting it.
 - **Simpler Weights tab:** the host search runs by itself when the tab opens; everything it can add (paths
   for existing entries, new folders - one row per folder name across hosts - and recipes that mount a
   folder directly) shows in one **Found on your hosts** box, hidden when there is nothing. The

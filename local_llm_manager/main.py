@@ -294,54 +294,30 @@ class HostIn(BaseModel):
         return self
 
 
+SEED_EXAMPLE = Path(__file__).resolve().parent.parent / "examples/recipes/qwen38-27b.yaml"
+
+
 def seed_examples(db: Database) -> None:
+    """On a fresh database, add the qwen3.8 example recipe from examples/recipes.
+
+    The example names a registered weights entry. On a fresh install that entry does not exist yet,
+    so create it without a path: the Weights tab can then find the folder or download it, and the
+    recipe points at the entry instead of an unresolved `{weights}` path.
+    """
     if db.list_recipes():
         return
-    if sys.platform == "darwin":
-        seed_mac_examples(db)
+    try:
+        data = parse_recipe_file(SEED_EXAMPLE.read_text())
+    except (OSError, RecipeFileError):
         return
-    vllm = FRAMEWORKS["vllm"]
-    db.create_recipe({
-        "name": "Qwen3-Coder-30B-AWQ (vLLM)",
-        "description": "Example recipe - edit to match your setup.",
-        "framework": "vllm", "image": vllm["image"],
-        "model": "cpatonn/Qwen3-Coder-30B-A3B-Instruct-AWQ-4bit",
-        "container_name": "vllm-qwen3-coder-30b-awq", "host_port": 8104, "container_port": 8000,
-        "command": vllm["command"],
-        "args": ("--max-model-len 65536\n--max-num-seqs 8\n--gpu-memory-utilization 0.4\n"
-                 "--enable-prefix-caching\n--enable-auto-tool-choice\n--tool-call-parser qwen3_coder"),
-        "env": vllm["env"], "volumes": vllm["volumes"], "docker_args": vllm["docker_args"],
-        "gpus": "all", "health_path": "/health", "est_memory_gb": 45, "tags": ["qwen3-coder", "example"],
-    })
-    sg = FRAMEWORKS["sglang"]
-    db.create_recipe({
-        "name": "Qwen3-8B (SGLang)",
-        "description": "Example recipe - edit to match your setup.",
-        "framework": "sglang", "image": sg["image"], "model": "Qwen/Qwen3-8B",
-        "container_name": "sglang-qwen3-8b", "host_port": 8110, "container_port": 30000,
-        "command": sg["command"], "args": sg["args"], "env": sg["env"], "volumes": sg["volumes"],
-        "docker_args": sg["docker_args"], "gpus": "all", "health_path": "/health", "est_memory_gb": 30,
-        "tags": ["qwen3-8b", "example"],
-    })
-
-
-def seed_mac_examples(db: Database) -> None:
-    db.create_recipe({
-        "name": "Qwen3-8B (MLX)", "description": "Example recipe - needs `pip install mlx-lm`.",
-        "runtime": "process", "framework": "process-custom", "image": "", "model": "mlx-community/Qwen3-8B-4bit",
-        "container_name": "mlx-qwen3-8b", "host_port": 8080, "container_port": 8080,
-        "command": "mlx_lm.server --model {model} --host {bind_host} --port {port}",
-        "args": "", "env": "", "volumes": "", "docker_args": "", "gpus": "",
-        "health_path": "/v1/models", "est_memory_gb": 6, "tags": ["qwen3-8b", "example"],
-    })
-    db.create_recipe({
-        "name": "GGUF model (llama.cpp)", "description": "Example recipe - needs `brew install llama.cpp`.",
-        "runtime": "process", "framework": "process-custom", "image": "", "model": "~/models/model.gguf",
-        "container_name": "llamacpp-gguf", "host_port": 8081, "container_port": 8081,
-        "command": "llama-server -m {model} --host {bind_host} --port {port}",
-        "args": "-ngl 999\n-c 32768", "env": "", "volumes": "", "docker_args": "",
-        "gpus": "", "health_path": "/health", "est_memory_gb": None, "tags": ["gguf", "example"],
-    })
+    if data is None:
+        return
+    name = str(data.get("weights") or "").strip()
+    if name and not any(str(w["name"]).lower() == name.lower() for w in db.list_weights()):
+        db.create_weight(name, "", {})
+    recipe, _ = recipe_from_file(data, db.list_weights())
+    recipe["host_id"] = db.local_host_id()
+    db.create_recipe(recipe)
 
 
 def hub_timezone() -> str:
@@ -1116,16 +1092,20 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
                       "skipped_calls": [], "check": {"count": 0, "findings": []}}
         else:
             check = check_script(body.text)
-            if check["count"] and not body.trust:
+            # Calls only skipped during import cannot affect this machine, so they need no trust
+            # confirmation. Only risks the sandbox cannot block (absolute-path programs, writes,
+            # PATH changes, ...) require the explicit "I trust this script".
+            blocking = [f for f in check["findings"] if not f["skipped"]]
+            if blocking and not body.trust:
                 raise HTTPException(422, "The script contains risky calls. Review them and confirm that you trust the script.")
             try:
                 result = await import_script(body.text)
             except ScriptImportError as e:
                 raise HTTPException(422, str(e))
             result["check"] = check
-            if check["count"]:
+            if blocking:
                 db.add_event("user", "import", True, "Imported a script with risky calls after confirmation:\n"
-                             + "\n".join(f"line {f['line']}: {f['message']}" for f in check["findings"]))
+                             + "\n".join(f"line {f['line']}: {f['message']}" for f in blocking))
         recipe = result["recipe"]
         existing = db.list_recipes()
         names = {r["name"] for r in existing}
@@ -1284,6 +1264,11 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     @app.get("/api/events")
     async def events(limit: int = 200):
         return db.list_events(max(1, min(limit, 2000)))
+
+    @app.delete("/api/events", status_code=204)
+    async def clear_events():
+        db.clear_events()
+        return Response(status_code=204)
 
     # ---- UI ------------------------------------------------------------
 

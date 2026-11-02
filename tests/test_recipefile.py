@@ -181,7 +181,7 @@ def test_the_published_complex_starter_round_trips_through_a_recipe_file():
 
     from local_llm_manager.importer import import_script
 
-    text = (Path(__file__).parent.parent / "examples/recipes/qwen38-flash-next-fp4.sh").read_text()
+    text = (Path(__file__).parent / "fixtures/starter-qwen38-flash-next-fp4.sh").read_text()
     res = asyncio.run(import_script(text))
     recipe = res["recipe"]
     recipe["weights_id"] = 1
@@ -217,6 +217,17 @@ def test_published_yaml_examples_are_valid_recipe_files():
 def test_yaml_flow_mapping_is_a_recipe_file():
     data = parse_recipe_file("{name: flow, framework: vllm, port: 8102}")
     assert data is not None and data["name"] == "flow"
+
+
+def test_a_process_recipe_file_has_one_port():
+    # A native process listens on the host directly; the editor and the API already normalise
+    # container_port to host_port, and the imported draft should too.
+    r, warnings = recipe_from_file({
+        "name": "native", "framework": "process-custom", "runtime": "process",
+        "command": "my-server --port {port}", "host_port": 8199, "model": "m",
+    })
+    assert warnings == []
+    assert (r["host_port"], r["container_port"]) == (8199, 8199)
 
 
 def test_an_empty_model_with_weights_uses_the_implicit_mount():

@@ -36,6 +36,33 @@ def test_retention_days_can_be_set_or_disabled(tmp_path):
     assert len(Database(path, retention_days=0).list_events()) == 2  # 0 = keep everything
 
 
+def test_clear_events(tmp_path):
+    db = Database(tmp_path / "m.db")
+    db.add_event("user", "start", True, "one")
+    db.add_event("user", "stop", True, "two")
+    assert len(db.list_events()) == 2
+    db.clear_events()
+    assert db.list_events() == []
+
+
+def test_seed_examples_adds_the_qwen38_example(tmp_path):
+    from local_llm_manager.main import seed_examples
+
+    db = Database(tmp_path / "m.db")
+    seed_examples(db)
+    recipes = db.list_recipes()
+    assert [r["name"] for r in recipes] == ["qwen3.8"]
+    assert recipes[0]["framework"] == "vllm"
+    assert recipes[0]["host_id"] == db.local_host_id()
+    # The example points at a registered weights entry, created without a path on a fresh install.
+    weights = db.list_weights()
+    assert [w["name"] for w in weights] == ["Qwen3.8-27B-NVFP4"]
+    assert recipes[0]["weights_id"] == weights[0]["id"]
+    # Idempotent: a second call on a non-empty database adds nothing.
+    seed_examples(db)
+    assert len(db.list_recipes()) == 1
+
+
 def test_schema_version_is_recorded(tmp_path):
     db = Database(tmp_path / "m.db")
     assert db._conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 1

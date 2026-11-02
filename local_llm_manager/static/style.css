@@ -56,18 +56,36 @@ h2 { margin: 0; font-size: 15px; letter-spacing: .06em; text-transform: uppercas
 h3 { margin: 0; font-size: 17px; }
 small { color: var(--muted); font-weight: 400; }
 
-/* top bar */
-.topbar {
-  position: sticky; top: 0; z-index: 5;
-  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
-  padding: 12px 24px; background: var(--topbar-bg); border-bottom: 1px solid var(--border);
+/* app frame: menu on the left, content on the right */
+.app-shell { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 100vh; }
+.sidebar {
+  position: sticky; top: 0; z-index: 7; height: 100vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 16px; padding: 18px 12px;
+  background: var(--topbar-bg); border-right: 1px solid var(--border);
 }
+.sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 8px 4px; }
+.sidebar-close { display: none; }
 .brand { font-weight: 700; font-size: 17px; }
 .brand span { color: var(--accent); }
-.tabs { display: flex; gap: 4px; }
-.tab { background: none; border: 0; color: var(--muted); padding: 8px 14px; border-radius: 8px; cursor: pointer; font: inherit; }
+.tabs { display: flex; flex-direction: column; gap: 4px; }
+.tab {
+  background: none; border: 0; color: var(--muted); padding: 9px 12px; border-radius: 8px;
+  cursor: pointer; font: inherit; text-align: left; width: 100%;
+}
 .tab:hover { color: var(--text); }
-.tab.active { background: var(--panel-2); color: var(--text); }
+.tab.active { background: var(--panel-2); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }
+.topbar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 24px; background: var(--topbar-bg); border-bottom: 1px solid var(--border);
+}
+.section-title { font-weight: 600; font-size: 15px; margin-right: auto; }
+.nav-toggle {
+  display: none; background: none; border: 1px solid var(--border); color: var(--text);
+  padding: 5px 10px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 15px; line-height: 1;
+}
+.nav-toggle:hover { border-color: var(--border-strong); }
+.nav-scrim { position: fixed; inset: 0; z-index: 6; background: rgba(0,0,0,.45); }
 .blur-toggle {
   background: none; border: 1px solid var(--border); color: var(--muted);
   padding: 5px 10px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12px;
@@ -82,6 +100,11 @@ small { color: var(--muted); font-weight: 400; }
 
 main { padding: 24px; max-width: 1500px; margin: 0 auto; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.panel-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.host-details { margin-bottom: 18px; }
+.host-details summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; }
+.host-details summary:hover { color: var(--text); }
+.host-details[open] summary { margin-bottom: 8px; }
 .hint { color: var(--muted); margin: -6px 0 16px; }
 
 /* buttons */
@@ -244,6 +267,18 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .toast.ok { border-left-color: var(--green); color: var(--text); }
 .toast.bad { border-left-color: var(--red); color: var(--text); }
 
+@media (max-width: 900px) {
+  .app-shell { display: block; }
+  .sidebar {
+    position: fixed; inset: 0 auto 0 0; width: 250px; transform: translateX(-100%);
+    transition: transform .2s ease; box-shadow: 12px 0 32px rgba(0,0,0,.35);
+  }
+  .sidebar.open { transform: none; }
+  .nav-toggle { display: inline-flex; }
+  .sidebar-close { display: inline-flex; }
+  .section-title { margin-right: auto; }
+}
+
 @media (max-width: 720px) {
   .topbar { padding: 10px 14px; gap: 10px; }
       main { padding: 14px; }
@@ -251,9 +286,6 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   .form-grid .span2 { grid-column: span 1; }
   .grid { grid-template-columns: 1fr; }
   .logs-tools input { width: 120px; }
-  /* Five tabs do not fit next to each other on a phone: wrap them instead of widening the page. */
-  .tabs { flex-wrap: wrap; }
-  .tab { padding: 6px 10px; }
 }
 
 /* import */

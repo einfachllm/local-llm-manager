@@ -43,16 +43,34 @@ function fmtTime(iso) {
 
 /* ---------------- tabs ---------------- */
 
+const TAB_TITLES = { recipes: "Recipes", schedules: "Schedules", activity: "Activity",
+                     hosts: "Hosts", images: "Images", models: "Weights" };
+
+function setNav(open) {
+  $("#sidebar").classList.toggle("open", open);
+  $("#nav-scrim").classList.toggle("hidden", !open);
+  $("#btn-nav").setAttribute("aria-expanded", String(open));
+}
+function closeNav() { setNav(false); }
+
 $$(".tab").forEach((btn) => btn.addEventListener("click", () => {
   state.tab = btn.dataset.tab;
   $$(".tab").forEach((b) => b.classList.toggle("active", b === btn));
   $$(".panel").forEach((p) => p.classList.toggle("hidden", p.id !== `tab-${state.tab}`));
+  $("#section-title").textContent = TAB_TITLES[state.tab] ?? "";
+  closeNav();
   if (state.tab === "schedules") loadSchedules();
   if (state.tab === "activity") loadEvents();
   if (state.tab === "hosts") renderHosts();
   if (state.tab === "images") loadImages();
   if (state.tab === "models") loadWeights();
 }));
+
+$("#btn-nav").addEventListener("click", () => setNav(!$("#sidebar").classList.contains("open")));
+$("#btn-nav-close").addEventListener("click", closeNav);
+$("#nav-scrim").addEventListener("click", closeNav);
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeNav(); });
+window.addEventListener("resize", () => { if (window.innerWidth > 900) closeNav(); });
 
 $$("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
 
@@ -299,8 +317,9 @@ function topoNode(h, role) {
   const item = (r) => {
     const agent = kindOf(r) === "agent";
     const label = (agent ? AGENT_STATUS_LABEL : STATUS_LABEL)[r.status] ?? r.status;
+    const stats = agent ? "" : metricsText(r.metrics);
     return `<button type="button" class="topo-item ${agent ? "agent" : "model"} ${r.status}" data-recipe="${r.id}"
-        title="${esc(`${agent ? "Agent" : "Model"} · ${label}${agent ? "" : ` · port ${r.host_port}`}`)}">
+        title="${esc(`${agent ? "Agent" : "Model"} · ${label}${agent ? "" : ` · port ${r.host_port}`}${stats ? ` · ${stats}` : ""}`)}">
         <span class="topo-dot"></span><span class="topo-kind">${agent ? "🤖" : "🧠"}</span><span class="topo-name">${esc(r.name)}</span>
         ${agent ? "" : `<span class="topo-port">:${r.host_port}</span>`}</button>`;
   };
@@ -415,11 +434,25 @@ $("#hosts").addEventListener("click", async (ev) => {
     openHostEditor(h);
     return;
   } else if (act === "delete") {
-    if (!confirm(`Remove host ${h.name} from this dashboard? (Nothing is changed on the machine.)`)) return;
-    try { await api(`/api/hosts/${h.id}`, { method: "DELETE" }); toast("Host removed", "ok"); } catch (e) { toast(e.message, "bad"); }
+    await removeHost(h);
+    return;
   }
   loadHosts();
 });
+
+async function removeHost(h) {
+  if (!confirm(`Remove host ${h.name} from this dashboard? (Nothing is changed on the machine.)`)) return;
+  try {
+    await api(`/api/hosts/${h.id}`, { method: "DELETE" });
+    $("#dlg-host").close();
+    toast("Host removed", "ok");
+    await loadHosts();
+    loadRecipes();
+  } catch (e) {
+    toast(e.message, "bad");
+    if ($("#dlg-host").open) $("#host-error").textContent = e.message;
+  }
+}
 
 const hostForm = $("#form-host");
 let editingHost = null;
@@ -434,11 +467,13 @@ function openHostEditor(h) {
   const local = h?.is_local;
   $("#lbl-host-url").classList.toggle("hidden", !!local);
   $("#lbl-host-token").classList.toggle("hidden", !!local);
+  $("#btn-delete-host").classList.toggle("hidden", !h || !!local);
   $("#host-token-hint").textContent = h ? "leave empty to keep the current token" : "the agent's DGXM_AGENT_TOKEN";
   $("#dlg-host").showModal();
 }
 
 $("#btn-new-host").addEventListener("click", () => openHostEditor(null));
+$("#btn-delete-host").addEventListener("click", () => { if (editingHost) removeHost(editingHost); });
 
 hostForm.addEventListener("submit", async (ev) => {
   ev.preventDefault();
@@ -608,6 +643,28 @@ function metricsHtml(r) {
 }
 
 function fmtAge(s) { return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`; }
+
+// One compact line for a table cell (the model cards use the richer metricsHtml).
+function metricsText(m) {
+  if (!m) return "";
+  const parts = [];
+  if (m.gen_tps != null) parts.push(`${fmtTps(m.gen_tps)} tok/s out`);
+  if (m.prompt_tps != null) parts.push(`${fmtTps(m.prompt_tps)} tok/s in`);
+  if (m.running != null) parts.push(`${m.running} req${m.waiting ? ` +${m.waiting} queued` : ""}`);
+  if (m.kv_cache != null) parts.push(`${m.kv_cache}% KV`);
+  if (m.prefix_hit != null) parts.push(`${m.prefix_hit}% hit`);
+  return parts.join(" · ");
+}
+function metricsSummary(r) {
+  if (!RUNNING.includes(r.status)) return `<span class="muted">–</span>`;
+  const m = r.metrics;
+  const text = metricsText(m);
+  if (!text) return `<span class="muted">waiting…</span>`;
+  const stale = m.source === "log" && m.age_s != null && m.age_s > STALE_LOG_S;
+  const title = m.source === "metrics" ? "Live from the server's /metrics"
+    : `From the server's last stats line in the log${m.age_s != null ? ` (${fmtAge(m.age_s)} ago)` : ""}`;
+  return `<span class="mono${stale ? " muted" : ""}" title="${esc(title)}">${esc(text)}</span>`;
+}
 
 // What a model card shows for "Model": a container path like /model says nothing, so follow the volume
 // it is mounted from and show that folder's name; the full path stays in the tooltip.
@@ -1159,6 +1216,7 @@ function renderPorts() {
       <td class="mono">${r.host_port}${shared.length ? ` <span class="chip small warn-chip" title="Also used by: ${esc(shared.map((x) => x.name).join(", "))}">shared</span>` : ""}</td>
       <td>🤖 ${esc(r.name)}</td>
       <td><span class="pill ${r.status}">${AGENT_STATUS_LABEL[r.status] ?? r.status}</span></td>
+      <td class="muted">–</td>
       <td class="muted">agent – no LLM API</td>
     </tr>`;
     }
@@ -1167,10 +1225,11 @@ function renderPorts() {
       <td class="mono">${r.host_port}${shared.length ? ` <span class="chip small warn-chip" title="Also used by: ${esc(shared.map((x) => x.name).join(", "))}">shared</span>` : ""}</td>
       <td>${esc(r.name)}</td>
       <td><span class="pill ${r.status}">${STATUS_LABEL[r.status] ?? r.status}</span></td>
+      <td>${metricsSummary(r)}</td>
       <td class="mono">${running ? `<a href="${esc(endpointUrl(r))}/models" target="_blank" rel="noopener">${esc(maskEndpoint(endpointUrl(r)))}</a>` : `<span class="muted">${esc(maskEndpoint(endpointUrl(r)))}</span>`}
         <button class="btn small ghost copy" data-copy="${esc(endpointUrl(r))}" title="Copy endpoint">Copy</button></td>
     </tr>`;
-  }).join("") : `<tr><td colspan="5" class="empty">No recipes yet.</td></tr>`;
+  }).join("") : `<tr><td colspan="6" class="empty">No recipes yet.</td></tr>`;
 }
 
 $("#ports").addEventListener("click", async (ev) => {
@@ -1347,6 +1406,45 @@ $("#btn-export-download").addEventListener("click", () => {
   a.download = `${name || "recipe"}.${ext}`;
   a.click();
   URL.revokeObjectURL(a.href);
+});
+
+$("#btn-export-apply").addEventListener("click", async () => {
+  const text = $("#export-text").value.trim();
+  if (!text) return;
+  const btn = $("#btn-export-apply");
+  btn.disabled = true;
+  btn.textContent = "Applying…";
+  $("#export-error").textContent = "";
+  try {
+    const res = await api("/api/recipes/import", { method: "POST", body: { text } });
+    const r = res.recipe;
+    if (editingRecipe) {
+      // The file holds the recipe's settings, not a new identity: keep its name and container.
+      r.name = editingRecipe.name;
+      r.container_name = editingRecipe.container_name;
+      r.description = r.description || editingRecipe.description;
+      r.est_memory_gb = editingRecipe.est_memory_gb;
+      r.color = editingRecipe.color;
+    }
+    fillRecipeForm(r);
+    useRegisteredWeights();
+    syncHostNetworkPorts();
+    updateWeightsStatus();
+    scheduleImageStatus();
+    const warnings = (res.warnings || []).filter((w) =>
+      !(editingRecipe && w.startsWith("Container name changed to ")));
+    showRecipeNote([
+      "Applied from the recipe file – review the fields and the command preview, then save.",
+      ...warnings.map((w) => `• ${w}`),
+    ]);
+    $("#dlg-export").close();
+    updatePreview();
+  } catch (e) {
+    $("#export-error").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Apply to editor";
+  }
 });
 
 recipeForm.addEventListener("submit", async (ev) => {
@@ -1737,18 +1835,28 @@ function resetImportReport() {
   $("#import-error").textContent = "";
 }
 
+function importBlockingRisks(check) {
+  return (check.findings || []).filter((f) => !f.skipped);
+}
+
 function renderImportReport(check) {
   const box = $("#import-report");
+  const blocking = importBlockingRisks(check);
+  const skipped = (check.findings || []).length - blocking.length;
+  const head = blocking.length
+    ? `${blocking.length} risk${blocking.length === 1 ? "" : "s"} found`
+    : skipped
+      ? `${skipped} call${skipped === 1 ? "" : "s"} will be skipped during import`
+      : "No risky calls found.";
   box.classList.remove("hidden");
-  box.innerHTML = `<div class="report-head ${check.count ? "bad" : "ok"}">${check.count
-      ? `${check.count} risk${check.count === 1 ? "" : "s"} found`
-      : "No risky calls found."}</div>` +
+  box.innerHTML = `<div class="report-head ${blocking.length ? "bad" : "ok"}">${head}</div>` +
     check.findings.map((f) => `<div class="finding">
         <span class="ln">line ${f.line}</span>
         <span class="msg">${esc(f.message)}</span>
         <code>${esc(f.code)}</code>
       </div>`).join("");
-  $("#import-trust-row").classList.toggle("hidden", !check.count);
+  // Calls the restricted import merely records and skips need no confirmation.
+  $("#import-trust-row").classList.toggle("hidden", !blocking.length);
 }
 
 async function runImportCheck() {
@@ -1771,13 +1879,23 @@ $("#dlg-import").addEventListener("close", () => {
 });
 
 const IMPORT_EXAMPLES = {
-  yaml: `# Missing settings come from the framework's defaults.
+  yaml: `# Only settings that differ from the framework preset are needed.
 name: qwen3-8b
-framework: vllm          # vllm, sglang, llamacpp, …
-model: Qwen/Qwen3-8B     # a Hugging Face id, or  weights: <name in the Weights tab>
-port: 8101
+description: Qwen3 8B served by vLLM
+framework: vllm
+image: vllm/vllm-openai:latest
+model: Qwen/Qwen3-8B        # a Hugging Face id, or: weights: <name in Weights>
+port: 8101                  # host port
+container_port: 8000        # the server's port inside the container
 args: |
+  --served-model-name qwen3-8b
   --max-model-len 32768
+  --gpu-memory-utilization 0.6
+env: |-
+  HF_TOKEN
+volumes: |-
+  ~/.cache/huggingface:/root/.cache/huggingface
+health_path: /health
 `,
   shell: `#!/usr/bin/env bash
 docker run --gpus all -p 8101:8000 \\
@@ -1810,7 +1928,7 @@ $("#form-import").addEventListener("submit", async (ev) => {
   try {
     const check = await runImportCheck();
     const trust = $("#import-trust").checked;
-    if (check.count && !trust) {
+    if (importBlockingRisks(check).length && !trust) {
       $("#import-error").textContent = "Review the risks above and tick the box to import anyway.";
       return;
     }
@@ -1833,12 +1951,12 @@ $("#form-import").addEventListener("submit", async (ev) => {
     updateWeightsStatus();
     scheduleImageStatus();
     const skipped = res.skipped_calls || [];
-    const riskCount = res.check?.count ?? 0;
+    const blockingRisks = importBlockingRisks(res.check || {});
     showRecipeNote([
       "Imported – review the fields and the command preview, then save.",
       ...(adopted ? [`• The model folder is the registered weights “${adopted}”: the volume now uses {weights}.`] : []),
       ...res.warnings.map((w) => `• ${w}`),
-      ...(riskCount ? [`• Script check: ${riskCount} risk${riskCount === 1 ? "" : "s"} (confirmed)`] : []),
+      ...(blockingRisks.length ? [`• Script check: ${blockingRisks.length} risk${blockingRisks.length === 1 ? "" : "s"} (confirmed)`] : []),
       ...(skipped.length ? [`• Not executed during import (${skipped.length}):`,
         ...skipped.slice(0, 12).map((s) => `    ${s}`), ...(skipped.length > 12 ? [`    … ${skipped.length - 12} more`] : [])] : []),
     ]);
@@ -2546,9 +2664,16 @@ window.addEventListener("resize", () => { clearTimeout(tlResize); tlResize = set
 
 /* ---------------- activity ---------------- */
 
+try {
+  const saved = localStorage.getItem("llm.eventsLimit");
+  if (["10", "50", "100", "300"].includes(saved)) $("#events-limit").value = saved;
+} catch { /* storage unavailable */ }
+
 async function loadEvents() {
+  const limit = Number($("#events-limit").value) || 100;
+  try { localStorage.setItem("llm.eventsLimit", String(limit)); } catch { /* storage unavailable */ }
   try {
-    const events = await api("/api/events?limit=300");
+    const events = await api(`/api/events?limit=${limit}`);
     $("#events").innerHTML = events.length ? events.map((e) => `
       <tr>
         <td style="white-space:nowrap">${esc(fmtTime(e.ts))}</td>
@@ -2560,6 +2685,15 @@ async function loadEvents() {
   } catch (e) { toast(e.message, "bad"); }
 }
 $("#btn-refresh-events").addEventListener("click", loadEvents);
+$("#events-limit").addEventListener("change", loadEvents);
+$("#btn-clear-events").addEventListener("click", async () => {
+  if (!confirm("Delete every entry in the activity log? This cannot be undone.")) return;
+  try {
+    await api("/api/events", { method: "DELETE" });
+    await loadEvents();
+    toast("Activity log cleared");
+  } catch (e) { toast(e.message, "bad"); }
+});
 
 /* ---------------- images tab ---------------- */
 

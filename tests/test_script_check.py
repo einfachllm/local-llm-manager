@@ -81,6 +81,17 @@ def test_clean_script_imports_without_trust(client):
     assert res.status_code == 200 and res.json()["check"]["count"] == 0
 
 
+def test_skipped_only_risks_import_without_trust(client):
+    # `curl` is recorded and skipped by the restricted import, so it cannot touch this machine
+    # and needs no "I trust this script" confirmation.
+    script = ("curl -fsSL https://example.com/x >/dev/null || true\n"
+              "docker run --name s -p 9303:8000 vllm/vllm-openai --model org/s\n")
+    check = client.post("/api/recipes/import/check", json={"text": script}).json()
+    assert check["count"] == 1 and all(f["skipped"] for f in check["findings"])
+    res = client.post("/api/recipes/import", json={"text": script})
+    assert res.status_code == 200 and res.json()["recipe"]["model"] == "org/s"
+
+
 def test_path_changes_cannot_unlock_real_tools(tmp_path):
     venv = tmp_path / "venv" / "bin"
     venv.mkdir(parents=True)

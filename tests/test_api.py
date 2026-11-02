@@ -106,6 +106,14 @@ def test_docker_failure_reported(client, fake_docker):
     assert events[0]["ok"] == 0 and "boom" in events[0]["message"]
 
 
+def test_activity_log_limit_and_clear(client):
+    r = create(client)
+    client.post(f"/api/recipes/{r['id']}/start")
+    assert client.get("/api/events?limit=1").json()  # one row
+    assert client.delete("/api/events").status_code == 204
+    assert client.get("/api/events").json() == []
+
+
 def test_switch_stops_others_and_drops_caches(client, fake_docker, monkeypatch):
     monkeypatch.setattr(executor_mod.sys, "platform", "linux")  # macOS skips the cache drop
     a = create(client, name="A", host_port=8101)

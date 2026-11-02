@@ -8,22 +8,32 @@
   <script>try { var th = localStorage.getItem("llm.theme") || "dark"; if (th === "auto") th = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"; document.documentElement.dataset.theme = th; } catch { /* storage unavailable */ }</script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">Local LLM <span>Manager</span><span class="version-badge" id="hub-version" title="Hub version"></span></div>
-    <nav class="tabs">
-      <button class="tab active" data-tab="recipes">Recipes</button>
-      <button class="tab" data-tab="schedules">Schedules</button>
-      <button class="tab" data-tab="activity">Activity</button>
-      <button class="tab" data-tab="hosts">Hosts<span class="tab-count hidden" id="join-count" title="Machines asking to be added"></span></button>
-      <button class="tab" data-tab="images">Images</button>
-      <button class="tab" data-tab="models" title="Whether each host has the model weights your recipes use">Weights</button>
-    </nav>
-    <button id="btn-blur" class="blur-toggle" title="Blur IP addresses and host names" aria-pressed="true">🙈 Blur</button>
-    <button id="btn-theme" class="blur-toggle" title="Switch between dark and light theme">🌙 Dark</button>
-    <div class="hosts-strip" id="hosts-strip"></div>
-  </header>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <div class="brand">Local LLM <span>Manager</span><span class="version-badge" id="hub-version" title="Hub version"></span></div>
+        <button type="button" class="x sidebar-close" id="btn-nav-close" aria-label="Close menu">&times;</button>
+      </div>
+      <nav class="tabs" aria-label="Sections">
+        <button class="tab active" data-tab="recipes">Recipes</button>
+        <button class="tab" data-tab="schedules">Schedules</button>
+        <button class="tab" data-tab="activity">Activity</button>
+        <button class="tab" data-tab="hosts">Hosts<span class="tab-count hidden" id="join-count" title="Machines asking to be added"></span></button>
+        <button class="tab" data-tab="images">Images</button>
+        <button class="tab" data-tab="models" title="Whether each host has the model weights your recipes use">Weights</button>
+      </nav>
+    </aside>
+    <div class="nav-scrim hidden" id="nav-scrim"></div>
+    <div class="main-col">
+      <header class="topbar">
+        <button class="nav-toggle" id="btn-nav" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">☰</button>
+        <div class="section-title" id="section-title">Recipes</div>
+        <button id="btn-blur" class="blur-toggle" title="Blur IP addresses and host names" aria-pressed="true">🙈 Blur</button>
+        <button id="btn-theme" class="blur-toggle" title="Switch between dark and light theme">🌙 Dark</button>
+        <div class="hosts-strip" id="hosts-strip"></div>
+      </header>
 
-  <main>
+      <main>
     <section id="tab-recipes" class="panel">
       <div class="panel-head">
         <h2>Recipes</h2>
@@ -118,16 +128,22 @@
         <div class="topo-hub" id="topo-hub"></div>
         <div class="topo-agents" id="topo-agents"></div>
       </div>
-      <div class="table-wrap"><table class="table">
-        <thead><tr><th>Host</th><th>Status</th><th>Platform</th><th>Memory</th><th>GPU / CPU</th><th>Models</th><th></th></tr></thead>
-        <tbody id="hosts"></tbody>
-      </table></div>
+      <details class="host-details" id="host-details">
+        <summary>Host details &amp; actions</summary>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Host</th><th>Status</th><th>Platform</th><th>Memory</th><th>GPU / CPU</th><th>Models</th><th></th></tr></thead>
+            <tbody id="hosts"></tbody>
+          </table>
+        </div>
+      </details>
 
       <div class="panel-head ports-head"><h2>Ports &amp; endpoints</h2></div>
       <p class="hint">Every recipe's port per host. The API of a running model is at its endpoint (OpenAI-compatible
-        for vLLM, SGLang, llama.cpp and MLX). Recipes that share a port on the same host can't run at the same time.</p>
+        for vLLM, SGLang, llama.cpp and MLX). Recipes that share a port on the same host can't run at the same time.
+        Running models show live output/input speed, requests and KV-cache use.</p>
       <div class="table-wrap"><table class="table">
-        <thead><tr><th>Host</th><th>Port</th><th>Recipe</th><th>Status</th><th>Endpoint</th></tr></thead>
+        <thead><tr><th>Host</th><th>Port</th><th>Recipe</th><th>Status</th><th>Metrics</th><th>Endpoint</th></tr></thead>
         <tbody id="ports"></tbody>
       </table></div>
     </section>
@@ -173,13 +189,29 @@
     </section>
 
     <section id="tab-activity" class="panel hidden">
-      <div class="panel-head"><h2>Activity</h2><button class="btn ghost" id="btn-refresh-events">Refresh</button></div>
+      <div class="panel-head">
+        <h2>Activity</h2>
+        <div class="panel-tools">
+          <label class="inline" for="events-limit">Show
+            <select id="events-limit">
+              <option value="10">Last 10</option>
+              <option value="50">Last 50</option>
+              <option value="100" selected>Last 100</option>
+              <option value="300">Last 300</option>
+            </select>
+          </label>
+          <button class="btn ghost" id="btn-refresh-events">Refresh</button>
+          <button class="btn ghost danger" id="btn-clear-events">Clear log</button>
+        </div>
+      </div>
       <table class="table">
         <thead><tr><th>Time</th><th>Source</th><th>Action</th><th>Target</th><th>Result</th></tr></thead>
         <tbody id="events"></tbody>
       </table>
     </section>
   </main>
+    </div>
+  </div>
 
   <!-- Recipe editor -->
   <dialog id="dlg-recipe" class="dialog editor">
@@ -266,6 +298,8 @@
       </div>
       <div class="error" id="host-error"></div>
       <div class="dialog-foot">
+        <button type="button" class="btn ghost danger hidden" id="btn-delete-host">Remove host</button>
+        <span class="actions-gap"></span>
         <button type="button" class="btn ghost" data-close>Cancel</button>
         <button type="submit" class="btn primary">Save</button>
       </div>
@@ -338,12 +372,10 @@
     <form id="form-import" method="dialog">
       <div class="dialog-head"><h3>Add a recipe</h3><button type="button" class="x" data-close>&times;</button></div>
       <div class="import-body">
-        <p class="hint">Paste a <b>YAML recipe</b> or a <b>shell script</b> (a <code>docker run …</code> command
-          is fine too). Scripts are first checked for risky calls (nothing is executed), then run by bash in a
-          restricted mode: only read-only text tools (<code>awk</code>, <code>sed</code>, <code>grep</code>,
-          <code>cut</code>, <code>date</code>, …) really run, a fake <code>docker</code> records the final
-          <code>docker run</code> command, and every other command is <b>recorded and skipped</b>. Recipe files
-          are read directly.</p>
+        <p class="hint">Paste a <b>YAML recipe</b> or a <b>shell script</b> (<code>docker run …</code> works too).
+          Scripts are checked first, then run in a restricted bash: only read-only text tools run, a fake
+          <code>docker</code> records the final command, and everything else is skipped. Recipe files are read
+          directly.</p>
         <textarea id="import-text" rows="16" class="mono" placeholder="#!/usr/bin/env bash&#10;...&#10;docker run --gpus all ... vllm/vllm-openai ... --model org/name&#10;&#10;# or a recipe file:&#10;name: qwen3.8&#10;framework: vllm&#10;weights: Qwen3.8-27B&#10;port: 8101"></textarea>
         <div id="import-report" class="report hidden"></div>
         <label class="check hidden" id="import-trust-row"><input type="checkbox" id="import-trust">
@@ -370,19 +402,20 @@
       <div class="import-body">
         <p class="hint">A compact recipe file: only settings that differ from the <span id="export-framework">framework</span>
           preset are written down. Volumes, environment, extra Docker flags and server arguments are all included,
-          so importing it on another manager gives the same recipe (pick the host after importing). Paste it into
-          <b>Import</b>.</p>
+          so importing it on another manager gives the same recipe (pick the host after importing). You can edit
+          the file here and use <b>Apply to editor</b> to load your changes without saving.</p>
         <div class="seg" id="export-format" role="group" aria-label="Format">
           <button type="button" data-format="yaml" class="on">YAML</button>
           <button type="button" data-format="json">JSON</button>
         </div>
-        <textarea id="export-text" rows="18" class="mono" readonly></textarea>
+        <textarea id="export-text" rows="18" class="mono"></textarea>
       </div>
       <div class="error" id="export-error"></div>
       <div class="dialog-foot">
         <button type="button" class="btn ghost" data-close>Close</button>
         <button type="button" class="btn" id="btn-export-copy">Copy</button>
-        <button type="button" class="btn primary" id="btn-export-download">Download</button>
+        <button type="button" class="btn" id="btn-export-download">Download</button>
+        <button type="button" class="btn primary" id="btn-export-apply">Apply to editor</button>
       </div>
     </form>
   </dialog>

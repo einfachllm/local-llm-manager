@@ -47,6 +47,16 @@ def test_starter_script_round_trip():
     assert [a for a in opts(rebuilt) if a not in extra] == [os.path.expanduser(a) for a in opts(original)]
 
 
+def test_published_shell_examples_import():
+    folder = Path(__file__).parent.parent / "examples/recipes"
+    files = sorted(folder.glob("*.sh"))
+    assert files
+    for path in files:
+        res = run_import(path.read_text())
+        assert res["recipe"]["name"], path.name
+        assert res["recipe"]["host_port"] > 0, path.name
+
+
 def test_preflight_probes_do_not_block_import():
     # Starter scripts often abort when their preflight probes fail (nvidia-smi missing, little
     # free memory). The sandbox reports tools as installed and the machine as idle, so the
@@ -157,6 +167,25 @@ exec mlx_lm.server --model "$MODEL" --host 0.0.0.0 --port "$PORT" --max-tokens 4
     assert any("native process" in w for w in res["warnings"])
 
 
+def test_native_sglang_cli():
+    text = """sglang serve \\
+  --model-path RecursiveSI/flint \\
+  --served-model-name flint \\
+  --tp-size 1 \\
+  --context-length 262144 \\
+  --host 0.0.0.0 \\
+  --port 30000
+"""
+    res = run_import(text)
+    r = res["recipe"]
+    assert r["runtime"] == "process" and r["framework"] == "process-custom"
+    assert r["model"] == "RecursiveSI/flint"
+    assert r["command"] == "sglang serve --model-path {model} --host 0.0.0.0 --port {port}"
+    assert (r["host_port"], r["container_port"]) == (30000, 30000)
+    assert r["args"].splitlines() == ["--served-model-name flint", "--tp-size 1", "--context-length 262144"]
+    assert any("native process" in w for w in res["warnings"])
+
+
 def test_native_llama_server_and_python_module():
     r = run_import("llama-server -m ~/models/q.gguf --port 8090 -ngl 999 -c 8192")["recipe"]
     assert r["framework"] == "process-custom" and r["model"] == "~/models/q.gguf"
@@ -175,7 +204,10 @@ def test_native_import_saves_as_process_recipe(client):
 
 def test_script_with_failing_preflight_checks_still_imports():
     # Typical starter: `set -e`, checks for the model folder / nvidia-smi that fail on the dashboard's machine.
+    # Point MODEL_DIR at a path that does not exist here: the test must not depend on whether the
+    # machine running the tests happens to have the 120B checkpoint under ~/models.
     text = (FIXTURES / "starter-nemotron35-super-vl-120b.sh").read_text()
+    text = "MODEL_DIR=/nonexistent/nemotron-3.5-super-vl\n" + text
     res = run_import(text)
     r = res["recipe"]
     assert r["image"].startswith("vllm/vllm-openai:nightly-") and r["container_name"] == "nemotron-super-vl"

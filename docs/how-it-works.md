@@ -86,8 +86,8 @@ start script you already have. **📋 Import** turns such a script into a recipe
 
 ### The easy way: copy what already works
 
-You rarely fill in a recipe by hand. **⚡ Quick recipe** takes a recipe that already runs and swaps in
-another model. Everything else (engine, settings, port) stays the same:
+You rarely fill in a recipe by hand. **⧉ Duplicate** takes a recipe that already runs and makes a copy
+for another model. Everything else (engine, settings, port) stays the same:
 
 ```mermaid
 flowchart LR

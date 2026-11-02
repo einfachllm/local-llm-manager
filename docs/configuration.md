@@ -38,7 +38,7 @@ Values marked *agent* matter only with `DGXM_MODE=agent`, *hub* only in the defa
 | `DGXM_DOCKER` | `docker` | Docker binary used to run Docker recipes - e.g. point it at `podman` where Docker is unavailable. |
 | `DGXM_DROP_CACHES_IMAGE` | `busybox:latest` | Image of the throwaway container that drops the page cache (`sync; echo 3 > /proc/sys/vm/drop_caches`) when the manager itself lacks permission. |
 | `DGXM_STOP_TIMEOUT` | `30` | Seconds a stop waits for a container / process to shut down cleanly before killing it. |
-| `DGXM_SEED` | `1` | `1` adds two example recipes to an *empty* database on first start; `0` starts with none. |
+| `DGXM_SEED` | `1` | `1` adds the qwen3.8 example recipe (and its weights entry) to an *empty* database on first start; `0` starts with none. |
 
 ## Storage
 

@@ -465,6 +465,9 @@ def _native_server(argv: list[str]) -> Optional[str]:
         return "tensorfold" if len(argv) > 1 and argv[1] == "serve" else None
     if prog == "vllm":
         return "process-custom" if len(argv) > 1 and argv[1] == "serve" else None
+    if prog == "sglang":
+        # The SGLang CLI (`sglang serve ...`) and the module form are both native servers.
+        return "process-custom" if len(argv) > 1 and argv[1] in ("serve", "launch_server") else None
     if prog in NATIVE_SERVERS:
         return NATIVE_SERVERS[prog]
     if prog.startswith("python") and len(argv) > 2 and argv[1] == "-m":
@@ -545,7 +548,7 @@ async def import_script(script: str) -> dict[str, Any]:
             lines = _unique_lines(skipped)
             raise ScriptImportError(
                 "The script neither ran `docker run` nor a known model server (mlx_lm.server, "
-                "llama-server, vllm serve, python -m sglang.launch_server, ...)."
+                "llama-server, vllm serve, sglang serve, python -m sglang.launch_server, ...)."
                 + ("\n\nSkipped commands:\n" + "\n".join(lines[:20]) if lines else "")
                 + (f"\n\nScript output:\n{output.strip()}" if output.strip() else ""))
         recipe, warnings = recipe_from_process_argv(server, description)

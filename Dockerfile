@@ -12,6 +12,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY local_llm_manager ./local_llm_manager
+COPY examples ./examples
 COPY LICENSE NOTICE ./
 
 ENV DGXM_DB=/data/manager.db PYTHONUNBUFFERED=1

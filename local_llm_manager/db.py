@@ -492,6 +492,9 @@ class Database:
     def list_events(self, limit: int = 200) -> list[dict]:
         return self._query("SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,))
 
+    def clear_events(self) -> None:
+        self._execute("DELETE FROM events")
+
     # ---- self-monitoring ------------------------------------------------
 
     def ping(self) -> bool:
