@@ -441,6 +441,60 @@
   
   
     <li class="md-nav__item">
+      <a href="../how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../configuration/" class="md-nav__link">
         
   
@@ -572,7 +626,7 @@
 </table>
 <h2 id="before-you-start">Before you start<a class="headerlink" href="#before-you-start" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Weights:</strong> compact recipes name a registered entry (<code>weights:</code>). Create it in the <strong>Weights</strong> tab with the folder on each host that runs the recipe, or change the name in the file. If a main model and a draft model share a folder, register that folder once, mount it, and point <code>model:</code> at the subfolder (see <code>nemotron-3.5-super-vl.yaml</code>). Starter scripts mount a concrete folder; download the model there, or point the volume at your copy. "Search hosts" in the <strong>Weights</strong> tab finds model folders under <code>DGXM_MODEL_DIR</code> and registers them.</li>
+<li><strong>Weights:</strong> compact recipes name a registered entry (<code>weights:</code>). Create it in the <strong>Weights</strong> tab with the folder on each host that runs the recipe, or change the name in the file. If a main model and a draft model share a folder, register that folder once, mount it, and point <code>model:</code> at the subfolder (see <code>nemotron-3.5-super-vl.yaml</code>). Starter scripts mount a concrete folder; download the model there, or point the volume at your copy. The <strong>Weights</strong> tab finds model folders under <code>DGXM_MODEL_DIR</code> by itself and offers them under "Found on your hosts".</li>
 <li><strong>Ports:</strong> the port in <code>host_port:</code> / <code>port:</code> / <code>--port</code> becomes the recipe's port. Keep it the <strong>same across models</strong> you want to switch between, and give each <code>--served-model-name</code> a stable short name - then <strong>Switch to</strong> changes the model and your agents keep the same endpoint <code>http://&lt;host&gt;:&lt;port&gt;/v1</code>.</li>
 <li><strong>Secrets:</strong> files list only bare names (e.g. <code>HF_TOKEN</code>); put the values in the manager's <code>.env</code> (see <a href="../configuration/">Configuration</a>).</li>
 <li><strong>vLLM images:</strong> the preset command starts with <code>vllm serve</code>. For <code>vllm/vllm-openai</code> (whose entrypoint already runs <code>vllm serve</code>), the manager drops the duplicate; images with a plain <code>vllm</code> entrypoint keep <code>serve</code>. The preview shows the actual command.</li>

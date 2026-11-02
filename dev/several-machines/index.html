@@ -16,7 +16,7 @@
         <link rel="prev" href="../recipes/">
       
       
-        <link rel="next" href="../configuration/">
+        <link rel="next" href="../how-it-works/">
       
       
         
@@ -474,6 +474,60 @@
   
   
     <li class="md-nav__item">
+      <a href="../how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../configuration/" class="md-nav__link">
         
   
@@ -603,7 +657,9 @@
 <h1 id="several-machines">Several machines<a class="headerlink" href="#several-machines" title="Permanent link">&para;</a></h1>
 <p>One installation is the <strong>hub</strong>: it serves the dashboard and stores recipes, schedules and the activity
 log. Every other machine runs the same app as an <strong>agent</strong>, which only carries out what the hub tells
-it to. Agents never connect to the hub.</p>
+it to. Only two things go the other way: an agent can <em>ask</em> the hub to add it, and machines copy weights
+straight from each other once the hub has arranged it. The <a href="../architecture/">Architecture</a> page shows
+all of this as diagrams.</p>
 <div class="highlight"><pre><span></span><code> your browser ──:8090──▶  HUB (dashboard, recipes, schedules)
                            │
                            ├──:8090──▶  AGENT  e.g. Mac Studio
@@ -660,11 +716,11 @@ they run.</p>
 <ul>
 <li><strong>Images:</strong> in the <strong>Images</strong> tab, <strong>⤓ Pull…</strong> on an image runs <code>docker pull</code> on the machines you tick,
   all at once (private registries: <code>docker login</code> on each machine once).</li>
-<li><strong>Weights from Hugging Face:</strong> in the <strong>Weights</strong> tab, <strong>⬇ Download on hosts…</strong>. By default only the first
+<li><strong>Weights from Hugging Face:</strong> in the <strong>Weights</strong> tab, <strong>⬇ Download from Hugging Face…</strong>. By default only the first
   ticked machine downloads; the others then copy from it over your network, so the model comes over the
   internet once. Needs the <code>hf</code> command there (<code>pip install -U huggingface_hub</code>); gated models need
   <code>HF_TOKEN</code> in that machine's <code>.env</code>.</li>
-<li><strong>Weights already on a machine</strong> (e.g. from your SSD): <strong>⇉ Copy…</strong> on the weights entry. Machines copy
+<li><strong>Weights already on a machine</strong> (e.g. from your SSD): <strong>⇉ Copy to other hosts…</strong> on the model's row. Machines copy
   straight from each other - the hub only arranges it - like a snowball: each machine that has the weights
   serves one copy at a time and every finished machine joins in, so 5 machines are done in 3 rounds.
   Every file is checked with SHA-256, files a machine already has are skipped, an interrupted copy
@@ -701,12 +757,22 @@ one copy for good, <strong>unlink</strong> it: it becomes a recipe of its own. D
 <td>the machine running it, the recipe's port (e.g. <code>8100</code>)</td>
 <td>The model's API at <code>http://&lt;machine&gt;:&lt;port&gt;/v1</code></td>
 </tr>
+<tr>
+<td>Agent</td>
+<td>hub, port <code>8090</code></td>
+<td>Only with <code>DGXM_HUB_URL</code>: asking to be added, reporting a changed address</td>
+</tr>
+<tr>
+<td>Agent</td>
+<td>other agents, port <code>8090</code></td>
+<td>Copying weights (read-only share with a ticket)</td>
+</tr>
 </tbody>
 </table>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>Keep all of this inside one private network – ideally Tailscale, see below – and never expose these
-ports to the internet. Traffic between hub and agents is plain HTTP.</p>
+ports to the internet. Traffic between hub and agents, and between agents copying weights, is plain HTTP unless you use Tailscale or HTTPS addresses.</p>
 </div>
 <h2 id="recommended-tailscale">Recommended: Tailscale<a class="headerlink" href="#recommended-tailscale" title="Permanent link">&para;</a></h2>
 <p><a href="https://tailscale.com">Tailscale</a> puts all your machines and your phone into one private, encrypted
@@ -794,13 +860,13 @@ the service fails and systemd or launchd retries it.</p>
         
         
           
-          <a href="../configuration/" class="md-footer__link md-footer__link--next" aria-label="Next: Configuration">
+          <a href="../how-it-works/" class="md-footer__link md-footer__link--next" aria-label="Next: How it works">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Configuration
+                How it works
               </div>
             </div>
             <div class="md-footer__button md-icon">

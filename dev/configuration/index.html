@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://einfachllm.github.io/local-llm-manager/dev/configuration/">
       
       
-        <link rel="prev" href="../several-machines/">
+        <link rel="prev" href="../architecture/">
       
       
       
@@ -351,6 +351,60 @@
     
   
     Several machines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
   
 
     
@@ -725,12 +779,12 @@ or rerun the installer).</p>
 <tr>
 <td><code>DGXM_MODEL_DIR</code></td>
 <td><code>~/models</code></td>
-<td>Directories scanned for local model folders and <code>.gguf</code> files (Weights tab, "Search hosts", presence checks). Comma- or whitespace-separated, several allowed, searched up to three levels deep.</td>
+<td>Directories scanned for local model folders and <code>.gguf</code> files (Weights tab: "Found on your hosts" and presence checks). Comma- or whitespace-separated, several allowed, searched up to three levels deep.</td>
 </tr>
 <tr>
 <td><code>DGXM_HF_BIN</code></td>
 <td><code>hf</code>, else <code>huggingface-cli</code></td>
-<td>Hugging Face CLI used by "Download on hosts" (Weights tab); downloads go into the first <code>DGXM_MODEL_DIR</code>. Gated models need <code>HF_TOKEN</code> in this machine's <code>.env</code>.</td>
+<td>Hugging Face CLI used by "Download from Hugging Face" (Weights tab); downloads go into the first <code>DGXM_MODEL_DIR</code>. Gated models need <code>HF_TOKEN</code> in this machine's <code>.env</code>.</td>
 </tr>
 <tr>
 <td><code>DGXM_PUBLIC_URL</code></td>
@@ -889,7 +943,7 @@ passed in here (for Hermes: <code>model.base_url</code> in <code>~/.hermes/confi
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../several-machines/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Several machines">
+          <a href="../architecture/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Architecture">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -899,7 +953,7 @@ passed in here (for Hermes: <code>model.base_url</code> in <code>~/.hermes/confi
                 Previous
               </span>
               <div class="md-ellipsis">
-                Several machines
+                Architecture
               </div>
             </div>
           </a>

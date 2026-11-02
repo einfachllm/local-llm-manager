@@ -1,0 +1,1207 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Run, switch and schedule local LLM servers (vLLM, SGLang, llama.cpp, TensorFold) across your GPU machines.">
+      
+      
+      
+        <link rel="canonical" href="https://einfachllm.github.io/local-llm-manager/dev/architecture/">
+      
+      
+        <link rel="prev" href="../how-it-works/">
+      
+      
+        <link rel="next" href="../configuration/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Architecture - Local LLM Manager</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Local LLM Manager" class="md-header__button md-logo" aria-label="Local LLM Manager" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Local LLM Manager
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/einfachllm/local-llm-manager" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    einfachllm/local-llm-manager
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Local LLM Manager" class="md-nav__button md-logo" aria-label="Local LLM Manager" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Local LLM Manager
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/einfachllm/local-llm-manager" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    einfachllm/local-llm-manager
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../several-machines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several machines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-big-picture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The big picture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inside-one-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inside one process
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-holds-which-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who holds which key
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-what-the-5-second-refresh-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status: what the 5-second refresh does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#starting-or-switching-a-model-on-an-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting or switching a model on an agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-a-machine-that-asks-to-join" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding a machine that asks to join
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#getting-images-and-weights-onto-the-machines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting images and weights onto the machines
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Getting images and weights onto the machines">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#copying-weights-host-to-host-like-a-snowball" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Copying weights: host to host, like a snowball
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#copies-of-one-recipe-on-several-machines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Copies of one recipe on several machines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#network-ports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network ports
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-big-picture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The big picture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inside-one-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inside one process
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-holds-which-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who holds which key
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-what-the-5-second-refresh-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status: what the 5-second refresh does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#starting-or-switching-a-model-on-an-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting or switching a model on an agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-a-machine-that-asks-to-join" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding a machine that asks to join
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#getting-images-and-weights-onto-the-machines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting images and weights onto the machines
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Getting images and weights onto the machines">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#copying-weights-host-to-host-like-a-snowball" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Copying weights: host to host, like a snowball
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#copies-of-one-recipe-on-several-machines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Copies of one recipe on several machines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#network-ports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network ports
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/einfachllm/local-llm-manager/edit/main/docs/architecture.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
+<p>How the hub and the agents work together: who talks to whom, what each side stores and decides,
+and what happens on the network when you start a model, add a machine or copy weights. This page is for
+administrators; <a href="../how-it-works/">How it works</a> explains the same in pictures, without the technical details.</p>
+<div class="admonition info">
+<p class="admonition-title">One app, two modes</p>
+<p>The hub and the agents are the <strong>same program</strong>. <code>DGXM_MODE</code> picks the role: the default <code>hub</code> serves
+the dashboard and stores everything; <code>agent</code> only runs what a hub asks for and has no database, no
+dashboard and no scheduler. A hub controls its own machine directly, so a single machine needs no agent.</p>
+</div>
+<h2 id="the-big-picture">The big picture<a class="headerlink" href="#the-big-picture" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart TB
+    browser["🌐 Browser / phone&lt;br/&gt;(dashboard)"]
+    apps["🧩 Apps using a model&lt;br/&gt;(OpenAI-compatible clients)"]
+
+    subgraph hubhost["Hub machine"]
+        hub["&lt;b&gt;Hub&lt;/b&gt; :8090&lt;br/&gt;dashboard · REST API · scheduler&lt;br/&gt;recipes · jobs · SQLite"]
+        m0[("models")]
+        hub -. "runs directly" .-&gt; m0
+    end
+
+    subgraph a1host["Machine A (Spark)"]
+        a1["&lt;b&gt;Agent&lt;/b&gt; :8090&lt;br/&gt;/agent/v1/…"]
+        m1[("models&lt;br/&gt;Docker / native")]
+        a1 -. "runs" .-&gt; m1
+    end
+
+    subgraph a2host["Machine B (Mac)"]
+        a2["&lt;b&gt;Agent&lt;/b&gt; :8090&lt;br/&gt;/agent/v1/…"]
+        m2[("models&lt;br/&gt;Docker / native")]
+        a2 -. "runs" .-&gt; m2
+    end
+
+    browser == "HTTP Basic auth" ==&gt; hub
+    hub == "Bearer agent token" ==&gt; a1
+    hub == "Bearer agent token" ==&gt; a2
+    a1 &lt;-. "weight copies&lt;br/&gt;(share ticket)" .-&gt; a2
+    a2 -. "join request (optional)" .-&gt; hub
+    apps -- "model API on the recipe's port,&lt;br/&gt;e.g. machine-a:8100/v1" --&gt; m1</code></pre>
+<ul>
+<li><strong>Solid lines</strong> are the control path. Only the browser talks to the hub, and only the hub talks to the
+  agents' API.</li>
+<li><strong>Dotted lines</strong> are the exceptions: an agent with <code>DGXM_HUB_URL</code> <em>asks</em> the hub to add it, and machines
+  copy weights <em>straight from each other</em> after the hub has arranged it.</li>
+<li><strong>Model traffic never passes through the manager.</strong> Apps call the model server on its own port on the
+  machine that runs it.</li>
+</ul>
+<h2 id="inside-one-process">Inside one process<a class="headerlink" href="#inside-one-process" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart TB
+    subgraph hubp["Hub process (DGXM_MODE=hub)"]
+        direction TB
+        ui["Dashboard&lt;br/&gt;(static app.js)"]
+        api["REST API /api/…&lt;br/&gt;auth · CSRF · lockout"]
+        sched["Scheduler&lt;br/&gt;cron / weekdays / one-shot"]
+        mgr["Manager&lt;br/&gt;rules · per-host locks · jobs"]
+        db[("SQLite&lt;br/&gt;recipes · hosts · weights&lt;br/&gt;schedules · events · join requests")]
+        lex["LocalExecutor"]
+        rex["RemoteExecutor&lt;br/&gt;(one per agent host)"]
+        ui --&gt; api --&gt; mgr
+        sched --&gt; mgr
+        mgr &lt;--&gt; db
+        mgr --&gt; lex
+        mgr --&gt; rex
+    end
+
+    subgraph agentp["Agent process (DGXM_MODE=agent)"]
+        direction TB
+        aapi["Agent API /agent/v1/…&lt;br/&gt;Bearer token"]
+        alex["LocalExecutor"]
+        tr["Transfers&lt;br/&gt;pull · download · copy"]
+        sh["Shares&lt;br/&gt;read-only, ticket"]
+        jn["Joiner → hub /api/join&lt;br/&gt;(if DGXM_HUB_URL)"]
+        aapi --&gt; alex
+        alex --&gt; tr
+        alex --&gt; sh
+    end
+
+    rex -- "HTTP(S) + token" --&gt; aapi
+    lex --&gt; dk["Docker / native processes&lt;br/&gt;on the hub machine"]
+    alex --&gt; dk2["Docker / native processes&lt;br/&gt;on the agent machine"]</code></pre>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Lives on</th>
+<th>Does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Manager</strong></td>
+<td>hub</td>
+<td>Owns the rules: port conflicts, memory check, weights check, what <em>Switch to</em> stops, the activity log, background jobs. Picks an executor per host.</td>
+</tr>
+<tr>
+<td><strong>LocalExecutor</strong></td>
+<td>hub and every agent</td>
+<td>Does the actual work on <em>its own</em> machine: <code>docker run/stop</code>, native processes, logs, health checks, <code>/metrics</code>, transfers and shares.</td>
+</tr>
+<tr>
+<td><strong>RemoteExecutor</strong></td>
+<td>hub</td>
+<td>The same interface as LocalExecutor, but every call becomes a request to an agent's <code>/agent/v1/…</code>.</td>
+</tr>
+<tr>
+<td><strong>Scheduler</strong></td>
+<td>hub</td>
+<td>Fires schedules through the Manager, exactly like a click in the dashboard. Agents have no clock of their own.</td>
+</tr>
+<tr>
+<td><strong>Database</strong></td>
+<td>hub</td>
+<td>Everything persistent. Agents keep only process state files, logs and a checksum cache.</td>
+</tr>
+</tbody>
+</table>
+<p>Because the hub's own machine and an agent go through the same executor interface, every feature works
+the same on a single machine and on many.</p>
+<h2 id="who-holds-which-key">Who holds which key<a class="headerlink" href="#who-holds-which-key" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart LR
+    you(["You"]) -- "DGXM_USER / DGXM_PASSWORD&lt;br/&gt;(HTTP Basic)" --&gt; hub["Hub"]
+    hub -- "DGXM_AGENT_TOKEN of that agent&lt;br/&gt;(stored in the hub's DB)" --&gt; agent["Agent"]
+    agent -- "share ticket&lt;br/&gt;(one folder, read-only, 6 h)" --&gt; other["Other agent&lt;br/&gt;copying weights"]
+    newagent["New agent"] -- "POST /api/join&lt;br/&gt;(no login, only lands in a list)" --&gt; hub</code></pre>
+<ul>
+<li>The <strong>agent token</strong> gives full control over models on that machine. Only the hub has it; it is never sent
+  to the browser.</li>
+<li>A <strong>share ticket</strong> only allows listing and reading the files below one path, for 6 hours. The copying
+  machine never sees the source's agent token, and no SSH is involved.</li>
+<li>A <strong>join request</strong> proves nothing on its own: it only appears under <em>Hosts → Asking to be added</em> until
+  someone compares the join code and approves it.</li>
+</ul>
+<h2 id="status-what-the-5-second-refresh-does">Status: what the 5-second refresh does<a class="headerlink" href="#status-what-the-5-second-refresh-does" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant B as Browser
+    participant H as Hub
+    participant A as Agent (machine A)
+    participant M as Model server on A
+
+    loop every 5 s while the tab is visible
+        B-&gt;&gt;H: GET /api/recipes
+        par one request per host, all hosts at once
+            H-&gt;&gt;A: POST /agent/v1/statuses (all recipes of A)
+            A-&gt;&gt;A: docker ps / process state
+            A-&gt;&gt;M: GET health path (e.g. /health)
+            A-&gt;&gt;M: GET /metrics (tokens/s, requests, KV cache)
+            A--&gt;&gt;H: status + stats per recipe
+        end
+        H--&gt;&gt;B: recipes with status (offline if a host did not answer)
+    end</code></pre>
+<p>The hub asks each host <strong>once</strong> per refresh for all of its recipes, so many recipes on one machine
+cost one request. A host that does not answer shows its recipes as <em>offline</em> without slowing the others.</p>
+<h2 id="starting-or-switching-a-model-on-an-agent">Starting or switching a model on an agent<a class="headerlink" href="#starting-or-switching-a-model-on-an-agent" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant U as You / Scheduler
+    participant H as Hub (Manager)
+    participant A as Agent
+    participant D as Docker / process on A
+
+    U-&gt;&gt;H: Switch to "Qwen 32B" (host A)
+    H-&gt;&gt;H: take host A's lock
+    H-&gt;&gt;A: statuses of every recipe on A
+    A--&gt;&gt;H: running / stopped
+    H-&gt;&gt;H: checks: port free? enough memory?&lt;br/&gt;weights path known and present?
+    loop every other running model on A
+        H-&gt;&gt;A: POST /agent/v1/stop
+        A-&gt;&gt;D: docker stop / end process
+    end
+    H-&gt;&gt;A: POST /agent/v1/drop-caches
+    H-&gt;&gt;H: fill {weights} with A's path
+    H-&gt;&gt;A: POST /agent/v1/start (complete recipe)
+    A-&gt;&gt;D: docker run … / start process
+    A--&gt;&gt;H: started
+    H-&gt;&gt;H: log event, release lock
+    H--&gt;&gt;U: "started"
+    Note over H,A: The status refresh then shows&lt;br/&gt;loading → ready once the health check passes.</code></pre>
+<ul>
+<li><strong>The hub sends the complete recipe</strong> with every start, so an agent needs no copy of recipes and a
+  recipe moved to another host just works. <code>{weights}</code> becomes the path <em>on that host</em>.</li>
+<li><strong>One lock per host:</strong> actions on the same machine (dashboard, scheduler, jobs) run one after another;
+  a slow start on machine A (e.g. pulling a large image) does not hold up machine B.</li>
+</ul>
+<h2 id="adding-a-machine-that-asks-to-join">Adding a machine that asks to join<a class="headerlink" href="#adding-a-machine-that-asks-to-join" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant A as New agent&lt;br/&gt;(DGXM_HUB_URL set)
+    participant H as Hub
+    participant U as You (dashboard)
+
+    A-&gt;&gt;A: join code = from its token, e.g. K7Q2-X9PM&lt;br/&gt;(shown by installer, log, start page)
+    loop every 30 s until decided
+        A-&gt;&gt;H: POST /api/join {name, url, token, version}
+        H--&gt;&gt;A: pending
+    end
+    H-&gt;&gt;U: Hosts → "Asking to be added" (with code)
+    U-&gt;&gt;U: compare the codes on both screens
+    U-&gt;&gt;H: Codes match – add
+    H-&gt;&gt;H: create host with the agent's URL + token
+    A-&gt;&gt;H: POST /api/join
+    H--&gt;&gt;A: approved
+    loop every 10 min
+        A-&gt;&gt;H: POST /api/join (current address)
+        Note right of H: only the holder of the approved&lt;br/&gt;token can change the address
+    end</code></pre>
+<p>Rejected machines stay blocked for a week; requests nobody answers expire after an hour.</p>
+<h2 id="getting-images-and-weights-onto-the-machines">Getting images and weights onto the machines<a class="headerlink" href="#getting-images-and-weights-onto-the-machines" title="Permanent link">&para;</a></h2>
+<p>Pulls and downloads are <strong>jobs</strong>: the hub starts a task on each machine and then only asks how it is going.
+The machines do the work themselves, so a hub restart or a closed browser does not interrupt them.</p>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant B as Browser (jobs panel)
+    participant H as Hub
+    participant A as Agent A
+    participant C as Agent B
+    participant HF as Hugging Face / registry
+
+    B-&gt;&gt;H: POST /api/jobs/pull (image, hosts A + B)
+    par
+        H-&gt;&gt;A: POST /agent/v1/transfers {kind: pull}
+        A-&gt;&gt;HF: docker pull
+    and
+        H-&gt;&gt;C: POST /agent/v1/transfers {kind: pull}
+        C-&gt;&gt;HF: docker pull
+    end
+    loop every 3 s until both are done
+        H-&gt;&gt;A: GET /agent/v1/transfers/{id}
+        A--&gt;&gt;H: output, GB so far
+        H-&gt;&gt;C: GET /agent/v1/transfers/{id}
+        C--&gt;&gt;H: output, GB so far
+    end
+    B-&gt;&gt;H: GET /api/jobs
+    H--&gt;&gt;B: progress per host (also after a reload)</code></pre>
+<h3 id="copying-weights-host-to-host-like-a-snowball">Copying weights: host to host, like a snowball<a class="headerlink" href="#copying-weights-host-to-host-like-a-snowball" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant H as Hub
+    participant S as Source (has weights)
+    participant T as Target
+
+    H-&gt;&gt;S: POST /agent/v1/shares {path}
+    S--&gt;&gt;H: share id + ticket (read-only, 6 h)
+    H-&gt;&gt;T: POST /agent/v1/transfers {kind: copy, source URL, share}
+    T-&gt;&gt;S: list files (x-share-ticket)
+    S--&gt;&gt;T: names, sizes, SHA-256
+    par 4 files at a time, 4 MB pieces
+        T-&gt;&gt;S: GET file (resume from where it stopped)
+    end
+    T-&gt;&gt;T: check SHA-256 of every file
+    H-&gt;&gt;T: GET /agent/v1/transfers/{id} (GB, MB/s, time left)
+    H-&gt;&gt;H: register T's path in the Weights tab</code></pre>
+<p>Every machine that finishes becomes a source for the next one. With one machine that has the weights and
+four that need them, the copy takes three rounds instead of four:</p>
+<pre class="mermaid"><code>flowchart LR
+    subgraph r1["Round 1"]
+        s1["Spark 1 ✓"] --&gt; t2["Spark 2"]
+    end
+    subgraph r2["Round 2"]
+        s1b["Spark 1 ✓"] --&gt; t3["Spark 3"]
+        s2b["Spark 2 ✓"] --&gt; t4["Spark 4"]
+    end
+    subgraph r3["Round 3"]
+        s1c["Spark 1 ✓"] --&gt; t5["Spark 5"]
+    end
+    r1 --&gt; r2 --&gt; r3</code></pre>
+<p><em>Download on hosts</em> uses the same mechanism: the first ticked machine downloads from Hugging Face, and the
+others copy from it, so the model comes over the internet only once.</p>
+<h2 id="copies-of-one-recipe-on-several-machines">Copies of one recipe on several machines<a class="headerlink" href="#copies-of-one-recipe-on-several-machines" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart TB
+    save(["You save the original"]) --&gt; orig
+    orig["&lt;b&gt;Original&lt;/b&gt;&lt;br/&gt;Qwen 32B · Spark 1 · port 8100"]
+    orig -- "copy_of" --- c2["Copy · Spark 2&lt;br/&gt;✓ in sync"]
+    orig -- "copy_of" --- c3["Copy · Spark 3&lt;br/&gt;⟳ differs"]
+    orig -- "copy_of" --- c4["Copy · Spark 4&lt;br/&gt;✓ in sync"]
+    c2 &amp; c3 &amp; c4 --&gt; job["Restart job on the hub&lt;br/&gt;hosts in parallel"]</code></pre>
+<p>When you save the original, the hub offers to update every copy and to restart the running ones. Copies are rows in the hub's database that point at their original (<code>copy_of</code>). They keep their own name,
+container name, host and pin; everything else follows the original. Restarts after a sync run as a
+background job: all hosts at the same time, one after another on the same host.</p>
+<h2 id="network-ports">Network ports<a class="headerlink" href="#network-ports" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>From</th>
+<th>To</th>
+<th>Port</th>
+<th>Encrypted?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Browser</td>
+<td>hub</td>
+<td><code>8090</code> (<code>DGXM_PORT</code>)</td>
+<td>with Tailscale or <code>tailscale serve</code> / a reverse proxy</td>
+</tr>
+<tr>
+<td>Hub</td>
+<td>each agent</td>
+<td><code>8090</code></td>
+<td>with Tailscale or an <code>https://</code> agent URL</td>
+</tr>
+<tr>
+<td>Agent</td>
+<td>hub (join only)</td>
+<td><code>8090</code></td>
+<td>as above</td>
+</tr>
+<tr>
+<td>Agent</td>
+<td>agent (weight copies)</td>
+<td><code>8090</code></td>
+<td>as above; the copy dialog warns about plain HTTP</td>
+</tr>
+<tr>
+<td>Apps</td>
+<td>model server</td>
+<td>recipe port, e.g. <code>8100</code></td>
+<td>as the model server provides it</td>
+</tr>
+</tbody>
+</table>
+<p>The Hosts tab marks each host 🔒 Tailscale, 🔒 HTTPS or ⚠ plain HTTP. See
+<a href="../several-machines/#recommended-tailscale">Several machines → Tailscale</a> for the recommended setup.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../how-it-works/" class="md-footer__link md-footer__link--prev" aria-label="Previous: How it works">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                How it works
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../configuration/" class="md-footer__link md-footer__link--next" aria-label="Next: Configuration">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Configuration
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "navigation.footer", "search.highlight", "content.code.copy", "content.tabs.link", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

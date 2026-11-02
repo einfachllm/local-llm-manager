@@ -428,6 +428,60 @@
   
   
     <li class="md-nav__item">
+      <a href="how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="configuration/" class="md-nav__link">
         
   
@@ -523,13 +577,14 @@ silicon, or any Linux box – from any browser on your network.</p>
 <li><strong>Live status, logs and stats:</strong> loading / ready / failed, tokens per second, running requests and
   KV-cache usage.</li>
 <li><strong>Schedules</strong> start, stop or switch models at set times.</li>
-<li><strong>Several machines, one dashboard:</strong> e.g. a DGX Spark and a Mac Studio side by side.</li>
+<li>
+<p><strong>Several machines, one dashboard:</strong> e.g. a DGX Spark and a Mac Studio side by side.</p>
+</li>
+<li>
+<p><strong>Images and weights on every machine:</strong> pull Docker images, download from Hugging Face and copy weights
+  from machine to machine (checked with SHA-256).</p>
+</li>
 </ul>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Model weights and Docker images must already be on the machine that runs them; the manager does not
-download them.</p>
-</div>
 <h2 id="where-to-start">Where to start<a class="headerlink" href="#where-to-start" title="Permanent link">&para;</a></h2>
 <div class="grid cards">
 <ul>
@@ -540,6 +595,14 @@ download them.</p>
 <li>
 <p><strong><a href="several-machines/">Several machines</a></strong></p>
 <p>Add more machines as agents and control them all from one dashboard.</p>
+</li>
+<li>
+<p><strong><a href="how-it-works/">How it works</a></strong></p>
+<p>The idea in pictures: one dashboard, all your machines, models shared between them.</p>
+</li>
+<li>
+<p><strong><a href="architecture/">Architecture</a></strong></p>
+<p>For administrators: what talks to what, ports, keys and every step on the network.</p>
 </li>
 </ul>
 </div>

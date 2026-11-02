@@ -474,6 +474,60 @@
   
   
     <li class="md-nav__item">
+      <a href="../how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../configuration/" class="md-nav__link">
         
   
@@ -652,22 +706,23 @@ cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 and restart the service.</p>
 <h2 id="3-start-your-first-model">3. Start your first model<a class="headerlink" href="#3-start-your-first-model" title="Permanent link">&para;</a></h2>
 <ol>
-<li>Click <strong>＋ Add recipe</strong> (shortcut <code>i</code>), then <strong>use Quick recipe</strong> in the dialog (shortcut <code>q</code>).</li>
-<li>Pick the <strong>Model</strong>: a folder or <code>.gguf</code> found in <code>DGXM_MODEL_DIR</code> on the host, registered weights, or a
-   Hugging Face id such as <code>Qwen/Qwen3-8B</code>.</li>
-<li>Pick <strong>Settings from</strong>: an engine default (vLLM, SGLang, llama.cpp, MLX on a Mac) or, once you have
-   one, a recipe that already works - its image, flags, env and caches are copied, only the model, name,
-   served model name and (optionally) the context length change.</li>
-<li>Check the <strong>Command</strong> shown below, then <strong>Create</strong>.</li>
-<li>Click <strong>Start</strong> on the new card. The status goes from <em>starting</em> to <em>loading</em> to <em>ready</em>.</li>
+<li>Click <strong>＋ Add recipe</strong> (shortcut <code>i</code>).</li>
+<li>
+<p>Paste a <strong>YAML recipe</strong> or a <strong>shell script</strong> / <code>docker run</code> command - or click <strong>YAML recipe</strong> or
+   <strong>shell script</strong> under the box for an example to edit. A YAML recipe only lists what differs from the
+   engine's defaults:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen3-8b</span>
+<span class="nt">framework</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vllm</span><span class="w">          </span><span class="c1"># vllm, sglang, llamacpp, mlx, …</span>
+<span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Qwen/Qwen3-8B</span><span class="w">     </span><span class="c1"># a Hugging Face id, or  weights: &lt;name in the Weights tab&gt;</span>
+<span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8101</span>
+</code></pre></div>
+<p>Scripts are checked for risky calls first; nothing in them is executed.
+3. <strong>Import</strong>, check the fields and the command preview, then <strong>Save</strong>.
+4. Click <strong>Start</strong> on the new card. The status goes from <em>starting</em> to <em>loading</em> to <em>ready</em>.</p>
+</li>
 </ol>
-<p>Every field by hand: <strong>＋ Add recipe</strong> → <strong>Start from scratch</strong>.</p>
-<div class="admonition tip">
-<p class="admonition-title">Already have a start script?</p>
-<p><strong>＋ Add recipe</strong> opens the import dialog directly. Paste the script, <code>docker run</code> command or a
-compact JSON/YAML recipe file; scripts are checked for risky calls first and nothing in them is
-executed. In the editor, <strong>Recipe file…</strong> exports the current settings the same way.</p>
-</div>
+<p>A second model with the same settings: <strong>⧉ Duplicate</strong> on the card, then change the model. In the editor,
+<strong>Recipe file…</strong> exports a recipe as YAML.</p>
 <p>When the model is ready, its OpenAI-compatible API is at the endpoint shown on the card:</p>
 <div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://&lt;machine&gt;:&lt;port&gt;/v1/models
 </code></pre></div>
