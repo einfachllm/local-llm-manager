@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://einfachllm.github.io/local-llm-manager/0.2/</loc>
+         <lastmod>2026-11-02</lastmod>
+    </url>
+    <url>
+         <loc>https://einfachllm.github.io/local-llm-manager/0.2/configuration/</loc>
+         <lastmod>2026-11-02</lastmod>
+    </url>
+    <url>
+         <loc>https://einfachllm.github.io/local-llm-manager/0.2/how-it-works/</loc>
+         <lastmod>2026-11-02</lastmod>
+    </url>
+    <url>
+         <loc>https://einfachllm.github.io/local-llm-manager/0.2/quick-start/</loc>
+         <lastmod>2026-11-02</lastmod>
+    </url>
+    <url>
+         <loc>https://einfachllm.github.io/local-llm-manager/0.2/recipes/</loc>
+         <lastmod>2026-11-02</lastmod>
+    </url>
+    <url>
+         <loc>https://einfachllm.github.io/local-llm-manager/0.2/several-machines/</loc>
+         <lastmod>2026-11-02</lastmod>
+    </url>
+    <url>
+         <loc>https://einfachllm.github.io/local-llm-manager/0.2/weights/</loc>
+         <lastmod>2026-11-02</lastmod>
+    </url>
+</urlset>

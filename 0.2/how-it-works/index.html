@@ -1,0 +1,1086 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Manage your best LLM recipes in one place and run them on all your machines - vLLM, SGLang, llama.cpp, MLX and TensorFold (experimental).">
+      
+      
+      
+        <link rel="canonical" href="https://einfachllm.github.io/local-llm-manager/0.2/how-it-works/">
+      
+      
+        <link rel="prev" href="../several-machines/">
+      
+      
+        <link rel="next" href="../configuration/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>How it works - Local LLM Manager</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#how-it-works" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Local LLM Manager" class="md-header__button md-logo" aria-label="Local LLM Manager" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Local LLM Manager
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              How it works
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/einfachllm/local-llm-manager" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    einfachllm/local-llm-manager
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Local LLM Manager" class="md-nav__button md-logo" aria-label="Local LLM Manager" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Local LLM Manager
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/einfachllm/local-llm-manager" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    einfachllm/local-llm-manager
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weights
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../several-machines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several machines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it works
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-idea-in-one-picture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The idea in one picture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recipes-one-card-per-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recipes: one card per model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recipes: one card per model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-engine-should-i-pick" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which engine should I pick?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-easy-way-copy-what-already-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The easy way: copy what already works
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#switching-to-another-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Switching to another model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-a-new-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding a new machine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#getting-a-model-onto-every-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting a model onto every machine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#one-setup-for-the-whole-team" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One setup for the whole team
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#is-it-safe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Is it safe?
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-idea-in-one-picture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The idea in one picture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recipes-one-card-per-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recipes: one card per model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recipes: one card per model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-engine-should-i-pick" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which engine should I pick?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-easy-way-copy-what-already-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The easy way: copy what already works
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#switching-to-another-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Switching to another model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-a-new-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding a new machine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#getting-a-model-onto-every-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting a model onto every machine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#one-setup-for-the-whole-team" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One setup for the whole team
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#is-it-safe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Is it safe?
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/einfachllm/local-llm-manager/edit/main/docs/how-it-works.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h1>
+<p>Local LLM Manager is a remote control for the AI models on your own computers. You open one web page,
+and from there you start, stop and switch models on every machine you have.</p>
+<h2 id="the-idea-in-one-picture">The idea in one picture<a class="headerlink" href="#the-idea-in-one-picture" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart LR
+    you["👩‍💻 &lt;b&gt;You&lt;/b&gt;&lt;br/&gt;laptop or phone"]
+    dash["🎛️ &lt;b&gt;Dashboard&lt;/b&gt;&lt;br/&gt;one web page for everything"]
+    subgraph machines["Your machines"]
+        direction LR
+        m1["🖥️ DGX Spark&lt;br/&gt;runs Qwen"]
+        m2["🍎 Mac Studio&lt;br/&gt;runs Llama"]
+        m3["🖥️ Second Spark&lt;br/&gt;runs Mistral"]
+    end
+    apps["💬 &lt;b&gt;Your apps&lt;/b&gt;&lt;br/&gt;chat, coding tools, …"]
+
+    you --&gt; dash
+    dash == "start · stop · switch" ==&gt; machines
+    apps -. "talk to the models directly" .-&gt; machines
+
+    classDef person fill:#f59e0b40,stroke:#d97706
+    classDef hub fill:#6366f140,stroke:#6366f1
+    classDef machine fill:#22c55e38,stroke:#16a34a
+    classDef app fill:#ec489938,stroke:#db2777
+    class you person
+    class dash hub
+    class m1,m2,m3 machine
+    class apps app</code></pre>
+<ul>
+<li><strong>The dashboard</strong> is the one place where you control everything. It runs on one of your machines (the
+  <em>hub</em>).</li>
+<li><strong>Every other machine</strong> has a small helper installed (an <em>agent</em>) that does what the dashboard asks.</li>
+<li><strong>Your apps talk to the models directly.</strong> The dashboard only switches models on and off. It never sees
+  your chats.</li>
+</ul>
+<div class="admonition tip">
+<p class="admonition-title">Only one machine?</p>
+<p>Then the dashboard and the models live on the same computer. You don't need anything else.</p>
+</div>
+<h2 id="recipes-one-card-per-model">Recipes: one card per model<a class="headerlink" href="#recipes-one-card-per-model" title="Permanent link">&para;</a></h2>
+<p>A <strong>recipe</strong> is a saved start button for one model. You set it up once; after that, starting the model
+is one click. Every recipe is made of three things:</p>
+<pre class="mermaid"><code>flowchart LR
+    w["📦 &lt;b&gt;The model&lt;/b&gt;&lt;br/&gt;e.g. Qwen 32B"]
+    e["⚙️ &lt;b&gt;The engine&lt;/b&gt;&lt;br/&gt;e.g. vLLM"]
+    h["🖥️ &lt;b&gt;The machine&lt;/b&gt;&lt;br/&gt;e.g. DGX Spark"]
+    r(["🃏 &lt;b&gt;Recipe card&lt;/b&gt;&lt;br/&gt;Qwen 32B on the Spark&lt;br/&gt;▶️ Start"])
+    w --&gt; r
+    e --&gt; r
+    h --&gt; r
+
+    classDef part fill:#6366f126,stroke:#6366f1
+    classDef card fill:#22c55e38,stroke:#16a34a
+    class w,e,h part
+    class r card</code></pre>
+<p>In the dashboard every recipe is a card - here grouped by machine, with a running agent on top:</p>
+<p><img alt="Recipe cards grouped by host, light theme" src="../screenshots/recipes-light.png" /></p>
+<p>You will soon have many recipes: one model in two sizes, the same model on several machines, a fast
+model for coding and a big one for hard questions. That is fine. Each card is independent, and
+<strong>Switch to</strong> makes sure only the right ones run.</p>
+<div class="admonition tip">
+<p class="admonition-title">Keep the list tidy</p>
+<p>Pin the recipes you use daily, give cards a colour or tags (e.g. <code>coding</code>, <code>chat</code>), and use the host
+filter at the top to see one machine at a time.</p>
+</div>
+<h3 id="which-engine-should-i-pick">Which engine should I pick?<a class="headerlink" href="#which-engine-should-i-pick" title="Permanent link">&para;</a></h3>
+<p>The <em>engine</em> (called <strong>framework</strong> in the recipe) is the program that runs the model. Several exist
+because they suit different machines and model files. You don't need to know them all, just use the first row that fits:</p>
+<table>
+<thead>
+<tr>
+<th>Your situation</th>
+<th>Pick</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>🍎 A Mac with Apple silicon</td>
+<td><strong>MLX</strong></td>
+<td>Made for Apple chips</td>
+</tr>
+<tr>
+<td>📄 The model is one <strong>.gguf</strong> file</td>
+<td><strong>llama.cpp</strong></td>
+<td>Small and simple, made for GGUF</td>
+</tr>
+<tr>
+<td>👥 Several people or tools use the model at once</td>
+<td><strong>vLLM</strong> (or <strong>SGLang</strong>)</td>
+<td>Fastest with many users at the same time</td>
+</tr>
+<tr>
+<td>👤 Just you, on a Linux / NVIDIA machine</td>
+<td><strong>vLLM</strong> or <strong>llama.cpp</strong></td>
+<td>Both are fine</td>
+</tr>
+</tbody>
+</table>
+<p>Everything else (<strong>TensorFold</strong>, experimental, and <strong>Custom</strong>) is for special cases: a program not in the list, or a
+start script you already have. <strong>📋 Import</strong> turns such a script into a recipe for you.</p>
+<h3 id="the-easy-way-copy-what-already-works">The easy way: copy what already works<a class="headerlink" href="#the-easy-way-copy-what-already-works" title="Permanent link">&para;</a></h3>
+<p>You rarely fill in a recipe by hand. <strong>⧉ Duplicate</strong> takes a recipe that already runs and makes a copy
+for another model. Everything else (engine, settings, port) stays the same:</p>
+<pre class="mermaid"><code>flowchart LR
+    a["✅ A recipe that works&lt;br/&gt;Qwen 32B · vLLM"]
+    b["📦 Another model&lt;br/&gt;Llama 70B"]
+    c(["🃏 New recipe&lt;br/&gt;Llama 70B · vLLM&lt;br/&gt;same settings"])
+    a -- "settings" --&gt; c
+    b -- "model" --&gt; c
+
+    classDef old fill:#6366f126,stroke:#6366f1
+    classDef new fill:#22c55e38,stroke:#16a34a
+    class a,b old
+    class c new</code></pre>
+<p>On the same machine, the new recipe even gets the same port, so your apps don't need any change: just
+<strong>Switch to</strong> the other model.</p>
+<h2 id="switching-to-another-model">Switching to another model<a class="headerlink" href="#switching-to-another-model" title="Permanent link">&para;</a></h2>
+<p>Most machines only have memory for one big model at a time. <strong>Switch to</strong> takes care of everything in one
+click:</p>
+<pre class="mermaid"><code>flowchart LR
+    a(["👆 &lt;b&gt;Switch to&lt;/b&gt;"]) --&gt; b["⏹️ Stop the others&lt;br/&gt;and free memory"]
+    b --&gt; c["▶️ Start&lt;br/&gt;the new model"]
+    c --&gt; f(["✅ Ready"])
+
+    classDef step fill:#6366f126,stroke:#6366f1
+    classDef go fill:#f59e0b40,stroke:#d97706
+    classDef done fill:#22c55e38,stroke:#16a34a
+    class b,c step
+    class a go
+    class f done</code></pre>
+<p>The card shows each step live. When it turns <strong>Ready</strong>, your apps can use the new model. You can close
+the browser at any point: the machine carries on by itself.</p>
+<div class="admonition example">
+<p class="admonition-title">Let it happen on a schedule</p>
+<p><em>Coding model during the day, a big reasoning model at night</em>: under <strong>Schedules</strong> the dashboard
+switches for you at set times, even when nobody has it open.</p>
+</div>
+<h2 id="adding-a-new-machine">Adding a new machine<a class="headerlink" href="#adding-a-new-machine" title="Permanent link">&para;</a></h2>
+<div class="grid cards">
+<ul>
+<li>
+<p><strong>1️⃣ Install</strong></p>
+<p>Install the manager on the new machine and tell it where the dashboard is.</p>
+</li>
+<li>
+<p><strong>2️⃣ Compare the code</strong></p>
+<p>The machine shows a short code, e.g. <strong>K7Q2-X9PM</strong>. The dashboard shows a code too.</p>
+</li>
+<li>
+<p><strong>3️⃣ Add it</strong></p>
+<p>Same code on both? Click <strong>Codes match – add</strong>. Done ✅</p>
+</li>
+</ul>
+</div>
+<p>The code works like the pairing code of a Bluetooth headset. If the two codes are the same, it is really
+your machine. If they differ, click <strong>Reject</strong>. The step by step guide is in
+<a href="../several-machines/">Several machines</a>.</p>
+<h2 id="getting-a-model-onto-every-machine">Getting a model onto every machine<a class="headerlink" href="#getting-a-model-onto-every-machine" title="Permanent link">&para;</a></h2>
+<p>Models are big: often 20 to 200 GB. The manager downloads a model from the internet <strong>once</strong>, and then the
+machines pass it on to each other over your own network, which is much faster.</p>
+<pre class="mermaid"><code>flowchart LR
+    net["☁️ Hugging Face&lt;br/&gt;(internet)"]
+    s1["🖥️ Spark 1"]
+    s2["🖥️ Spark 2"]
+    s3["🖥️ Spark 3"]
+    s4["🖥️ Spark 4"]
+    s5["🖥️ Spark 5"]
+
+    net == "download once" ==&gt; s1
+    s1 -- "copy" --&gt; s2
+    s1 -- "copy" --&gt; s3
+    s2 -- "copy" --&gt; s4
+    s1 -- "copy" --&gt; s5
+
+    classDef cloud fill:#f59e0b40,stroke:#d97706
+    classDef machine fill:#22c55e38,stroke:#16a34a
+    class net cloud
+    class s1,s2,s3,s4,s5 machine</code></pre>
+<p>Like a snowball, every machine that is finished helps the next one. Five machines are done in three
+rounds instead of five. Every file is checked on arrival, an interrupted copy continues where it stopped,
+and a progress panel shows how long it will take.</p>
+<h2 id="one-setup-for-the-whole-team">One setup for the whole team<a class="headerlink" href="#one-setup-for-the-whole-team" title="Permanent link">&para;</a></h2>
+<p>Example: everyone on the team has their own DGX Spark. Set the model up <strong>once</strong> and roll it out:</p>
+<pre class="mermaid"><code>flowchart TB
+    o["⭐ Your setup&lt;br/&gt;Qwen 32B"]
+    c1["👤 Anna's Spark&lt;br/&gt;✓ up to date"]
+    c2["👤 Ben's Spark&lt;br/&gt;✓ up to date"]
+    c3["👤 Chris's Spark&lt;br/&gt;⟳ needs update"]
+    o --&gt; c1 &amp; c2 &amp; c3
+
+    classDef main fill:#f59e0b40,stroke:#d97706
+    classDef ok fill:#22c55e38,stroke:#16a34a
+    classDef todo fill:#f9731640,stroke:#ea580c
+    class o main
+    class c1,c2 ok
+    class c3 todo</code></pre>
+<p>Everyone gets the same model at the same address. If you change the original later (a newer version,
+other settings), the dashboard offers to update all copies and restart them.</p>
+<h2 id="is-it-safe">Is it safe?<a class="headerlink" href="#is-it-safe" title="Permanent link">&para;</a></h2>
+<div class="grid cards">
+<ul>
+<li>
+<p>🏠 <strong>Stays at home</strong></p>
+<p>Everything runs on your own machines. Your prompts and answers never leave them.</p>
+</li>
+<li>
+<p>🔑 <strong>Password protected</strong></p>
+<p>The dashboard needs a password. Machines only obey the dashboard they were added to.</p>
+</li>
+<li>
+<p>🔒 <strong>Private network</strong></p>
+<p>With <a href="../several-machines/#recommended-tailscale">Tailscale</a> all traffic is encrypted, and it also works
+from your phone when you are away.</p>
+</li>
+<li>
+<p>✅ <strong>Checked copies</strong></p>
+<p>Every model file copied between machines is checked, so a broken download cannot start a model.</p>
+</li>
+</ul>
+</div>
+<div class="admonition info">
+<p class="admonition-title">Want the details?</p>
+<p><a href="../several-machines/#network-access">Several machines</a> lists which machine talks to which and on
+which port; <a href="../configuration/">Configuration</a> lists every setting.</p>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../several-machines/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Several machines">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Several machines
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../configuration/" class="md-footer__link md-footer__link--next" aria-label="Next: Configuration">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Configuration
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "navigation.footer", "search.highlight", "content.code.copy", "content.tabs.link", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

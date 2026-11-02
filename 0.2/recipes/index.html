@@ -1,0 +1,951 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Manage your best LLM recipes in one place and run them on all your machines - vLLM, SGLang, llama.cpp, MLX and TensorFold (experimental).">
+      
+      
+      
+        <link rel="canonical" href="https://einfachllm.github.io/local-llm-manager/0.2/recipes/">
+      
+      
+        <link rel="prev" href="../quick-start/">
+      
+      
+        <link rel="next" href="../weights/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Recipes - Local LLM Manager</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#recipes" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Local LLM Manager" class="md-header__button md-logo" aria-label="Local LLM Manager" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Local LLM Manager
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Recipes
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/einfachllm/local-llm-manager" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    einfachllm/local-llm-manager
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Local LLM Manager" class="md-nav__button md-logo" aria-label="Local LLM Manager" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Local LLM Manager
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/einfachllm/local-llm-manager" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    einfachllm/local-llm-manager
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipes
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#supported-engines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported engines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#add-a-recipe-paste-yaml-or-a-shell-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Add a recipe: paste YAML or a shell script
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#move-recipes-between-machines-and-managers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Move recipes between machines and managers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#importable-example-recipes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importable example recipes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#before-you-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before you start
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../weights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weights
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../several-machines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several machines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#supported-engines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported engines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#add-a-recipe-paste-yaml-or-a-shell-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Add a recipe: paste YAML or a shell script
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#move-recipes-between-machines-and-managers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Move recipes between machines and managers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#importable-example-recipes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importable example recipes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#before-you-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before you start
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/einfachllm/local-llm-manager/edit/main/docs/recipes.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="recipes">Recipes<a class="headerlink" href="#recipes" title="Permanent link">&para;</a></h1>
+<p>Recipes save how to start a model server (vLLM, SGLang, llama.cpp, MLX, TensorFold or any image / native binary) as a Docker container or a native process. You can also import an existing start script, <code>docker run</code> command or compact JSON/YAML recipe file, and export any recipe the same way.</p>
+<h2 id="supported-engines">Supported engines<a class="headerlink" href="#supported-engines" title="Permanent link">&para;</a></h2>
+<p>Every recipe names a <code>framework:</code>. The preset fills in the image, start command, container port and health
+check, so a recipe only writes down what differs from it.</p>
+<table>
+<thead>
+<tr>
+<th><code>framework:</code></th>
+<th>Engine</th>
+<th>Runs as</th>
+<th>Default image / command</th>
+<th>Good for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vllm</code></td>
+<td>vLLM</td>
+<td>Docker</td>
+<td><code>nvcr.io/nvidia/vllm:25.11-py3</code>, <code>vllm serve</code></td>
+<td>NVIDIA GPUs, DGX Spark, high throughput</td>
+</tr>
+<tr>
+<td><code>sglang</code></td>
+<td>SGLang</td>
+<td>Docker</td>
+<td><code>lmsysorg/sglang:spark</code>, <code>python3 -m sglang.launch_server</code></td>
+<td>NVIDIA GPUs, models that ship SGLang support first</td>
+</tr>
+<tr>
+<td><code>llamacpp</code></td>
+<td>llama.cpp server</td>
+<td>Docker</td>
+<td><code>ghcr.io/ggml-org/llama.cpp:server-cuda</code></td>
+<td><code>.gguf</code> files, smaller GPUs</td>
+</tr>
+<tr>
+<td><code>llamacpp-native</code></td>
+<td>llama.cpp server</td>
+<td>native process</td>
+<td><code>llama-server</code></td>
+<td><code>.gguf</code> on a Mac or without Docker</td>
+</tr>
+<tr>
+<td><code>mlx</code></td>
+<td>MLX</td>
+<td>native process</td>
+<td><code>mlx_lm.server</code></td>
+<td>Macs with Apple silicon</td>
+</tr>
+<tr>
+<td><code>tensorfold</code></td>
+<td>TensorFold <em>(experimental)</em></td>
+<td>native process</td>
+<td><code>tensorfold serve</code></td>
+<td>trying TensorFold</td>
+</tr>
+<tr>
+<td><code>custom</code> / <code>process-custom</code></td>
+<td>anything else</td>
+<td>Docker / native process</td>
+<td>your image or binary</td>
+<td>other servers, agents such as a Hermes gateway</td>
+</tr>
+</tbody>
+</table>
+<p>vLLM, SGLang, llama.cpp and MLX all serve an OpenAI-compatible API at <code>http://&lt;host&gt;:&lt;port&gt;/v1</code>, so your
+apps don't care which engine runs behind the endpoint. Live stats (tokens/s, requests, KV cache) come from
+the server's <code>/metrics</code>: on by default in vLLM, add <code>--enable-metrics</code> for SGLang and <code>--metrics</code> for
+llama.cpp.</p>
+<h2 id="add-a-recipe-paste-yaml-or-a-shell-script">Add a recipe: paste YAML or a shell script<a class="headerlink" href="#add-a-recipe-paste-yaml-or-a-shell-script" title="Permanent link">&para;</a></h2>
+<p>There is no form to fill in. Click <strong>＋ Add recipe</strong> (shortcut <code>i</code>) and paste one of:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">YAML recipe</label><label for="__tabbed_1_2">Shell script / docker run</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p>Only what differs from the engine's defaults - the framework preset fills in the rest:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen3-8b</span>
+<span class="nt">framework</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vllm</span><span class="w">          </span><span class="c1"># vllm, sglang, llamacpp, mlx, tensorfold, custom, …</span>
+<span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Qwen/Qwen3-8B</span><span class="w">     </span><span class="c1"># a Hugging Face id - or  weights: &lt;row in the Weights tab&gt;</span>
+<span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8101</span>
+<span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--max-model-len 32768 --gpu-memory-utilization 0.8</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>The start script you already use - a plain <code>docker run …</code>, or a script that computes values first:</p>
+<div class="highlight"><pre><span></span><code><span class="ch">#!/usr/bin/env bash</span>
+<span class="c1"># Flint served by SGLang      &lt;- the first comment line becomes the description</span>
+docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>--gpus<span class="w"> </span>all<span class="w"> </span>-p<span class="w"> </span><span class="m">30000</span>:30000<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-v<span class="w"> </span>~/.cache/huggingface:/root/.cache/huggingface<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>lmsysorg/sglang:spark<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>python3<span class="w"> </span>-m<span class="w"> </span>sglang.launch_server<span class="w"> </span>--model-path<span class="w"> </span>RecursiveSI/flint<span class="w"> </span>--port<span class="w"> </span><span class="m">30000</span>
+</code></pre></div>
+<p>The script is checked for risky lines first, then run with bash in a restricted mode in which only a
+fake <code>docker</code> (that records the command) and read-only text tools really run. Nothing is started.</p>
+</div>
+</div>
+</div>
+<p><img alt="Add a recipe: paste YAML or a shell script" src="../screenshots/add-recipe-dark.png" /></p>
+<p>Under the box, <strong>YAML recipe</strong> and <strong>shell script</strong> insert an example of each to edit. After <strong>Import</strong>
+the editor opens with every field filled and the exact <code>docker run</code> command beside it; check name, port
+and paths, then <strong>Save</strong>. For a variant of a recipe that already works, use <strong>⧉ Duplicate</strong> on its card.</p>
+<p><img alt="Recipe editor with the command preview" src="../screenshots/recipe-editor-dark.png" /></p>
+<h2 id="move-recipes-between-machines-and-managers">Move recipes between machines and managers<a class="headerlink" href="#move-recipes-between-machines-and-managers" title="Permanent link">&para;</a></h2>
+<p>A recipe is not tied to the machine it was written on:</p>
+<table>
+<thead>
+<tr>
+<th>You want to…</th>
+<th>Do this</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Run it on <strong>another host of the same dashboard</strong></td>
+<td>Change its <strong>Host</strong> field. With <code>{weights}</code> the model folder follows: each host mounts its own path from the <a href="../weights/">Weights</a> tab.</td>
+</tr>
+<tr>
+<td>Run it on <strong>several hosts at once</strong> and keep them equal</td>
+<td><strong>⇉</strong> on the card copies it to the hosts you tick; later changes to the original are offered to all copies, which can be restarted together. See <a href="../several-machines/#the-same-recipe-on-several-machines">Several machines</a>.</td>
+</tr>
+<tr>
+<td>Take it to <strong>another installation</strong> (a colleague's hub, a test instance) or into Git</td>
+<td>In the editor, <strong>Recipe file…</strong> shows the recipe as compact YAML or JSON - <strong>Copy</strong> or <strong>Download</strong> it, and paste it into <strong>＋ Add recipe</strong> on the other manager.</td>
+</tr>
+<tr>
+<td>Tweak a recipe as text</td>
+<td>Edit the YAML in <strong>Recipe file…</strong> and press <strong>Apply to editor</strong>; nothing is saved until you click <strong>Save</strong>.</td>
+</tr>
+</tbody>
+</table>
+<p>The recipe file contains everything the container needs - image, model, ports, arguments, environment
+names, volumes and extra Docker flags - but <strong>no secret values</strong>: a bare <code>HF_TOKEN</code> line is filled from
+the <code>.env</code> of the machine that runs it. Use <code>weights:</code> instead of fixed paths, and the same file works on
+every machine that has the model.</p>
+<h2 id="importable-example-recipes">Importable example recipes<a class="headerlink" href="#importable-example-recipes" title="Permanent link">&para;</a></h2>
+<p>Ready-made recipes you paste into the manager instead of typing fields: click <strong>＋ Add recipe</strong>, paste a whole file from <a href="https://github.com/einfachllm/local-llm-manager/tree/main/examples/recipes"><code>examples/recipes</code></a>, review the draft (name, port, paths) and create.</p>
+<p>Two formats are accepted:</p>
+<ul>
+<li><strong><code>.yaml</code> / <code>.json</code> - compact recipe files.</strong> The manager's own fields: image, model, ports, <code>args</code>, <code>env</code>, <code>volumes</code>, <code>docker_args</code>, command, health path, tags. Missing settings come from the framework preset, so only what differs is written down. <code>weights:</code> names a registered Weights-tab entry (its per-host path fills <code>{weights}</code>); omit <code>model:</code> for the usual <code>/model</code> mount, or set it to another path. <code>host_port:</code> is the port on the host (<code>port:</code> is shorthand for it). <code>args</code>, <code>env</code>, <code>volumes</code> and <code>docker_args</code> can be multi-line strings or lists.</li>
+<li><strong><code>.sh</code> - starter scripts / <code>docker run</code> commands.</strong> The manager checks the script, runs it with bash in a restricted mode and turns the captured <code>docker run</code> into the same fields.</li>
+</ul>
+<p>The current examples:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-27b.yaml"><code>qwen38-27b.yaml</code></a></td>
+<td>Qwen3.8 27B served by vLLM - a small compact recipe with registered weights.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-fp4.yaml"><code>qwen38-flash-next-fp4.yaml</code></a></td>
+<td>Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121): b12x image, tuned flags, caches, tool calling. Compact form.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/nemotron-3.5-super-vl.yaml"><code>nemotron-3.5-super-vl.yaml</code></a></td>
+<td>Nemotron-3.5-Super-VL with a draft model for speculative decoding; both models sit in one registered folder.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/hermes-agent-docker.yaml"><code>hermes-agent-docker.yaml</code></a></td>
+<td>A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/embeddinggemma-2-llamacpp.yaml"><code>embeddinggemma-2-llamacpp.yaml</code></a></td>
+<td>EmbeddingGemma 2 (GGUF) as an OpenAI-compatible <code>/v1/embeddings</code> server via llama.cpp.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/sglang-flint.sh"><code>sglang-flint.sh</code></a></td>
+<td>RecursiveSI/flint served natively by SGLang's <code>sglang serve</code> CLI, port 30000.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/sglang-flint-docker.sh"><code>sglang-flint-docker.sh</code></a></td>
+<td>The same model in the official <code>lmsysorg/sglang</code> Docker image (<code>python3 -m sglang.launch_server</code>).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="before-you-start">Before you start<a class="headerlink" href="#before-you-start" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Weights:</strong> compact recipes name a registered entry (<code>weights:</code>). Create it in the <strong>Weights</strong> tab with the folder on each host that runs the recipe, or change the name in the file. If a main model and a draft model share a folder, register that folder once, mount it, and point <code>model:</code> at the subfolder (see <code>nemotron-3.5-super-vl.yaml</code>). Starter scripts mount a concrete folder; download the model there, or point the volume at your copy. The <strong>Weights</strong> tab finds model folders under <code>DGXM_MODEL_DIR</code> by itself and offers them under "Found on your hosts".</li>
+<li><strong>Ports:</strong> the port in <code>host_port:</code> / <code>port:</code> / <code>--port</code> becomes the recipe's port. Keep it the <strong>same across models</strong> you want to switch between, and give each <code>--served-model-name</code> a stable short name - then <strong>Switch to</strong> changes the model and your agents keep the same endpoint <code>http://&lt;host&gt;:&lt;port&gt;/v1</code>.</li>
+<li><strong>Secrets:</strong> files list only bare names (e.g. <code>HF_TOKEN</code>); put the values in the manager's <code>.env</code> (see <a href="../configuration/">Configuration</a>).</li>
+<li><strong>vLLM images:</strong> the preset command starts with <code>vllm serve</code>. For <code>vllm/vllm-openai</code> (whose entrypoint already runs <code>vllm serve</code>), the manager drops the duplicate; images with a plain <code>vllm</code> entrypoint keep <code>serve</code>. The preview shows the actual command.</li>
+<li>Recipes are a starting point: the flags are tuned for the machine they ran on. Check <code>--gpu-memory-utilization</code>, <code>--max-model-len</code> and <code>--max-num-seqs</code> against your GPU's memory.</li>
+</ul>
+<p>More of your own? Drop new <code>.yaml</code> / <code>.json</code> files in <code>examples/recipes</code> and add a row to its table - or export one from the editor with <strong>Recipe file…</strong>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../quick-start/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Quick start">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Quick start
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../weights/" class="md-footer__link md-footer__link--next" aria-label="Next: Weights">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Weights
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "navigation.footer", "search.highlight", "content.code.copy", "content.tabs.link", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
