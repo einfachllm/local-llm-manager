@@ -61,6 +61,10 @@ flowchart LR
     class r card
 ```
 
+In the dashboard every recipe is a card - here grouped by machine, with a running agent on top:
+
+![Recipe cards grouped by host, light theme](screenshots/recipes-light.png)
+
 You will soon have many recipes: one model in two sizes, the same model on several machines, a fast
 model for coding and a big one for hard questions. That is fine. Each card is independent, and
 **Switch to** makes sure only the right ones run.
@@ -231,5 +235,5 @@ other settings), the dashboard offers to update all copies and restart them.
 </div>
 
 !!! info "Want the details?"
-    The [Architecture](architecture.md) page shows the same things for administrators: which machine talks
-    to which, ports, keys and every step on the network.
+    [Several machines](several-machines.md#network-access) lists which machine talks to which and on
+    which port; [Configuration](configuration.md) lists every setting.

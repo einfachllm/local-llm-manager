@@ -81,8 +81,13 @@ and restart the service.
     ```
 
     Scripts are checked for risky calls first; nothing in them is executed.
+    ![Add a recipe dialog](screenshots/add-recipe-dark.png)
+
 3. **Import**, check the fields and the command preview, then **Save**.
-4. Click **Start** on the new card. The status goes from *starting* to *loading* to *ready*.
+4. Click **Start** on the new card. The status goes from *starting* to *loading* to *ready*, and a running
+   model shows its live speed, requests and KV-cache use:
+
+    ![Model cards with live status and stats](screenshots/recipes-dark.png)
 
 A second model with the same settings: **⧉ Duplicate** on the card, then change the model. In the editor,
 **Recipe file…** exports a recipe as YAML.

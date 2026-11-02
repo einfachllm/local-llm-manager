@@ -3,8 +3,7 @@
 One installation is the **hub**: it serves the dashboard and stores recipes, schedules and the activity
 log. Every other machine runs the same app as an **agent**, which only carries out what the hub tells
 it to. Only two things go the other way: an agent can *ask* the hub to add it, and machines copy weights
-straight from each other once the hub has arranged it. The [Architecture](architecture.md) page shows
-all of this as diagrams.
+straight from each other once the hub has arranged it.
 
 ```text
  your browser ──:8090──▶  HUB (dashboard, recipes, schedules)
@@ -58,6 +57,8 @@ The new machine appears in the host strip at the top and in the Hosts graph. Rec
 field that decides where they run.
 
 ## The Hosts tab
+
+![Hosts tab: the hub and an agent PC as a graph, with ports, endpoints and live metrics](screenshots/hosts-dark.png)
 
 The tab opens with a **graph of your setup**: the hub on top and a line to every agent PC. Each machine
 shows what matters at a glance:
