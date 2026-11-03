@@ -315,6 +315,9 @@
         <label class="span2">Hugging Face model id<input name="repo" class="mono" placeholder="Qwen/Qwen3-8B"></label>
         <label class="span2">Folder <small>in each host's model dir (<code>DGXM_MODEL_DIR</code>), empty = the model's name</small>
           <input name="name" class="mono" placeholder="Qwen3-8B"></label>
+        <label class="span2">Only files <small>matching these patterns, space-separated - e.g. one quantization of a GGUF
+          repo; empty = the whole repo</small>
+          <input name="include" class="mono" placeholder="*Q4_K_M*.gguf"></label>
       </div>
       <div id="transfer-hosts" class="copy-hosts"></div>
       <label class="transfer-once" id="transfer-once-row"><input type="checkbox" name="once" checked>

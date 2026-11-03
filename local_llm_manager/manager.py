@@ -554,7 +554,8 @@ class Manager:
                 for hid in dict.fromkeys(host_ids)]
 
     def start_transfer_job(self, kind: str, target: str, host_ids: list[int], name: str = "",
-                           weight_id: Optional[int] = None, once: bool = False, hub_url: str = "") -> dict[str, Any]:
+                           weight_id: Optional[int] = None, once: bool = False, hub_url: str = "",
+                           include: Optional[list[str]] = None) -> dict[str, Any]:
         """Pull an image ("pull") or download Hugging Face weights ("download") on several hosts at once.
         Each host runs its transfer itself; the hub only follows it. A finished download is registered in
         the Weights tab (entry weight_id, or one found / created by name). With `once`, only the first host
@@ -564,7 +565,7 @@ class Manager:
 
         async def runner(item: dict[str, Any]) -> None:
             ex = self.executor_for(item["host_id"])
-            task = await self._follow(ex, await ex.start_transfer(kind, target, name), item)
+            task = await self._follow(ex, await ex.start_transfer(kind, target, name, include=include), item)
             if kind == "download":
                 self._register_download(state, target, name, item["host_id"], task["path"])
             item["state"] = "ok"
@@ -580,7 +581,7 @@ class Manager:
                 return
             await self._distribute(job, state["weight_id"], rest, [first["host_id"]], hub_url)
 
-        what = target if kind == "pull" else (name or target)
+        what = target if kind == "pull" else (name or target) + (f" ({' '.join(include)})" if include else "")
         title = f"{'Pulling' if kind == 'pull' else 'Downloading'} {what}"
         if kind == "download" and once and len(items) > 1:
             job = self._new_job(kind, title, items, whole=download_then_copy)

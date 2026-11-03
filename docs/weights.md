@@ -51,7 +51,7 @@ Studio's `~/.lmstudio/models`, up to three levels deep) and the tab lists what i
   reuses one of the same name) and switches the recipes to `{weights}`.
 
 The box is hidden when there is nothing to add. Several model folders per machine: list them in
-`DGXM_MODEL_DIR`, separated by commas (the first one gets the downloads).
+`DGXM_MODEL_DIR`, separated by commas (the first one gets the downloads; paths may contain spaces).
 
 ### Models from LM Studio and Ollama
 
@@ -79,6 +79,17 @@ id such as `nvidia/Qwen3.8-27B-NVFP4` and the hosts that should get it.
 
 - By default **only the first ticked host downloads**; the others copy from it over your network, so the
   model comes over the internet once.
+- **Only files** downloads just the files matching a pattern - for GGUF repos, which often hold every
+  quantization (100-300 GB) while you need one file:
+
+    | Pattern | Downloads |
+    |---|---|
+    | `*Q4_K_M*.gguf` | the Q4_K_M file (or all its parts, `-00001-of-00003.gguf`, …) |
+    | `*Q4_K_M*.gguf mmproj-*` | the same plus the vision projector |
+    | `Q4_K_M/*` | a quantization kept in its own folder |
+
+    Look up the file names on the repo's *Files* tab on Hugging Face. Empty = the whole repo; a pattern that
+    matches nothing is reported as a failed download. Agents need this version or newer.
 - Downloads go into the host's first `DGXM_MODEL_DIR` and the row's path is set when they finish.
 - The host needs the `hf` command (`pip install -U huggingface_hub`; set `DGXM_HF_BIN` for another
   binary). Gated models need `HF_TOKEN` in that host's `.env`.

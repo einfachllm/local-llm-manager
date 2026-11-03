@@ -11,6 +11,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `~/models,~/.lmstudio/models`, so the `.gguf` files and MLX folders LM Studio downloaded are offered under
   **Found on your hosts** on a DGX Spark, a Mac or any Linux box. Downloads still go into `~/models`.
 
+### Added
+- **Download only some files from Hugging Face:** the download dialog has an **Only files** field
+  (`hf download --include`), e.g. `*Q4_K_M*.gguf` to fetch one quantization of a GGUF repo instead of all
+  of them. A pattern that matches nothing fails the download with a hint. Agents must be updated too; an
+  older agent refuses such a download instead of fetching the whole repo.
+
+### Fixed
+- **`DGXM_MODEL_DIR` paths with spaces** (e.g. `/Volumes/My SSD/models` on a Mac) were split in two. The
+  list is now comma-separated; a single existing folder is taken as it is, and a list without commas is
+  still split on spaces as before.
+
 ## [0.2.0] - 2026-11-02
 
 ### Highlights

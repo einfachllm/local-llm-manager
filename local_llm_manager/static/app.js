@@ -2064,6 +2064,7 @@ function openTransfer(spec, missing = []) {
   form.elements.once.checked = true;
   form.elements.repo.value = spec.repo ?? "";
   form.elements.name.value = spec.name ?? "";
+  form.elements.include.value = "";
   $("#transfer-hosts").innerHTML = state.hosts.map((h) => `<label class="copy-host">
       <input type="checkbox" value="${h.id}" ${missing.includes(h.id) ? "checked" : ""} ${h.online ? "" : "disabled"}>
       <span class="copy-host-name">${esc(maskAddr(h.name))}</span>
@@ -2101,7 +2102,8 @@ $("#form-transfer").addEventListener("submit", async (ev) => {
       : transferSpec.kind === "copy"
       ? await api("/api/jobs/copy", { method: "POST", body: { weight_id: transferSpec.weight_id, host_ids } })
       : await api("/api/jobs/download", { method: "POST", body: { repo: f.repo.value.trim(), name: f.name.value.trim(),
-        host_ids, weight_id: transferSpec.weight_id ?? null, once: f.once.checked } });
+        host_ids, weight_id: transferSpec.weight_id ?? null, once: f.once.checked,
+        include: f.include.value.split(/[\s,]+/).filter(Boolean) } });
     $("#dlg-transfer").close();
     showJob(job);
   } catch (e) {

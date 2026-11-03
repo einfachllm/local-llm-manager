@@ -16,11 +16,14 @@ def hub(setup, monkeypatch, tmp_path):
     monkeypatch.setattr(config, "MODEL_DIRS", [str(tmp_path / "models")])
 
     # Instead of `hf download`: write a small file into --local-dir (fails for repos named "org/broken").
-    def fake_argv(repo, target):
-        code = ("import sys, pathlib; repo, t = sys.argv[1], pathlib.Path(sys.argv[2]); "
+    # With --include, only the files of a pretend GGUF repo that match are written.
+    def fake_argv(repo, target, include=None):
+        code = ("import sys, pathlib, fnmatch; repo, t, inc = sys.argv[1], pathlib.Path(sys.argv[2]), sys.argv[3:]; "
                 "sys.exit('401 gated repo') if repo.endswith('broken') else "
-                "(t / 'model.safetensors').write_bytes(b'x' * 1000)")
-        return [sys.executable, "-c", code, repo, target]
+                "[(t / f).write_bytes(b'x' * 1000) for f in (['model.safetensors'] if not inc else "
+                "[f for f in ('m-Q4_K_M.gguf', 'm-Q8_0.gguf', 'mmproj-F16.gguf') "
+                "if any(fnmatch.fnmatch(f, p) for p in inc)])]")
+        return [sys.executable, "-c", code, repo, target, *(include or [])]
 
     monkeypatch.setattr(transfers, "download_argv", fake_argv)
     local = client.get("/api/hosts").json()[0]["id"]
@@ -68,6 +71,43 @@ def test_download_on_several_hosts_registers_the_weights(hub, tmp_path):
     (item,) = wait(client, res.json()["id"]).values()
     assert item["state"] == "failed" and "gated" in item["message"]
     assert client.post("/api/jobs/download", json={"repo": "a/b", "host_ids": [mac], "weight_id": 999}).status_code == 404
+
+
+def test_download_only_some_files(hub, tmp_path, monkeypatch):
+    client, _, _, local, mac = hub
+    bad = client.post("/api/jobs/download", json={"repo": "a/b-GGUF", "host_ids": [local], "include": ["--force"]})
+    assert bad.status_code == 422 and "file pattern" in bad.text
+    res = client.post("/api/jobs/download", json={"repo": "org/m-GGUF", "host_ids": [local, mac], "once": False,
+                                                  "include": ["*Q4_K_M*.gguf", "mmproj-*"]})
+    assert "(*Q4_K_M*.gguf mmproj-*)" in res.json()["title"]
+    items = wait(client, res.json()["id"])
+    assert [i["state"] for i in items.values()] == ["ok", "ok"], items
+    assert sorted(f.name for f in (tmp_path / "models" / "m-GGUF").iterdir()) == ["m-Q4_K_M.gguf", "mmproj-F16.gguf"]
+
+    # A pattern that matches nothing is a failed download, not an empty model.
+    res = client.post("/api/jobs/download", json={"repo": "org/x-GGUF", "host_ids": [local], "include": ["*Q3_K*"]})
+    (item,) = wait(client, res.json()["id"]).values()
+    assert item["state"] == "failed" and "No file in org/x-GGUF matches *Q3_K*" in item["message"]
+
+    # An agent without the feature would ignore the patterns and fetch the whole repo: it is refused.
+    from local_llm_manager import executor
+    monkeypatch.setattr(executor, "FEATURES", [])
+    res = client.post("/api/jobs/download", json={"repo": "org/y-GGUF", "host_ids": [mac], "include": ["*Q8_0*"]})
+    (item,) = wait(client, res.json()["id"]).values()
+    assert item["state"] == "failed" and "too old to download only some files" in item["message"]
+    assert not (tmp_path / "models" / "y-GGUF").exists()
+
+
+def test_download_argv_and_include_patterns(monkeypatch):
+    monkeypatch.setattr(transfers.shutil, "which", lambda b: b == "hf")
+    assert transfers.download_argv("a/b", "/m/b") == ["hf", "download", "a/b", "--local-dir", "/m/b"]
+    assert transfers.download_argv("a/b", "/m/b", ["*Q4*.gguf", "Q4/*"])[-3:] == ["--include", "*Q4*.gguf", "Q4/*"]
+    assert transfers.check_include([" *Q4*.gguf ", "", "*Q4*.gguf", "[Mm]mproj-*"]) == ["*Q4*.gguf", "[Mm]mproj-*"]
+    for bad in ["-x", "/etc/*", "../*", "a b", "*;rm", "x" * 201]:
+        with pytest.raises(ValueError):
+            transfers.check_include([bad])
+    with pytest.raises(ValueError, match="at most"):
+        transfers.check_include([f"p{i}" for i in range(11)])
 
 
 def test_missing_hf_cli_is_reported(monkeypatch):

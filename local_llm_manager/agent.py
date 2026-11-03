@@ -35,6 +35,7 @@ class TransferRequest(BaseModel):
     target: str = Field(min_length=1, max_length=300)   # image reference, Hugging Face model id, or copy source
     name: str = Field(default="", max_length=128)       # download / copy: folder name in the model dir
     share: dict[str, str] = {}                          # copy: {"id", "ticket"} from the source's /shares
+    include: list[str] = Field(default=[], max_length=10)  # download: only files matching these patterns
 
 
 class ShareRequest(BaseModel):
@@ -168,7 +169,7 @@ def create_agent_app(executor: Optional[LocalExecutor] = None,
     @app.post("/agent/v1/transfers", dependencies=auth)
     async def start_transfer(body: TransferRequest):
         """Pull an image or download weights in the background; GET the returned id for its progress."""
-        return await ex.start_transfer(body.kind, body.target, body.name, body.share)
+        return await ex.start_transfer(body.kind, body.target, body.name, body.share, body.include)
 
     @app.post("/agent/v1/shares", dependencies=auth)
     async def create_share(body: ShareRequest):

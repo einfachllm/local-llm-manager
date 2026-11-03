@@ -143,6 +143,16 @@ def test_scan_default_dirs_include_lm_studio(tmp_path, monkeypatch):
     }
 
 
+def test_model_dirs_allow_spaces(tmp_path):
+    from local_llm_manager.config import parse_model_dirs
+    ssd = tmp_path / "My SSD" / "models"
+    ssd.mkdir(parents=True)
+    assert parse_model_dirs(f"~/models, {ssd} ,") == ["~/models", str(ssd)]
+    assert parse_model_dirs(str(ssd)) == [str(ssd)]               # one folder, no comma: kept whole
+    assert parse_model_dirs("~/models /data/models") == ["~/models", "/data/models"]  # as before
+    assert parse_model_dirs("") == []
+
+
 def test_discover_suggests_paths_on_other_hosts(setup, tmp_path, monkeypatch):
     from local_llm_manager import config
     client, _, _, _, mac = setup

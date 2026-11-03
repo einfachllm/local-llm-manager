@@ -39,7 +39,7 @@ from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, build_run_argv, 
                       uses_host_network)
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
 from .timeline import build_timeline
-from .transfers import check_image, check_name, check_repo
+from .transfers import check_image, check_include, check_name, check_repo
 
 STATIC_DIR = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
@@ -243,6 +243,7 @@ class DownloadJobIn(BaseModel):
     host_ids: list[int] = Field(min_length=1, max_length=100)
     weight_id: Optional[int] = None                   # register the paths on this entry (default: by name)
     once: bool = True                                 # download on the first host only, copy to the others
+    include: list[str] = Field(default=[], max_length=10)  # only files matching these, e.g. *Q4_K_M*.gguf
 
 
 class CopyJobIn(BaseModel):
@@ -955,7 +956,8 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         try:
             repo, name = check_repo(body.repo), check_name(body.name) if body.name.strip() else ""
             return manager.start_transfer_job("download", repo, body.host_ids, name, body.weight_id,
-                                              once=body.once, hub_url=hub_url(request))
+                                              once=body.once, hub_url=hub_url(request),
+                                              include=check_include(body.include))
         except ValueError as e:
             raise HTTPException(422, str(e))
         except ActionError as e:

@@ -206,9 +206,14 @@ def _instance_key(recipe: dict, instance: dict) -> str:
     return f"{recipe['id']}:{instance.get('id', '')}"
 
 
+# What this build can do beyond the original agent API; the hub asks before relying on it, so an older
+# agent refuses instead of e.g. downloading a whole repo when only some files were asked for.
+FEATURES = ["download-include"]
+
+
 def host_info() -> dict[str, Any]:
     return {"hostname": socket.gethostname(), "platform": sys.platform, "machine": platform.machine(),
-            "version": __version__}
+            "version": __version__, "features": FEATURES}
 
 
 class LocalExecutor:
@@ -412,7 +417,7 @@ class LocalExecutor:
         return {"dirs": config.MODEL_DIRS, "found": found}
 
     async def start_transfer(self, kind: str, target: str, name: str = "",
-                             share: Optional[dict] = None) -> dict[str, Any]:
+                             share: Optional[dict] = None, include: Optional[list[str]] = None) -> dict[str, Any]:
         """Start in the background: pulling an image ("pull"), downloading Hugging Face weights ("download"),
         or copying another machine's share ("copy": target is its address, share its id and ticket)."""
         try:
@@ -421,7 +426,7 @@ class LocalExecutor:
             if kind == "copy":
                 share = share or {}
                 return dict(self.transfers.start_copy(target, share.get("id", ""), share.get("ticket", ""), name))
-            return dict(self.transfers.start_download(target, name))
+            return dict(self.transfers.start_download(target, name, include))
         except ValueError as e:
             raise ActionError(str(e), 422)
 
@@ -541,10 +546,16 @@ class RemoteExecutor:
             raise
 
     async def start_transfer(self, kind: str, target: str, name: str = "",
-                             share: Optional[dict] = None) -> dict[str, Any]:
+                             share: Optional[dict] = None, include: Optional[list[str]] = None) -> dict[str, Any]:
+        body: dict[str, Any] = {"kind": kind, "target": target, "name": name, "share": share or {}}
+        if include:
+            # An older agent ignores fields it does not know and would download the whole repo.
+            if "download-include" not in (await self.info()).get("features", []):
+                raise ActionError(f"The agent on '{self.host['name']}' is too old to download only some files "
+                                  "- update it, or leave the files field empty", 502)
+            body["include"] = include
         try:
-            return await self._call("POST", "/transfers", {"kind": kind, "target": target, "name": name,
-                                                           "share": share or {}}, timeout=30.0)
+            return await self._call("POST", "/transfers", body, timeout=30.0)
         except ActionError as e:
             # Agents from before this endpoint (404), or before copies (422: "copy" not an allowed kind).
             if e.status_code == 404 or (e.status_code == 422 and "Input should be" in e.message):

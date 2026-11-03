@@ -43,6 +43,22 @@ def check_repo(repo: str) -> str:
     return repo
 
 
+# File patterns for `hf download --include`, e.g. *Q4_K_M*.gguf or Q4_K_M/* (no options, no paths upward).
+INCLUDE_RE = re.compile(r"^[A-Za-z0-9_.*?\[\]/-]{1,200}$")
+MAX_INCLUDE = 10
+
+
+def check_include(patterns: list[str]) -> list[str]:
+    """Clean `--include` patterns: blanks dropped, duplicates removed, each one checked."""
+    out = list(dict.fromkeys(p.strip() for p in patterns if p and p.strip()))
+    if len(out) > MAX_INCLUDE:
+        raise ValueError(f"at most {MAX_INCLUDE} file patterns")
+    for p in out:
+        if not INCLUDE_RE.match(p) or p.startswith(("-", "/")) or ".." in p:
+            raise ValueError(f"not a usable file pattern: {p!r} (e.g. *Q4_K_M*.gguf)")
+    return out
+
+
 def check_name(name: str) -> str:
     name = name.strip()
     if not NAME_RE.match(name) or ".." in name:
@@ -65,11 +81,12 @@ def _size_gb(path: Path) -> float:
     return round(total / 1e9, 1)
 
 
-def download_argv(repo: str, target: str) -> list[str]:
-    """The Hugging Face CLI command for this machine: `hf` (current), else the older `huggingface-cli`."""
+def download_argv(repo: str, target: str, include: Optional[list[str]] = None) -> list[str]:
+    """The Hugging Face CLI command for this machine: `hf` (current), else the older `huggingface-cli`.
+    With `include`, only the matching files are downloaded (e.g. one quantization of a GGUF repo)."""
     for binary in (config.HF_BIN, "hf", "huggingface-cli"):
         if binary and shutil.which(binary):
-            return [binary, "download", repo, "--local-dir", target]
+            return [binary, "download", repo, "--local-dir", target, *(["--include", *include] if include else [])]
     raise FileNotFoundError("Neither `hf` nor `huggingface-cli` is installed on this machine: "
                             "pip install -U huggingface_hub")
 
@@ -91,7 +108,8 @@ class Tasks:
     def _new(self, kind: str, target: str, **extra) -> tuple[dict[str, Any], bool]:
         # The same pull / download running already (e.g. asked twice): follow that one.
         for t in self.tasks.values():
-            if t["kind"] == kind and t["target"] == target and t["state"] == "running":
+            if (t["kind"] == kind and t["target"] == target and t["state"] == "running"
+                    and all(t.get(k) == v for k, v in extra.items())):
                 return t, False
         task = {"id": secrets.token_hex(6), "kind": kind, "target": target, "state": "running", "message": "",
                 "progress": "", "started": _now(), "finished": None, **extra}
@@ -144,17 +162,18 @@ class Tasks:
             self._spawn(task, Copy(self, task, source, share_id, ticket, target).run())
         return task
 
-    def start_download(self, repo: str, name: str = "") -> dict[str, Any]:
+    def start_download(self, repo: str, name: str = "", include: Optional[list[str]] = None) -> dict[str, Any]:
         repo = check_repo(repo)
         name = check_name(name or repo.rsplit("/", 1)[-1])
+        include = check_include(include or [])
         target = Path(os.path.expanduser(config.MODEL_DIRS[0] if config.MODEL_DIRS else "~/models")) / name
-        task, new = self._new("download", repo, path=str(target))
+        task, new = self._new("download", repo, path=str(target), include=include)
         if new:
-            self._spawn(task, self._download(task, repo, target))
+            self._spawn(task, self._download(task, repo, target, include))
         return task
 
-    async def _download(self, task: dict[str, Any], repo: str, target: Path) -> str:
-        argv = download_argv(repo, str(target))
+    async def _download(self, task: dict[str, Any], repo: str, target: Path, include: list[str]) -> str:
+        argv = download_argv(repo, str(target), include)
         target.mkdir(parents=True, exist_ok=True)
         # HF_TOKEN (gated models) comes from this machine's own environment / .env.
         proc = await asyncio.create_subprocess_exec(*argv, stdout=asyncio.subprocess.PIPE,
@@ -184,7 +203,10 @@ class Tasks:
         task["progress"] = f"{size} GB"
         if code != 0:
             raise RuntimeError(f"{argv[0]} download exited with {code}: {tail[-1] if tail else ''}".strip())
-        return f"Downloaded {repo} to {target} ({size} GB)"
+        if include and not size and not any(p.is_file() for p in target.rglob("*") if ".cache" not in p.parts):
+            raise RuntimeError(f"No file in {repo} matches {' '.join(include)} - check the pattern on the repo's "
+                               "Files tab on Hugging Face")
+        return f"Downloaded {repo}{' (' + ' '.join(include) + ')' if include else ''} to {target} ({size} GB)"
 
 
 def fmt_progress(done: int, total: int, rate: float) -> str:
