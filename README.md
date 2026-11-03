@@ -271,8 +271,8 @@ host has no path set or nothing at that path. `~` in a path is the home director
 the recipe.
 
 You rarely type paths by hand: opening the tab (or **Refresh**) looks for model folders (with
-`config.json` or weight files) and `.gguf` files in each host's `DGXM_MODEL_DIR` (default `~/models`, up
-to three levels deep) and lists what it can add under **Found on your hosts**, one click each: a path for
+`config.json` or weight files) and `.gguf` files in each host's `DGXM_MODEL_DIR` (default `~/models` and
+LM Studio's `~/.lmstudio/models`, up to three levels deep) and lists what it can add under **Found on your hosts**, one click each: a path for
 an entry that has none on a host (a folder there with the same name as the entry's folder elsewhere, or its
 name / source repo), folders nobody added yet, and recipes that mount their model folder directly (e.g.
 `~/models/x:/model:ro`) - adding those creates the entry (or reuses one of the same name) and switches the

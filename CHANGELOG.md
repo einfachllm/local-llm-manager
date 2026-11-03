@@ -6,6 +6,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **LM Studio models show up in the Weights tab by default:** `DGXM_MODEL_DIR` now defaults to
+  `~/models,~/.lmstudio/models`, so the `.gguf` files and MLX folders LM Studio downloaded are offered under
+  **Found on your hosts** on a DGX Spark, a Mac or any Linux box. Downloads still go into `~/models`.
+
 ## [0.2.0] - 2026-11-02
 
 ### Highlights

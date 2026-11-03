@@ -125,6 +125,24 @@ def test_scan_finds_model_folders_and_ggufs(tmp_path, monkeypatch):
     assert found["qwen3-4b-Q4_K_M.gguf"]["path"] == "~/gguf/qwen3-4b-Q4_K_M.gguf"
 
 
+def test_scan_default_dirs_include_lm_studio(tmp_path, monkeypatch):
+    from local_llm_manager import config
+    from local_llm_manager.executor import scan_weight_dirs
+    assert config.DEFAULT_MODEL_DIRS.split(",") == ["~/models", "~/.lmstudio/models"]  # downloads go to ~/models
+    lms = tmp_path / ".lmstudio" / "models"
+    (lms / "lmstudio-community" / "Qwen3-8B-GGUF").mkdir(parents=True)
+    (lms / "lmstudio-community" / "Qwen3-8B-GGUF" / "Qwen3-8B-Q4_K_M.gguf").write_bytes(b"x")
+    (lms / "mlx-community" / "Qwen3-8B-4bit").mkdir(parents=True)
+    (lms / "mlx-community" / "Qwen3-8B-4bit" / "config.json").write_text("{}")
+    monkeypatch.setenv("HOME", str(tmp_path))  # no ~/models here: a missing dir is skipped
+    dirs = config.DEFAULT_MODEL_DIRS.split(",") + ["~/.lmstudio/models"]  # listed twice: found once
+    found = {f["name"]: f["path"] for f in scan_weight_dirs(dirs)}
+    assert found == {
+        "Qwen3-8B-Q4_K_M.gguf": "~/.lmstudio/models/lmstudio-community/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf",
+        "Qwen3-8B-4bit": "~/.lmstudio/models/mlx-community/Qwen3-8B-4bit",
+    }
+
+
 def test_discover_suggests_paths_on_other_hosts(setup, tmp_path, monkeypatch):
     from local_llm_manager import config
     client, _, _, _, mac = setup

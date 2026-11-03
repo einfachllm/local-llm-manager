@@ -41,8 +41,8 @@ they are not.
 ## Found on your hosts
 
 You rarely type paths. When the tab opens (or on **Refresh**) every host looks for model folders (with a
-`config.json` or weight files) and `.gguf` files in its `DGXM_MODEL_DIR` (default `~/models`, up to three
-levels deep) and the tab lists what it can add in the **Found on your hosts** box:
+`config.json` or weight files) and `.gguf` files in its `DGXM_MODEL_DIR` (default `~/models` and LM
+Studio's `~/.lmstudio/models`, up to three levels deep) and the tab lists what it can add in the **Found on your hosts** box:
 
 - **"X is also on LocalPC"** - a model you already registered was found on another host: **Use** sets
   that host's path.
@@ -51,7 +51,26 @@ levels deep) and the tab lists what it can add in the **Found on your hosts** bo
   reuses one of the same name) and switches the recipes to `{weights}`.
 
 The box is hidden when there is nothing to add. Several model folders per machine: list them in
-`DGXM_MODEL_DIR`, separated by commas.
+`DGXM_MODEL_DIR`, separated by commas (the first one gets the downloads).
+
+### Models from LM Studio and Ollama
+
+- **LM Studio** keeps plain `.gguf` files and MLX folders in `~/.lmstudio/models/<publisher>/<repo>/`.
+  That folder is searched by default, so they appear here like any other model. A vision GGUF comes with
+  an `mmproj-*.gguf` next to it - add that as well and pass it to llama.cpp with `--mmproj`. If you delete
+  the model in LM Studio, its cell turns **✗**; for a copy that stays, hard-link it into `~/models`.
+- **Ollama** stores each model as a nameless blob (`~/.ollama/models/blobs/sha256-…`), which the search
+  cannot recognise. Give the GGUF a name in `~/models` with a hard link (same disk, no extra space):
+
+    ```bash
+    jq -r '.layers[] | select(.mediaType=="application/vnd.ollama.image.model") | .digest' \
+      ~/.ollama/models/manifests/registry.ollama.ai/library/qwen3/8b      # -> sha256:<hash>
+    ln ~/.ollama/models/blobs/sha256-<hash> ~/models/qwen3-8b.gguf
+    ```
+
+- The **Hugging Face cache** (`~/.cache/huggingface/hub`) is not searched: its snapshot folders are
+  symlinks that break when mounted into a container. Download with **⬇** (or `hf download … --local-dir`)
+  to get a plain folder.
 
 ## Download from Hugging Face
 

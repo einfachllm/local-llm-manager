@@ -149,10 +149,12 @@ def scan_weight_dirs(dirs: list[str]) -> list[dict[str, Any]]:
     folders hold symlinks into the cache that a single mount cannot follow."""
     found: list[dict[str, Any]] = []
     seen: set[str] = set()
+    roots: set[str] = set()
     for d in dirs:
         root = os.path.realpath(os.path.expanduser(d))
-        if not os.path.isdir(root):
+        if not os.path.isdir(root) or root in roots:  # e.g. LM Studio's library moved to ~/models
             continue
+        roots.add(root)
         base_depth = root.rstrip("/").count("/")
         for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
             dirnames[:] = sorted(n for n in dirnames if not n.startswith("."))

@@ -37,8 +37,11 @@ HEALTH_HOST = os.environ.get("DGXM_HEALTH_HOST", "") or (
     PUBLISH_IP if PUBLISH_IP and PUBLISH_IP != "tailscale" else "127.0.0.1")
 
 # Directories scanned for local model files (e.g. GGUF, safetensors) when checking whether a
-# recipe's model is present on this host. Comma- or whitespace-separated.
-MODEL_DIRS = [d.strip() for d in os.environ.get("DGXM_MODEL_DIR", "~/models").replace(",", " ").split() if d.strip()]
+# recipe's model is present on this host. Comma- or whitespace-separated. Downloads go into the first.
+# The default also covers LM Studio's library (plain .gguf files and MLX folders); missing dirs are skipped.
+DEFAULT_MODEL_DIRS = "~/models,~/.lmstudio/models"
+MODEL_DIRS = [d.strip() for d in os.environ.get("DGXM_MODEL_DIR", DEFAULT_MODEL_DIRS).replace(",", " ").split()
+              if d.strip()]
 
 # Docker binary and timeouts.
 DOCKER_BIN = os.environ.get("DGXM_DOCKER", "docker")
