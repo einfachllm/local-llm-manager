@@ -19,8 +19,8 @@ check, so a recipe only writes down what differs from it.
 
 vLLM, SGLang, llama.cpp and MLX all serve an OpenAI-compatible API at `http://<host>:<port>/v1`, so your
 apps don't care which engine runs behind the endpoint. Live stats (tokens/s, requests, KV cache) come from
-the server's `/metrics`: on by default in vLLM, add `--enable-metrics` for SGLang and `--metrics` for
-llama.cpp.
+the server's `/metrics`: on by default in vLLM and TensorFold, add `--enable-metrics` for SGLang and
+`--metrics` for llama.cpp.
 
 ## Add a recipe: paste YAML or a shell script
 

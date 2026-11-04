@@ -4,7 +4,7 @@ The engine stats line in the logs (see logstats.py) is printed only every ~10 s 
 window, so it lags behind. Here the token counters are read on every status poll and turned into
 rates over the time since the previous poll, which follows the load within a poll interval.
 
-vLLM serves /metrics by default; SGLang needs `--enable-metrics`, llama.cpp server `--metrics`.
+vLLM and TensorFold serve /metrics by default; SGLang needs `--enable-metrics`, llama.cpp server `--metrics`.
 """
 
 import re
@@ -13,17 +13,25 @@ from typing import Optional
 
 # Metric names per field; the first name a server exposes is used. Labelled series are summed.
 _COUNTERS = {
-    "prompt": ("vllm:prompt_tokens_total", "sglang:prompt_tokens_total", "llamacpp:prompt_tokens_total"),
-    "gen": ("vllm:generation_tokens_total", "sglang:generation_tokens_total", "llamacpp:tokens_predicted_total"),
-    "prefix_queries": ("vllm:prefix_cache_queries_total",),
-    "prefix_hits": ("vllm:prefix_cache_hits_total",),
+    "prompt": ("vllm:prompt_tokens_total", "sglang:prompt_tokens_total", "llamacpp:prompt_tokens_total",
+               "tensorfold:prompt_tokens_total"),
+    "gen": ("vllm:generation_tokens_total", "sglang:generation_tokens_total", "llamacpp:tokens_predicted_total",
+            "tensorfold:generation_tokens_total"),
+    "prefix_queries": ("vllm:prefix_cache_queries_total", "tensorfold:prefix_cache_queries_total"),
+    "prefix_hits": ("vllm:prefix_cache_hits_total", "tensorfold:prefix_cache_hits_total"),
 }
+# Counters that only grow when a request finishes (TensorFold): adding the tokens of the requests still
+# running gives a total that follows the load live instead of jumping at the end of each request.
+_IN_FLIGHT = {"tensorfold:generation_tokens_total": "tensorfold:generation_tokens_running"}
 _GAUGES = {
-    "running": ("vllm:num_requests_running", "sglang:num_running_reqs", "llamacpp:requests_processing"),
-    "waiting": ("vllm:num_requests_waiting", "sglang:num_queue_reqs", "llamacpp:requests_deferred"),
+    # TensorFold builds name these either way.
+    "running": ("vllm:num_requests_running", "sglang:num_running_reqs", "llamacpp:requests_processing",
+                "tensorfold:requests_running", "tensorfold:num_requests_running"),
+    "waiting": ("vllm:num_requests_waiting", "sglang:num_queue_reqs", "llamacpp:requests_deferred",
+                "tensorfold:requests_waiting", "tensorfold:num_requests_waiting"),
     # Fractions 0..1, shown as percent.
     "kv_cache": ("vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_perc", "sglang:token_usage",
-                 "llamacpp:kv_cache_usage_ratio"),
+                 "llamacpp:kv_cache_usage_ratio", "tensorfold:kv_cache_usage_ratio"),
     "prefix_hit": ("sglang:cache_hit_rate",),
 }
 _PERCENT = ("kv_cache", "prefix_hit")
@@ -51,7 +59,10 @@ def parse(text: str) -> dict[str, float]:
 
 
 def _pick(values: dict[str, float], names: tuple[str, ...]) -> Optional[float]:
-    return next((values[n] for n in names if n in values), None)
+    name = next((n for n in names if n in values), None)
+    if name is None:
+        return None
+    return values[name] + values.get(_IN_FLIGHT.get(name, ""), 0.0)
 
 
 class RateTracker:

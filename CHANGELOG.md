@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **TensorFold live stats:** recipe cards and the Ports & endpoints table showed "waiting…" for TensorFold
+  because its `/metrics` uses `tensorfold:` names. Tokens/s in and out, running / waiting requests, KV cache
+  and prefix-cache hits are now read from them; generated tokens of requests still running are counted
+  live (TensorFold adds them to its total only when a request ends). The KV-cache health finding now works
+  for TensorFold too.
+
 ### Added
 - **Health findings:** the hub checks every 15 s for problems and names them where you look anyway - a
   chip on the recipe card (with what happened, the log line that shows why, and what usually helps), on the
