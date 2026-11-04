@@ -23,6 +23,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sort (Group → Engine replaces it); Host, Group and Sort are chips instead of dropdowns (also the Images
   tab's host filter); the host on each card and the
   engine name on its badge are left out under a heading that already says them.
+- **Host meters in the Hosts graph:** memory, GPU load, GPU and CPU temperature as one 0-100 bar each
+  (% or °C) with the value beside it, instead of one line of text. Temperatures turn yellow from 85 °C and
+  red from 90 °C - the health-finding thresholds - with a tick at 85; memory from 75 / 90 % used. Readings
+  a host does not have (e.g. temperatures on a Mac) are left out.
 - **GGUF weights as a folder:** a llama.cpp recipe whose weights are a folder (as a Hugging Face download
   is) now starts the model file in it - skipping vision projectors (`mmproj`) and using the first part of a
   split model. A folder with several models is refused with their names instead of a failing start.

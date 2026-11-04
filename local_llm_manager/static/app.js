@@ -138,8 +138,44 @@ function memPct(m) { return m.total_gb ? (m.used_gb / m.total_gb) * 100 : 0; }
 // CPU temperature (°C) from a host's readings; null when the machine reports none (e.g. macOS, older agents).
 const cpuTemp = (h) => h.system?.cpu?.temperature ?? null;
 function tempHtml(t) {
-  return `<span class="temp${t >= 95 ? " crit" : t >= 85 ? " warn" : ""}" title="CPU temperature">CPU ${t}°C</span>`;
+  return `<span class="temp ${t >= 90 ? "crit" : t >= 85 ? "warn" : ""}" title="CPU temperature">CPU ${t}°C</span>`;
 }
+/* Host meters: one bar per reading, 0-100 (% or °C). Temperatures turn yellow / red at the same
+   thresholds as the health findings (85 / 90 °C), memory at 75 / 90 % used; GPU load is never "bad". */
+const TEMP_WARN = 85, TEMP_CRIT = 90;
+function meterRow(label, pct, value, cls = "", title = "", mark = null) {
+  const p = Math.max(0, Math.min(100, pct));
+  return `<div class="meter" title="${esc(title || `${label}: ${value}`)}">
+      <span class="meter-label">${label}</span>
+      <span class="meter-bar"><span class="meter-fill ${cls}" style="width:${p.toFixed(1)}%"></span>${mark != null ? `<i class="meter-mark" style="left:${mark}%"></i>` : ""}</span>
+      <span class="meter-value ${cls}">${value}</span>
+    </div>`;
+}
+const tempClass = (t) => t >= TEMP_CRIT ? "crit" : t >= TEMP_WARN ? "warn" : "";
+function hostMetersHtml(h) {
+  const m = h.system?.memory;
+  if (!m) return "";
+  const gpus = (h.system.gpus || []).filter((g) => g);
+  const util = gpus.map((g) => g.utilization).filter((v) => typeof v === "number");
+  const temps = gpus.map((g) => g.temperature).filter((v) => typeof v === "number");
+  const many = gpus.length > 1 ? ` ×${gpus.length}` : "";
+  const pct = memPct(m);
+  const rows = [meterRow("Memory", pct, `${Math.round(pct)}%`, pct > 90 ? "crit" : pct > 75 ? "warn" : "",
+    `Memory: ${memText(m)} used, ${m.available_gb} GB free`), `<small class="meter-sub">${esc(memText(m))} · ${m.available_gb} GB free</small>`];
+  if (util.length) {
+    const u = util.reduce((a, b) => a + b, 0) / util.length;
+    rows.push(meterRow(`GPU${many}`, u, `${Math.round(u)}%`, "load", `GPU load${many ? " (average)" : ""}: ${util.map((v) => `${v}%`).join(", ")}`));
+  }
+  if (temps.length) {
+    const t = Math.max(...temps);
+    rows.push(meterRow("GPU °C", t, `${Math.round(t)}°`, tempClass(t),
+      `GPU temperature${many ? " (hottest)" : ""}: ${temps.map((v) => `${v} °C`).join(", ")} · warning from ${TEMP_WARN} °C`, TEMP_WARN));
+  }
+  const c = cpuTemp(h);
+  if (c != null) rows.push(meterRow("CPU °C", c, `${Math.round(c)}°`, tempClass(c), `CPU temperature: ${c} °C · warning from ${TEMP_WARN} °C`, TEMP_WARN));
+  return `<div class="topo-meters">${rows.join("")}</div>`;
+}
+
 function barClass(pct) { return "bar-fill" + (pct > 90 ? " crit" : pct > 75 ? " warn" : ""); }
 
 // Address of a model endpoint: the host's own name for remote hosts, else the one in the address bar.
@@ -315,8 +351,6 @@ function topoNode(h, role) {
     .sort((a, b) => (kindOf(a) === kindOf(b) ? 0 : kindOf(a) === "model" ? -1 : 1));
   const stoppedItems = mine.filter((r) => !shown.includes(r));
   const stopped = stoppedItems.length;
-  const m = h.system?.memory;
-  const gpu = h.system?.gpus?.[0];
   const platform = h.info ? `${PLATFORM[h.info.platform] ?? h.info.platform} · ${h.info.machine}` : "";
   const item = (r) => {
     const agent = kindOf(r) === "agent";
@@ -336,8 +370,7 @@ function topoNode(h, role) {
         <span class="topo-role">${role === "hub" ? "Hub" : "Agent PC"}</span>
       </div>
       <div class="topo-sub">${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span>`}${platform ? ` · ${esc(platform)}` : ""}</div>
-      ${m ? `<div class="topo-mem"><div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
-        <small>${esc(memText(m))}${gpu ? ` · GPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C` : ""}${cpuTemp(h) != null ? ` · ${tempHtml(cpuTemp(h))}` : ""}</small></div>` : ""}
+      ${hostMetersHtml(h)}
       ${hostFindings(h).length ? `<div class="topo-health">${findingChips(hostFindings(h), true)}</div>` : ""}
       <div class="topo-items">${shown.map(item).join("") || `<span class="topo-none">${h.online ? "Nothing running" : "Unreachable"}</span>`}</div>
       ${stopped ? `<div class="topo-stopped" title="${esc(stoppedItems.map((r) => r.name).join("\n"))}">${stopped} stopped</div>` : ""}
