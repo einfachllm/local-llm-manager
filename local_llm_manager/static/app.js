@@ -288,14 +288,7 @@ $("#btn-theme").addEventListener("click", () => {
 renderThemeToggle();
 
 function renderHostOptions() {
-  const opts = state.hosts.map((h) => `<option value="${h.id}">${esc(maskAddr(h.name))}${h.is_local ? " (this machine)" : ""}</option>`).join("");
-  const filter = $("#recipe-host");
-  // The saved filter may arrive before the host options exist; keep it in sync with the view.
-  const cur = view.host || filter.value;
-  filter.innerHTML = `<option value="">All hosts</option>` + opts;
-  filter.value = state.hosts.some((h) => String(h.id) === cur) ? cur : "";
-  if (view.host !== filter.value) { view.host = filter.value; saveView(); }
-  filter.closest("label").classList.toggle("hidden", !multiHost());
+  renderHostFilter();
   // Editor selects are refreshed when their dialog opens, so an open form keeps its choice.
 }
 
@@ -554,7 +547,6 @@ const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 
 const SORTS = {
   name: byName,
   status: (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || byName(a, b),
-  framework: (a, b) => a.framework.localeCompare(b.framework) || byName(a, b),
   port: (a, b) => a.host_port - b.host_port || byName(a, b),
   updated: (a, b) => (b.updated_at || "").localeCompare(a.updated_at || "") || byName(a, b),
 };
@@ -571,6 +563,7 @@ function visibleRecipes() {
   return state.recipes.filter((r) => {
     if (view.host && String(r.host_id) !== view.host) return false;
     if (view.kind && kindOf(r) !== view.kind) return false;
+    if (view.engine && (kindOf(r) === "agent" || engineOf(r) !== view.engine)) return false;
     const tags = (r.tags || []).map((t) => t.toLowerCase());
     if (!want.every((t) => tags.includes(t))) return false;
     if (!q) return true;
@@ -580,6 +573,23 @@ function visibleRecipes() {
 }
 
 const kindOf = (r) => r.kind === "agent" ? "agent" : "model";
+
+/* Engine family of a recipe: Docker and native presets of the same engine belong together. */
+const ENGINE_OF = { vllm: "vllm", sglang: "sglang", tensorfold: "tensorfold", llamacpp: "llamacpp",
+  "llamacpp-native": "llamacpp", mlx: "mlx", custom: "custom", "process-custom": "custom" };
+const ENGINE_LABEL = { vllm: "vLLM", sglang: "SGLang", tensorfold: "TensorFold", llamacpp: "llama.cpp", mlx: "MLX", custom: "Custom" };
+const ENGINE_ORDER = ["vllm", "sglang", "tensorfold", "llamacpp", "mlx", "custom"];
+const engineOf = (r) => ENGINE_OF[r.framework] ?? "custom";
+const groupedByHost = () => view.group === "host" || view.group === "host-engine";
+const runtimeMark = (r) => r.runtime === "process"
+  ? `<span class="rt" title="Native process">⚙</span>` : `<span class="rt" title="Docker container">🐳</span>`;
+// Engine + Docker/native; under an engine heading only the Docker/native mark is left.
+function engineBadge(r) {
+  const e = engineOf(r);
+  const full = state.meta?.frameworks[r.framework]?.label ?? r.framework;
+  const short = view.group === "engine" || view.group === "host-engine";
+  return `<span class="badge eng eng-${e}" title="${esc(full)}">${short ? "" : `${esc(ENGINE_LABEL[e])} `}${runtimeMark(r)}</span>`;
+}
 
 function renderToolbar() {
   $$("#recipe-kind button").forEach((b) => b.classList.toggle("on", b.dataset.kind === view.kind));
@@ -594,6 +604,28 @@ function renderToolbar() {
       tags.map(([t, n]) => `<button class="chip ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}">${esc(t)} <span>${n}</span></button>`).join("")
     : `<span class="hint">Add tags to recipes (e.g. the model name) to filter and group them here.</span>`;
   $("#tag-list").innerHTML = tags.map(([t]) => `<option value="${esc(t)}">`).join("");
+  renderEngineFilter();
+  renderHostFilter();
+}
+
+// Chips with counts: one per engine family in use (models only), and one per host.
+function renderEngineFilter() {
+  const models = state.recipes.filter((r) => kindOf(r) === "model");
+  const used = ENGINE_ORDER.filter((e) => models.some((r) => engineOf(r) === e));
+  if (view.engine && !used.includes(view.engine)) view.engine = "";
+  const chip = (e, label, n, running) => `<button class="chip${(view.engine || "") === e ? " on" : ""}" data-engine="${e}">
+      ${e ? `<i class="eng-dot eng-${e}"></i>` : ""}${esc(label)} <span>${n}${running ? ` · ${running}▶` : ""}</span></button>`;
+  const run = (list) => list.filter((r) => RUNNING.includes(r.status)).length;
+  $("#engine-filter").innerHTML = chip("", "All", models.length, run(models))
+    + used.map((e) => { const l = models.filter((r) => engineOf(r) === e); return chip(e, ENGINE_LABEL[e], l.length, run(l)); }).join("");
+  $("#engine-filter").closest(".rail-block").classList.toggle("hidden", used.length < 2);
+}
+function renderHostFilter() {
+  if (view.host && !state.hosts.some((h) => String(h.id) === view.host)) view.host = "";
+  const chip = (id, label, n) => `<button class="chip${(view.host || "") === id ? " on" : ""}" data-host-filter="${id}">${esc(label)} <span>${n}</span></button>`;
+  $("#host-filter").innerHTML = chip("", "All", state.recipes.length)
+    + state.hosts.map((h) => chip(String(h.id), maskAddr(h.name), state.recipes.filter((r) => r.host_id === h.id).length)).join("");
+  $("#host-filter").closest(".rail-block").classList.toggle("hidden", !multiHost());
 }
 
 function fmtTps(v) { return v >= 100 ? Math.round(v).toLocaleString() : +v.toFixed(1); }
@@ -827,8 +859,8 @@ function cardHtml(r) {
         <div class="row-main">
           <div class="row-title">
             <span class="card-title">${esc(recipeTitle(r))}</span>
-            <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
-            ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
+            ${engineBadge(r)}
+            ${multiHost() && !groupedByHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
           </div>
           <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}${findingChips(r.findings)}
@@ -848,10 +880,10 @@ function cardHtml(r) {
           <div class="card-title">${esc(recipeTitle(r))}</div>
           <div class="card-head-right">
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
-            <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
+            ${engineBadge(r)}
           </div>
         </div>
-        ${multiHost() ? `<div class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</div>` : ""}
+        ${multiHost() && !groupedByHost() ? `<div class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</div>` : ""}
         <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}${findingChips(r.findings)}</div>
         ${r.tags?.length ? `<div class="card-tags">${r.tags.map((t) =>
           `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}</div>` : ""}
@@ -882,7 +914,7 @@ function agentCardHtml(r) {
           <div class="agent-title-row">
             <span class="card-title">${esc(recipeTitle(r))}</span>
             <span class="badge agent" title="An agent: uses a model, kept running by “Switch to”">Agent · ${r.runtime === "process" ? "native" : "Docker"}</span>
-            ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
+            ${multiHost() && !groupedByHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
           </div>
           <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : AGENT_STATUS_LABEL[r.status] ?? r.status}</span>${uptime}${findingChips(r.findings)}</div>
@@ -948,7 +980,7 @@ function renderRecipes() {
     return;
   }
   let html = "";
-  if (!view.kind && !state.recipes.some((r) => kindOf(r) === "agent")) {
+  if (!view.kind && state.recipes.length < 3 && !state.recipes.some((r) => kindOf(r) === "agent")) {
     html += `<div class="agent-empty">🤖 No agents yet. To add one (e.g. a Hermes gateway), use “Add recipe” with
       <code>kind: agent</code> in a YAML recipe.</div>`;
   }
@@ -957,26 +989,68 @@ function renderRecipes() {
 
 // Group by host, or by each recipe's first tag (e.g. the model name); every recipe appears once, and
 // each group stacks its agents above its models.
-function groupedHtml(list) {
+function groupOf(r) {
+  if (view.group === "host" || view.group === "host-engine") {
+    return { key: String(state.hosts.findIndex((h) => h.id === r.host_id)).padStart(3, "0"),
+      label: maskAddr(hostName(r.host_id)), icon: "⌂ ", hostId: r.host_id };
+  }
+  if (view.group === "engine") return engineGroup(r);
+  const tag = r.tags?.[0] ?? "";
+  return { key: tag.toLowerCase(), label: tag || "Untagged", icon: "" };
+}
+function engineGroup(r) {
+  if (kindOf(r) === "agent") return { key: "9", label: "Agents", icon: "🤖 ", engine: "agent" };
+  const e = engineOf(r);
+  return { key: String(ENGINE_ORDER.indexOf(e)), label: ENGINE_LABEL[e], icon: "", engine: e };
+}
+function bucket(list, fn) {
   const groups = new Map();
   for (const r of list) {
-    const label = view.group === "host" ? maskAddr(hostName(r.host_id)) : r.tags?.[0] ?? "";
-    const key = view.group === "host" ? String(state.hosts.findIndex((h) => h.id === r.host_id)).padStart(3, "0") : label.toLowerCase();
-    if (!groups.has(key)) groups.set(key, { label, hostId: view.group === "host" ? r.host_id : "", items: [] });
-    groups.get(key).items.push(r);
+    const g = fn(r);
+    if (!groups.has(g.key)) groups.set(g.key, { ...g, items: [] });
+    groups.get(g.key).items.push(r);
   }
-  const keys = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b, undefined, { numeric: true }));
-  return keys.map((k) => {
-    const g = groups.get(k);
-    const running = g.items.filter((r) => RUNNING.includes(r.status)).length;
-    const nAgents = g.items.filter((r) => kindOf(r) === "agent").length;
-    const nModels = g.items.length - nAgents;
-    const parts = [nAgents && `${nAgents} agent${nAgents === 1 ? "" : "s"}`, nModels && `${nModels} model${nModels === 1 ? "" : "s"}`].filter(Boolean);
-    const collapsed = !!view.collapsed[`${view.group}:${k}`];
-    return `<section class="group${collapsed ? " is-collapsed" : ""}" data-gkey="${esc(k)}">
-        <h3 class="group-title" title="Click to ${collapsed ? "expand" : "collapse"}"><span class="group-caret">${collapsed ? "▸" : "▾"}</span>${view.group === "host" ? "⌂ " : ""}${g.label ? esc(g.label) : "Untagged"} <span>${parts.join(" · ")}${running ? ` · ${running} running` : ""}</span></h3>
-        <div class="group-body">${kindsHtml(g.items, g.hostId)}</div>
-      </section>`;
+  return [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b, undefined, { numeric: true }))
+    .map((k) => groups.get(k));
+}
+function groupCounts(items) {
+  const running = items.filter((r) => RUNNING.includes(r.status)).length;
+  const nAgents = items.filter((r) => kindOf(r) === "agent").length;
+  const nModels = items.length - nAgents;
+  const parts = [nAgents && `${nAgents} agent${nAgents === 1 ? "" : "s"}`, nModels && `${nModels} model${nModels === 1 ? "" : "s"}`].filter(Boolean);
+  // Docker and native side by side (e.g. llama.cpp): say how many of each.
+  const docker = items.filter((r) => kindOf(r) === "model" && r.runtime !== "process").length;
+  const native = items.filter((r) => kindOf(r) === "model" && r.runtime === "process").length;
+  const split = docker && native ? ` (${docker} 🐳 · ${native} ⚙)` : "";
+  return `${parts.join(" · ")}${split}${running ? ` · ${running} running` : ""}`;
+}
+// Cards without the Models / Agents headings (the group heading already says which).
+function plainCardsHtml(items) {
+  const agents = items.filter((r) => kindOf(r) === "agent");
+  const models = items.filter((r) => kindOf(r) === "model");
+  return (agents.length ? `<div class="agent-list">${agents.map(agentCardHtml).join("")}</div>` : "")
+    + (models.length ? `<div class="${view.layout === "tiles" ? "grid" : "row-list"}">${models.map(cardHtml).join("")}</div>` : "");
+}
+function groupSection(g, key, body, level = 3) {
+  const collapsed = !!view.collapsed[`${view.group}:${key}`];
+  const dot = g.engine && g.engine !== "agent" ? `<i class="eng-dot eng-${g.engine}"></i>` : "";
+  return `<section class="group${level > 3 ? " sub" : ""}${collapsed ? " is-collapsed" : ""}" data-gkey="${esc(key)}">
+      <h${level} class="group-title" title="Click to ${collapsed ? "expand" : "collapse"}"><span class="group-caret">${collapsed ? "▸" : "▾"}</span>${dot}${g.icon}${esc(g.label)} <span>${groupCounts(g.items)}</span></h${level}>
+      <div class="group-body">${body}</div>
+    </section>`;
+}
+// Group by host, engine, host → engine, or each recipe's first tag; every recipe appears once.
+function groupedHtml(list) {
+  return bucket(list, groupOf).map((g) => {
+    let body;
+    if (view.group === "host-engine") {
+      body = bucket(g.items, engineGroup).map((e) => groupSection(e, `${g.key}/${e.key}`, plainCardsHtml(e.items), 4)).join("");
+    } else if (view.group === "engine") {
+      body = plainCardsHtml(g.items);
+    } else {
+      body = kindsHtml(g.items, g.hostId ?? "");
+    }
+    return groupSection(g, g.key, body);
   }).join("");
 }
 
@@ -1009,10 +1083,23 @@ $("#recipe-kind").addEventListener("click", (ev) => {
   saveView();
   renderRecipes();
 });
-$("#recipe-host").addEventListener("change", (ev) => { view.host = ev.target.value; saveView(); renderRecipes(); });
+$("#host-filter").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-host-filter]");
+  if (!b) return;
+  view.host = b.dataset.hostFilter;
+  saveView();
+  renderRecipes();
+});
+$("#engine-filter").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-engine]");
+  if (!b) return;
+  view.engine = b.dataset.engine;
+  saveView();
+  renderRecipes();
+});
 $("#recipe-search").value = view.search;
 $("#recipe-sort").value = SORTS[view.sort] ? view.sort : "name";
-$("#recipe-group").value = ["host", "tag"].includes(view.group) ? view.group : "";
+$("#recipe-group").value = ["host", "engine", "host-engine", "tag"].includes(view.group) ? view.group : "";
 
 async function runAction(key, path, okMsg, busyLabel = "Working…") {
   state.busy.set(key, busyLabel);
@@ -2296,11 +2383,11 @@ function revealRecipes(ids) {
   const visible = new Set(visibleRecipes().map((r) => r.id));
   if (wanted.some((r) => !visible.has(r.id))) {
     view.host = "";
+    view.engine = "";
     view.kind = "";
     view.search = "";
     view.tags = [];
     view.collapsed = {};
-    $("#recipe-host").value = "";
     $("#recipe-search").value = "";
     saveView();
     renderRecipes();

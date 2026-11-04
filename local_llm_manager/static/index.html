@@ -61,22 +61,23 @@
               <select id="recipe-sort">
                 <option value="name">Name</option>
                 <option value="status">Status (running first)</option>
-                <option value="framework">Framework</option>
                 <option value="port">Port</option>
                 <option value="updated">Last edited</option>
               </select>
-            </label>
-            <label class="inline">Host
-              <select id="recipe-host"><option value="">All hosts</option></select>
             </label>
             <label class="inline">Group
               <select id="recipe-group">
                 <option value="">None</option>
                 <option value="host">Host</option>
+                <option value="engine">Engine</option>
+                <option value="host-engine">Host → Engine</option>
                 <option value="tag">First tag</option>
               </select>
             </label>
           </div>
+          <div class="rail-block"><div class="rail-label">Host</div><div class="tag-filter" id="host-filter"></div></div>
+          <div class="rail-block"><div class="rail-label">Engine</div><div class="tag-filter" id="engine-filter"></div></div>
+          <div class="rail-label">Tags</div>
           <div class="tag-filter" id="tag-filter"></div>
         </aside>
       </div>
