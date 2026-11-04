@@ -33,6 +33,13 @@ weights: Qwen3.8-27B-NVFP4   # the row's name in the Weights tab
 port: 8101
 ```
 
+**GGUF in a folder (llama.cpp):** llama.cpp loads one `.gguf` file, but a Hugging Face download is a folder.
+When a `llamacpp` / `llamacpp-native` recipe's weights are a folder, the start picks the model file in it on
+that host: vision projectors (`mmproj-…`) are skipped and of a split model (`…-00001-of-00003.gguf`) the
+first part is used - llama.cpp loads the rest itself. If the folder holds several models (e.g. `Q4_K_M` and
+`Q8_0`), the start is refused with their names: set **Model** to one, e.g. `/model/Qwen3-8B-Q4_K_M.gguf`
+(Docker) or `{weights}/Qwen3-8B-Q4_K_M.gguf` (native).
+
 When the recipe starts, `{weights}` becomes the path of the host it runs on. So **moving a recipe to another
 host, or copying it to many, needs no edits** - as long as the model has a path there. The editor shows
 right away whether the weights are on the selected host, and a start is refused with a clear message when

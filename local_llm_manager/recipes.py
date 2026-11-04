@@ -196,6 +196,61 @@ def use_weights_mount(volumes: str, index: int) -> str:
     return "\n".join(lines)
 
 
+# llama.cpp loads one .gguf file. Weights downloaded from Hugging Face are a folder (often with several
+# quantisations, a split model or a vision projector), so a folder is resolved to the file in it on the host.
+GGUF_FRAMEWORKS = ("llamacpp", "llamacpp-native")
+_SPLIT_PART = re.compile(r"-(\d{5})-of-(\d{5})\.gguf$", re.I)
+
+
+class GgufChoiceError(ValueError):
+    """A folder holds several models: the recipe has to name one."""
+
+
+def gguf_files(folder: str, depth: int = 2) -> list[str]:
+    """Model .gguf files under a folder (relative paths): vision projectors (mmproj) left out, and of a
+    split model only its first part, which is what llama.cpp is given."""
+    root = folder.rstrip("/")
+    out = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel = os.path.relpath(dirpath, root)
+        level = 0 if rel == "." else rel.count(os.sep) + 1
+        dirnames[:] = [] if level >= depth else sorted(d for d in dirnames if not d.startswith("."))
+        for f in sorted(filenames):
+            if not f.lower().endswith(".gguf") or "mmproj" in f.lower():
+                continue
+            m = _SPLIT_PART.search(f)
+            if m and int(m.group(1)) != 1:
+                continue
+            out.append(f if rel == "." else os.path.join(rel, f))
+    return out
+
+
+def resolve_gguf(recipe: dict[str, Any]) -> dict[str, Any]:
+    """For llama.cpp recipes whose model is a folder (natively: the model path; in Docker: the host side
+    of the model's own mount), point the model at the single .gguf in it. Unchanged otherwise; raises
+    GgufChoiceError when the folder holds several."""
+    if recipe.get("framework") not in GGUF_FRAMEWORKS:
+        return recipe
+    model = (recipe.get("model") or "").strip()
+    if recipe.get("runtime") == "process":
+        folder = _expand_home(model)
+    else:
+        mount = model_mount(model, recipe.get("volumes") or "")
+        if not mount:
+            return recipe
+        folder = _expand_home(mount[1])
+    if not model or not os.path.isdir(folder):
+        return recipe
+    files = gguf_files(folder)
+    if len(files) > 1:
+        shown = ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
+        raise GgufChoiceError(f"{folder} holds several GGUF models ({shown}). Name one in the recipe's "
+                              f"Model field, e.g. {model.rstrip('/')}/{files[0]}")
+    if not files:
+        return recipe
+    return {**recipe, "model": f"{model.rstrip('/')}/{files[0]}"}
+
+
 def split_args(text: str) -> list[str]:
     """Split a multi-line args field. Lines starting with '#' are comments; trailing '\\' is allowed."""
     joined = " ".join(line.rstrip("\\").strip() for line in _lines(text))

@@ -53,6 +53,7 @@ Values marked *agent* matter only with `DGXM_MODE=agent`, *hub* only in the defa
 | Variable | Default | Description |
 |---|---|---|
 | `DGXM_SCHEDULER_TICK` | `10` | Seconds between scheduler passes (hub). |
+| `DGXM_HEALTH_TICK` | `15` | Seconds between health checks (hub): memory, GPU temperature, KV cache, failed and slow starts, unreachable hosts. |
 | `DGXM_ONCE_GRACE_SECONDS` | `600` | Grace period for one-shot schedules ("start once at 06:00") that were missed while the manager was down; older misses are skipped. |
 | `DGXM_METRICS` | *(off)* | `1`/`true`/`yes` serves the manager's own metrics at `GET /metrics` in Prometheus format (uptime, request and action counts, stored recipes/hosts - no recipe or host data). `GET /healthz` is always available and needs no login. |
 

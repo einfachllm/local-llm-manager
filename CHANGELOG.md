@@ -6,6 +6,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Health findings:** the hub checks every 15 s for problems and names them where you look anyway - a
+  chip on the recipe card (with what happened, the log line that shows why, and what usually helps), on the
+  host in the Hosts graph, a ⚠/✖ count on the host chip in the top bar, and an entry in the activity log
+  (new **Health** filter). Rules: host unreachable, memory almost full (under 8 % / 3 % free), GPU hot
+  (85 / 90 °C), KV cache almost full with requests waiting, a failed start with its cause read from the log
+  (CUDA out of memory, KV cache too small, killed, port in use, model not found, gated repo, CUDA error,
+  unknown argument) and a start that takes far longer than usual. A condition must hold for a while before
+  it becomes a finding and must be gone for a minute before it clears, so readings on a threshold do not
+  flap. **Mute 24 h** hides one; `GET /api/health` lists them and `/metrics` has `dgxm_health_findings`.
+  Findings only read - nothing is started or stopped. `DGXM_HEALTH_TICK` sets the interval.
+- **GGUF weights as a folder:** a llama.cpp recipe whose weights are a folder (as a Hugging Face download
+  is) now starts the model file in it - skipping vision projectors (`mmproj`) and using the first part of a
+  split model. A folder with several models is refused with their names instead of a failing start.
+
 ## [0.2.0] - 2026-11-02
 
 ### Highlights

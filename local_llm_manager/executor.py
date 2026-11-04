@@ -24,7 +24,7 @@ from .docker import Docker, try_drop_caches_locally
 from .processes import ProcessError, ProcessRunner
 from .shares import HashCache, Shares
 from .transfers import Tasks
-from .recipes import (build_process_argv, build_run_argv, format_command, format_process_command, process_env,
+from .recipes import (GgufChoiceError, resolve_gguf, build_process_argv, build_run_argv, format_command, format_process_command, process_env,
                       secret_names)
 
 # Matches a Hugging Face repo id: exactly one "/" with no path-like characters on either side.
@@ -340,6 +340,10 @@ class LocalExecutor:
         if await asyncio.to_thread(port_in_use, recipe["host_port"]):
             raise ActionError(f"Port {recipe['host_port']} on {socket.gethostname()} is already in use by a program "
                               "the manager did not start. Stop that program or choose another port.", 409)
+        try:
+            recipe = await asyncio.to_thread(resolve_gguf, recipe)
+        except GgufChoiceError as e:
+            raise ActionError(str(e), 409)
         if recipe.get("runtime") == "process":
             try:
                 pid = self.procs.start(name, build_process_argv(recipe), process_env(recipe))
