@@ -742,3 +742,5 @@ span.hf { cursor: default; padding: 0 7px; }
 .rail-block.hidden { display: none; }
 .group.sub { margin-bottom: 14px; }
 .group.sub > .group-title { font-size: 14px; border-bottom-style: dashed; }
+.images-hosts { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.images-hosts:empty { display: none; }

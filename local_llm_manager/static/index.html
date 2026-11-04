@@ -157,7 +157,7 @@
         model keeps the old image until you restart it). <span id="images-native"></span></p>
       <div class="toolbar images-toolbar">
         <input id="images-search" type="search" placeholder="Search image or recipe…">
-        <label class="inline">Host <select id="images-host"><option value="">All hosts</option></select></label>
+        <span class="chips images-hosts" id="images-host" role="group" aria-label="Host"></span>
         <button type="button" class="chip" id="images-only-newer" aria-pressed="false">⬆ Newer available</button>
         <button type="button" class="chip" id="images-only-missing" aria-pressed="false">✗ Missing on a host</button>
         <span class="images-summary muted" id="images-summary"></span>
