@@ -163,9 +163,21 @@ main { padding: 24px; max-width: 1500px; margin: 0 auto; }
   font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
   padding: 2px 8px; border-radius: 6px; background: rgba(79,140,255,.15); color: var(--badge-text); white-space: nowrap;
 }
-.badge.sglang { background: rgba(167,123,243,.15); color: var(--purple); }
-.badge.tensorfold { background: rgba(34,197,139,.15); color: var(--green); }
-.badge.llamacpp, .badge.llamacpp-native, .badge.custom { background: rgba(240,180,41,.15); color: var(--yellow); }
+/* Engine families: one colour each, Docker and native alike (the 🐳 / ⚙ mark tells them apart). */
+:root { --eng-vllm: #4f8cff; --eng-sglang: #a77bf3; --eng-tensorfold: #22c58b; --eng-llamacpp: #f0b429; --eng-mlx: #f472b6; --eng-custom: #8b97b0; }
+:root[data-theme="light"] { --eng-vllm: #2b6fe0; --eng-sglang: #7d50d6; --eng-tensorfold: #159f6e; --eng-llamacpp: #b07a0d; --eng-mlx: #c0397f; --eng-custom: #5a6a84; }
+.badge.eng { display: inline-flex; align-items: center; gap: 5px; }
+.badge.eng-vllm { color: var(--eng-vllm); background: color-mix(in srgb, var(--eng-vllm) 15%, transparent); }
+.badge.eng-sglang { color: var(--eng-sglang); background: color-mix(in srgb, var(--eng-sglang) 15%, transparent); }
+.badge.eng-tensorfold { color: var(--eng-tensorfold); background: color-mix(in srgb, var(--eng-tensorfold) 15%, transparent); }
+.badge.eng-llamacpp { color: var(--eng-llamacpp); background: color-mix(in srgb, var(--eng-llamacpp) 15%, transparent); }
+.badge.eng-mlx { color: var(--eng-mlx); background: color-mix(in srgb, var(--eng-mlx) 15%, transparent); }
+.badge.eng-custom { color: var(--eng-custom); background: color-mix(in srgb, var(--eng-custom) 15%, transparent); }
+.badge .rt { font-size: 12px; letter-spacing: 0; text-transform: none; }
+.eng-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; font-style: normal; }
+.eng-dot.eng-vllm { background: var(--eng-vllm); } .eng-dot.eng-sglang { background: var(--eng-sglang); }
+.eng-dot.eng-tensorfold { background: var(--eng-tensorfold); } .eng-dot.eng-llamacpp { background: var(--eng-llamacpp); }
+.eng-dot.eng-mlx { background: var(--eng-mlx); } .eng-dot.eng-custom { background: var(--eng-custom); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 13px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; text-align: right; word-break: break-all; }
@@ -724,3 +736,9 @@ span.hf { cursor: default; padding: 0 7px; }
 .host-badge { margin-left: 6px; font-size: 11px; font-weight: 700; color: #0d1424; background: var(--yellow); border-radius: 999px; padding: 0 7px; }
 .host-badge.crit { background: var(--red); color: #fff; }
 #events-filter { display: flex; gap: 4px; margin-right: 8px; }
+
+/* ---- filter rail: host / engine / tag chips; nested groups ---- */
+.rail-label { font-size: 12px; color: var(--muted); margin: 12px 0 6px; }
+.rail-block.hidden { display: none; }
+.group.sub { margin-bottom: 14px; }
+.group.sub > .group-title { font-size: 14px; border-bottom-style: dashed; }
