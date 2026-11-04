@@ -750,8 +750,8 @@ check, so a recipe only writes down what differs from it.</p>
 </table>
 <p>vLLM, SGLang, llama.cpp and MLX all serve an OpenAI-compatible API at <code>http://&lt;host&gt;:&lt;port&gt;/v1</code>, so your
 apps don't care which engine runs behind the endpoint. Live stats (tokens/s, requests, KV cache) come from
-the server's <code>/metrics</code>: on by default in vLLM, add <code>--enable-metrics</code> for SGLang and <code>--metrics</code> for
-llama.cpp.</p>
+the server's <code>/metrics</code>: on by default in vLLM and TensorFold, add <code>--enable-metrics</code> for SGLang and
+<code>--metrics</code> for llama.cpp.</p>
 <h2 id="add-a-recipe-paste-yaml-or-a-shell-script">Add a recipe: paste YAML or a shell script<a class="headerlink" href="#add-a-recipe-paste-yaml-or-a-shell-script" title="Permanent link">&para;</a></h2>
 <p>There is no form to fill in. Click <strong>＋ Add recipe</strong> (shortcut <code>i</code>) and paste one of:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">YAML recipe</label><label for="__tabbed_1_2">Shell script / docker run</label></div>
