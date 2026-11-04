@@ -55,6 +55,7 @@ nav:
   - Recipes: recipes.md
   - Weights: weights.md
   - Several machines: several-machines.md
+  - Health findings: health.md
   - How it works: how-it-works.md
   - Configuration: configuration.md
 

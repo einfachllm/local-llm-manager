@@ -47,6 +47,7 @@ silicon, or any Linux box - from any browser on your network:
 - **Health findings:** memory almost full, a hot GPU, a KV cache that makes requests wait, a host that
   stopped answering, or a start that failed - with the cause from its log (e.g. *CUDA out of memory*) and
   what usually helps - shown on the card, the host and in the activity log. Mute one for 24 h.
+  [More](https://einfachllm.github.io/local-llm-manager/health/)
 - **Activity log** of every start, stop and switch with the exact command and result.
 - **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
   ⭐ pinned recipes, collapsible groups and keyboard shortcuts (`?` shows them).
