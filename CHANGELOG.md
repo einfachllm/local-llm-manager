@@ -17,6 +17,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   it becomes a finding and must be gone for a minute before it clears, so readings on a threshold do not
   flap. **Mute 24 h** hides one; `GET /api/health` lists them and `/metrics` has `dgxm_health_findings`.
   Findings only read - nothing is started or stopped. `DGXM_HEALTH_TICK` sets the interval.
+- **GGUF weights as a folder:** a llama.cpp recipe whose weights are a folder (as a Hugging Face download
+  is) now starts the model file in it - skipping vision projectors (`mmproj`) and using the first part of a
+  split model. A folder with several models is refused with their names instead of a failing start.
 
 ## [0.2.0] - 2026-11-02
 
