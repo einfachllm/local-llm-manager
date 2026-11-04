@@ -57,23 +57,21 @@
               </span>
             </label>
             <input id="recipe-search" type="search" placeholder="Search name, model, image, tag…">
-            <label class="inline">Sort
-              <select id="recipe-sort">
-                <option value="name">Name</option>
-                <option value="status">Status (running first)</option>
-                <option value="port">Port</option>
-                <option value="updated">Last edited</option>
-              </select>
-            </label>
-            <label class="inline">Group
-              <select id="recipe-group">
-                <option value="">None</option>
-                <option value="host">Host</option>
-                <option value="engine">Engine</option>
-                <option value="host-engine">Host → Engine</option>
-                <option value="tag">First tag</option>
-              </select>
-            </label>
+          </div>
+          <div class="rail-label">Group</div>
+          <div class="tag-filter" id="recipe-group" role="group" aria-label="Group">
+            <button class="chip" data-group="">None</button>
+            <button class="chip" data-group="host">Host</button>
+            <button class="chip" data-group="engine">Engine</button>
+            <button class="chip" data-group="host-engine" title="Each host, its engines underneath">Host → Engine</button>
+            <button class="chip" data-group="tag" title="By each recipe's first tag">Tag</button>
+          </div>
+          <div class="rail-label">Sort</div>
+          <div class="tag-filter" id="recipe-sort" role="group" aria-label="Sort">
+            <button class="chip" data-sort="name">Name</button>
+            <button class="chip" data-sort="status" title="Running first">Status</button>
+            <button class="chip" data-sort="port">Port</button>
+            <button class="chip" data-sort="updated" title="Last edited first">Edited</button>
           </div>
           <div class="rail-block"><div class="rail-label">Host</div><div class="tag-filter" id="host-filter"></div></div>
           <div class="rail-block"><div class="rail-label">Engine</div><div class="tag-filter" id="engine-filter"></div></div>
