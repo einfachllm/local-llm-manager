@@ -594,6 +594,8 @@ function engineBadge(r) {
 function renderToolbar() {
   $$("#recipe-kind button").forEach((b) => b.classList.toggle("on", b.dataset.kind === view.kind));
   $$("#recipe-layout button").forEach((b) => b.classList.toggle("on", b.dataset.layout === (view.layout === "tiles" ? "tiles" : "rows")));
+  $$("#recipe-group button").forEach((b) => b.classList.toggle("on", b.dataset.group === (view.group || "")));
+  $$("#recipe-sort button").forEach((b) => b.classList.toggle("on", b.dataset.sort === view.sort));
   const tags = allTags();
   // Drop filters for tags that no longer exist.
   const known = new Set(tags.map(([t]) => t.toLowerCase()));
@@ -1067,8 +1069,20 @@ $("#tag-filter").addEventListener("click", (ev) => {
   if (chip) toggleTagFilter(chip.dataset.tag);
 });
 $("#recipe-search").addEventListener("input", (ev) => { view.search = ev.target.value; saveView(); renderRecipes(); });
-$("#recipe-sort").addEventListener("change", (ev) => { view.sort = ev.target.value; saveView(); renderRecipes(); });
-$("#recipe-group").addEventListener("change", (ev) => { view.group = ev.target.value; saveView(); renderRecipes(); });
+$("#recipe-sort").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-sort]");
+  if (!b) return;
+  view.sort = b.dataset.sort;
+  saveView();
+  renderRecipes();
+});
+$("#recipe-group").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-group]");
+  if (!b) return;
+  view.group = b.dataset.group;
+  saveView();
+  renderRecipes();
+});
 $("#recipe-layout").addEventListener("click", (ev) => {
   const b = ev.target.closest("button[data-layout]");
   if (!b) return;
@@ -1098,8 +1112,8 @@ $("#engine-filter").addEventListener("click", (ev) => {
   renderRecipes();
 });
 $("#recipe-search").value = view.search;
-$("#recipe-sort").value = SORTS[view.sort] ? view.sort : "name";
-$("#recipe-group").value = ["host", "engine", "host-engine", "tag"].includes(view.group) ? view.group : "";
+if (!SORTS[view.sort]) view.sort = "name";  // e.g. the former "framework" sort
+if (!["host", "engine", "host-engine", "tag"].includes(view.group)) view.group = "";
 
 async function runAction(key, path, okMsg, busyLabel = "Working…") {
   state.busy.set(key, busyLabel);
