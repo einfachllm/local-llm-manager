@@ -57,6 +57,9 @@ DROP_CACHES_IMAGE = os.environ.get("DGXM_DROP_CACHES_IMAGE", "busybox:latest")
 SCHEDULER_TICK = float(os.environ.get("DGXM_SCHEDULER_TICK", "10"))
 ONCE_GRACE_SECONDS = int(os.environ.get("DGXM_ONCE_GRACE_SECONDS", "600"))
 
+# Seconds between health checks (memory, GPU temperature, KV cache, failed starts; see health.py).
+HEALTH_TICK = float(os.environ.get("DGXM_HEALTH_TICK", "15"))
+
 # Days to keep activity-log entries and start-time measurements (0 = keep them forever).
 # Pruned on startup, so the database cannot grow without bound.
 RETENTION_DAYS = int(os.environ.get("DGXM_RETENTION_DAYS", "90"))

@@ -206,11 +206,19 @@ $("#join-requests").addEventListener("click", async (ev) => {
   } catch (e) { toast(e.message, "bad"); }
 });
 
+function healthBadge(h) {
+  const live = liveFindings(hostFindings(h));
+  if (!live.length) return "";
+  const crit = live.some((f) => f.severity === "critical");
+  const lines = live.map((f) => `${SEV_ICON[f.severity]} ${f.title}: ${f.message}`).join("\n");
+  return `<span class="host-badge${crit ? " crit" : ""}" title="${esc(blurText(lines))}">${crit ? "✖" : "⚠"} ${live.length}</span>`;
+}
+
 function renderHostsStrip() {
   $("#hosts-strip").innerHTML = state.hosts.map((h) => {
     if (!h.online) {
       return `<button class="host-chip offline" data-host="${h.id}" title="${esc(blurHostText(h.error || "offline", h.url))}">
-        <span class="host-name">${esc(maskAddr(h.name))}</span><span class="host-mem">offline</span></button>`;
+        <span class="host-name">${esc(maskAddr(h.name))}${healthBadge(h)}</span><span class="host-mem">offline</span></button>`;
     }
     const m = h.system.memory;
     const pct = memPct(m);
@@ -218,7 +226,7 @@ function renderHostsStrip() {
     const title = `${maskAddr(h.name)}: ${memText(m)} used, ${m.available_gb} GB free` + (gpu ? `\nGPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C · ${gpu.power_w ?? "?"} W` : "")
       + (cpuTemp(h) != null ? `\nCPU ${cpuTemp(h)}°C` : "");
     return `<button class="host-chip" data-host="${h.id}" title="${esc(title)}">
-        <span class="host-name">${esc(maskAddr(h.name))} ${h.is_local ? '<span class="host-note">this machine</span>' : '<span class="host-note">remote</span>'}</span>
+        <span class="host-name">${esc(maskAddr(h.name))} ${h.is_local ? '<span class="host-note">this machine</span>' : '<span class="host-note">remote</span>'}${healthBadge(h)}</span>
         <span class="bar"><span class="${barClass(pct)}" style="width:${pct.toFixed(1)}%"></span></span>
         <span class="host-mem">${esc(memText(m))}${gpu ? ` · GPU ${gpu.utilization ?? "?"}%` : ""}</span>
       </button>`;
@@ -326,7 +334,9 @@ function topoNode(h, role) {
         <span class="topo-dot"></span><span class="topo-kind">${agent ? "🤖" : "🧠"}</span><span class="topo-name">${esc(r.name)}</span>
         ${agent ? "" : `<span class="topo-port">:${r.host_port}</span>`}</button>`;
   };
-  return `<div class="topo-node ${role} ${h.online ? "" : "offline"}" data-host="${h.id}" role="button" tabindex="0" title="Edit host">
+  const live = liveFindings(hostFindings(h));
+  const worst = live.some((f) => f.severity === "critical") ? "crit" : live.length ? "warn" : "";
+  return `<div class="topo-node ${role} ${h.online ? "" : "offline"} ${worst ? `health-${worst}` : ""}" data-host="${h.id}" role="button" tabindex="0" title="Edit host">
       <div class="topo-head">
         <span class="topo-icon">${role === "hub" ? "🛰️" : "🖥️"}</span>
         <b class="topo-host">${esc(maskAddr(h.name))}</b>
@@ -335,6 +345,7 @@ function topoNode(h, role) {
       <div class="topo-sub">${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span>`}${platform ? ` · ${esc(platform)}` : ""}</div>
       ${m ? `<div class="topo-mem"><div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
         <small>${esc(memText(m))}${gpu ? ` · GPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C` : ""}${cpuTemp(h) != null ? ` · ${tempHtml(cpuTemp(h))}` : ""}</small></div>` : ""}
+      ${hostFindings(h).length ? `<div class="topo-health">${findingChips(hostFindings(h), true)}</div>` : ""}
       <div class="topo-items">${shown.map(item).join("") || `<span class="topo-none">${h.online ? "Nothing running" : "Unreachable"}</span>`}</div>
       ${stopped ? `<div class="topo-stopped" title="${esc(stoppedItems.map((r) => r.name).join("\n"))}">${stopped} stopped</div>` : ""}
     </div>`;
@@ -502,6 +513,7 @@ async function loadRecipes() {
     recordMetrics(state.recipes);
     if (watchStarts(state.recipes)) await loadStartTimes();  // a boot just finished
     renderRecipes();
+    if (state.hosts.length) renderHostsStrip();  // its health badges count the recipes' findings
     if (state.tab === "hosts") { renderTopology(); renderPorts(); }
   } catch (e) {
     $("#recipes").innerHTML = `<div class="empty">Failed to load recipes: ${esc(e.message)}</div>`;
@@ -726,6 +738,40 @@ function copiesFact(r) {
     : `<span class="ok">✓ in sync</span>`}`];
 }
 
+/* ---------------- health findings (health.py) ---------------- */
+
+const SEV_ICON = { warning: "⚠", critical: "✖" };
+const liveFindings = (list) => (list || []).filter((f) => !f.muted);
+function findingTitle(f) {
+  return `${f.title}: ${f.message}` + (f.muted ? `\nMuted until ${fmtTime(f.muted_until)} – click to unmute` : `\nSince ${fmtTime(f.since)}`);
+}
+// Short chips next to the status pill; a muted one stays visible, dimmed, and unmutes on click.
+function findingChips(list, short = false) {
+  return (list || []).map((f) => `<button type="button" class="hf ${f.severity}${f.muted ? " muted" : ""}"
+      data-act="${f.muted ? "unmute" : "finding"}" data-key="${esc(f.key)}"
+      title="${esc(blurText(findingTitle(f)))}">${f.muted ? "🔕" : SEV_ICON[f.severity]} ${esc(short && f.recipe_id ? `${f.label} · ${f.target}` : f.label)}</button>`).join("");
+}
+// What happened, why, what helps - under the card, for findings that are not muted.
+function findingDetails(list) {
+  return liveFindings(list).map((f) => `<div class="hf-box ${f.severity}">
+      <b>${SEV_ICON[f.severity]} ${esc(f.title)}</b> – ${esc(blurText(f.message))}
+      ${f.detail ? `<code class="hf-detail">${esc(blurText(f.detail))}</code>` : ""}
+      <div class="hf-why">${esc(f.hint)}</div>
+      <div class="hf-act"><button type="button" class="btn small ghost" data-act="mute" data-key="${esc(f.key)}" title="Hide this finding for 24 hours (it stays listed, dimmed)">Mute 24 h</button></div>
+    </div>`).join("");
+}
+// Host findings plus those of the recipes on that host.
+function hostFindings(h) {
+  return [...(h.findings || []), ...state.recipes.filter((r) => r.host_id === h.id).flatMap((r) => r.findings || [])];
+}
+async function muteFinding(key, mute) {
+  try {
+    await api(`/api/health/${mute ? "mute" : "unmute"}`, { method: "POST", body: { key, hours: 24 } });
+    toast(mute ? "Muted for 24 hours" : "Unmuted", "ok");
+    await Promise.all([loadRecipes(), loadHosts()]);
+  } catch (e) { toast(e.message, "bad"); }
+}
+
 function cardHtml(r) {
   const busy = state.busy.has(r.id);
   const busyLabel = state.busy.get(r.id) ?? "Working…";
@@ -785,12 +831,13 @@ function cardHtml(r) {
             ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
           </div>
-          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}
+          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}${findingChips(r.findings)}
             ${r.tags?.length ? r.tags.map((t) =>
               `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("") : ""}</div>
           ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
           <dl class="row-facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
           ${metricsHtml(r)}
+          ${findingDetails(r.findings)}
         </div>
         <div class="actions">${actions}</div>
       </article>`;
@@ -805,12 +852,13 @@ function cardHtml(r) {
           </div>
         </div>
         ${multiHost() ? `<div class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</div>` : ""}
-        <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}</div>
+        <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}${findingChips(r.findings)}</div>
         ${r.tags?.length ? `<div class="card-tags">${r.tags.map((t) =>
           `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}</div>` : ""}
         ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
         <dl class="kv">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
         ${metricsHtml(r)}
+        ${findingDetails(r.findings)}
         <div class="actions">${actions}</div>
       </article>`;
 }
@@ -837,7 +885,7 @@ function agentCardHtml(r) {
             ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
           </div>
-          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : AGENT_STATUS_LABEL[r.status] ?? r.status}</span>${uptime}</div>
+          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : AGENT_STATUS_LABEL[r.status] ?? r.status}</span>${uptime}${findingChips(r.findings)}</div>
           ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
           <div class="agent-facts">
             ${r.model ? `<span class="agent-uses" title="The model this agent talks to">uses <b>${esc(r.model)}</b></span>` : ""}
@@ -851,6 +899,7 @@ function agentCardHtml(r) {
           ${dups.length ? `<div class="agent-warn">⚠ ${dups.length === 1 ? "Another copy" : `${dups.length} other copies`} of this command
             ${dups.length === 1 ? "runs" : "run"} outside the manager (pid ${dups.map(Number).join(", ")}). Two gateways on one bot
             token lose messages: kill ${dups.length === 1 ? "it" : "them"}, then restart this recipe.</div>` : ""}
+          ${findingDetails(r.findings)}
         </div>
         <div class="actions">
           ${running
@@ -1043,6 +1092,10 @@ $("#recipes").addEventListener("click", async (ev) => {
     }
   } else if (act === "logs") {
     openLogs(r);
+  } else if (act === "mute" || act === "unmute") {
+    await muteFinding(btn.dataset.key, act === "mute");
+  } else if (act === "finding") {
+    btn.closest(".card")?.querySelector(".hf-box")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   } else if (act === "edit") {
     openRecipeEditor(r);
   } else if (act === "copy") {
@@ -2717,18 +2770,29 @@ async function loadEvents() {
   const limit = Number($("#events-limit").value) || 100;
   try { localStorage.setItem("llm.eventsLimit", String(limit)); } catch { /* storage unavailable */ }
   try {
-    const events = await api(`/api/events?limit=${limit}`);
+    const all = await api(`/api/events?limit=${limit}`);
+    const events = all.filter((e) => !state.eventsFilter || (state.eventsFilter === "health") === (e.source === "health"));
+    const mark = (e) => e.source !== "health" ? `<span class="${e.ok ? "ok" : "bad"}">${e.ok ? "✓" : "✗"}</span>`
+      : e.action === "resolved" ? `<span class="hf ok">✓</span>` : `<span class="hf ${esc(e.action)}">${SEV_ICON[e.action] ?? "⚠"}</span>`;
     $("#events").innerHTML = events.length ? events.map((e) => `
       <tr>
         <td style="white-space:nowrap">${esc(fmtTime(e.ts))}</td>
         <td>${esc(e.source)}</td>
         <td>${esc(e.action)}</td>
         <td>${esc(blurText(e.target || ""))}</td>
-        <td class="msg"><span class="${e.ok ? "ok" : "bad"}">${e.ok ? "✓" : "✗"}</span> ${esc(blurText(e.message))}</td>
+        <td class="msg">${mark(e)} ${esc(blurText(e.message))}</td>
       </tr>`).join("") : `<tr><td colspan="5" class="empty">Nothing yet.</td></tr>`;
   } catch (e) { toast(e.message, "bad"); }
 }
 $("#btn-refresh-events").addEventListener("click", loadEvents);
+
+$("#events-filter").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-filter]");
+  if (!b) return;
+  state.eventsFilter = b.dataset.filter;
+  $$("#events-filter .chip").forEach((c) => c.classList.toggle("on", c === b));
+  loadEvents();
+});
 $("#events-limit").addEventListener("change", loadEvents);
 $("#btn-clear-events").addEventListener("click", async () => {
   if (!confirm("Delete every entry in the activity log? This cannot be undone.")) return;

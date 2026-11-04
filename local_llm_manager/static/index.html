@@ -192,6 +192,11 @@
       <div class="panel-head">
         <h2>Activity</h2>
         <div class="panel-tools">
+          <div class="chips" id="events-filter" role="group" aria-label="Filter the activity log">
+            <button class="chip on" data-filter="">All</button>
+            <button class="chip" data-filter="health" title="Health findings: memory, GPU temperature, KV cache, failed or slow starts">Health</button>
+            <button class="chip" data-filter="actions" title="Starts, stops, switches and other actions">Actions</button>
+          </div>
           <label class="inline" for="events-limit">Show
             <select id="events-limit">
               <option value="10">Last 10</option>

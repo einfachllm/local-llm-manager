@@ -44,6 +44,9 @@ silicon, or any Linux box - from any browser on your network:
 - **Schedules:** start, stop or switch models at set times, with a timeline of what will run when.
 - **Images:** see which Docker images your recipes use, whether each host has them, pull them on several
   hosts at once, and switch recipes to a newer local tag (e.g. a fresh vLLM nightly) with one click.
+- **Health findings:** memory almost full, a hot GPU, a KV cache that makes requests wait, a host that
+  stopped answering, or a start that failed - with the cause from its log (e.g. *CUDA out of memory*) and
+  what usually helps - shown on the card, the host and in the activity log. Mute one for 24 h.
 - **Activity log** of every start, stop and switch with the exact command and result.
 - **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
   ⭐ pinned recipes, collapsible groups and keyboard shortcuts (`?` shows them).

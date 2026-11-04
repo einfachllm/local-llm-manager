@@ -31,6 +31,7 @@ from .manager import ActionError, Manager
 from .processes import ProcessRunner
 from .agent import create_agent_app
 from .selfmetrics import Sink
+from .health import RULES as HEALTH_RULES, HealthMonitor
 from .executor import transport_of
 from .joining import join_code
 from .shares import add_share_routes
@@ -140,6 +141,11 @@ class ImportIn(BaseModel):
     text: str = Field(min_length=1, max_length=200_000)
     # Required when the static check finds risky calls.
     trust: bool = False
+
+
+class HealthMuteIn(BaseModel):
+    key: str = Field(min_length=1, max_length=200)
+    hours: float = Field(default=24, gt=0, le=24 * 30)
 
 
 class SettingsIn(BaseModel):
@@ -445,16 +451,20 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         seed_examples(db)
     manager = Manager(db, docker, procs, remote_transport)
     scheduler = Scheduler(db, manager)
+    health = HealthMonitor(db, manager)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if run_scheduler:
             scheduler.start()
+            health.start()
         yield
+        await health.stop()
         await scheduler.stop()
 
     app = FastAPI(title="Local LLM Manager", version=__version__, lifespan=lifespan)
     app.state.db, app.state.manager, app.state.scheduler = db, manager, scheduler
+    app.state.health = health
     app.state.metrics = Sink()
 
     throttle = LoginThrottle()
@@ -550,6 +560,14 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
                          n, action=action, result=result)
         for result, n in scheduler.runs.items():
             sink.counter("dgxm_schedule_runs_total", "Scheduled runs since start, by result.", n, result=result)
+        found: dict[tuple[str, str], int] = {}
+        for f in health.findings():
+            if not f["muted"]:
+                found[(f["rule"], f["severity"])] = found.get((f["rule"], f["severity"]), 0) + 1
+        for rule in HEALTH_RULES:
+            for severity in ("warning", "critical"):
+                sink.gauge("dgxm_health_findings", "Active (not muted) health findings, by rule and severity.",
+                           found.get((rule, severity), 0), rule=rule, severity=severity)
         return PlainTextResponse(sink.render(), media_type="text/plain; version=0.0.4; charset=utf-8")
 
     # ---- meta ----------------------------------------------------------
@@ -612,7 +630,12 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     @app.get("/api/hosts")
     async def list_hosts():
         """All hosts with online state and memory/GPU readings. Tokens are never returned."""
-        return await manager.host_overview()
+        hosts = await manager.host_overview()
+        findings = health.findings()
+        for h in hosts:
+            # Host-level findings only; a recipe's findings come with the recipe.
+            h["findings"] = [f for f in findings if f["host_id"] == h["id"] and f["recipe_id"] is None]
+        return hosts
 
     @app.post("/api/hosts", status_code=201)
     async def create_host(body: HostIn):
@@ -797,7 +820,11 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
 
     @app.get("/api/recipes")
     async def list_recipes():
-        return annotate_copies(await manager.recipes_with_status())
+        recipes = annotate_copies(await manager.recipes_with_status())
+        findings = health.findings()
+        for r in recipes:
+            r["findings"] = [f for f in findings if f["recipe_id"] == r["id"]]
+        return recipes
 
     @app.get("/api/recipes/{recipe_id}")
     async def get_recipe(recipe_id: int):
@@ -1268,6 +1295,23 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     @app.delete("/api/events", status_code=204)
     async def clear_events():
         db.clear_events()
+        return Response(status_code=204)
+
+    # ---- health findings -------------------------------------------------
+
+    @app.get("/api/health")
+    async def health_findings():
+        """Active findings (muted ones included, marked) and the rules behind them."""
+        return {"findings": health.findings(), "last_check": health.last_run,
+                "rules": {k: {"title": v["title"], "hold": v["hold"], "hint": v["hint"]} for k, v in HEALTH_RULES.items()}}
+
+    @app.post("/api/health/mute")
+    async def health_mute(body: HealthMuteIn):
+        return {"key": body.key, "muted_until": health.mute(body.key, body.hours)}
+
+    @app.post("/api/health/unmute", status_code=204)
+    async def health_unmute(body: HealthMuteIn):
+        health.unmute(body.key)
         return Response(status_code=204)
 
     # ---- UI ------------------------------------------------------------
