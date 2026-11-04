@@ -17,6 +17,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   it becomes a finding and must be gone for a minute before it clears, so readings on a threshold do not
   flap. **Mute 24 h** hides one; `GET /api/health` lists them and `/metrics` has `dgxm_health_findings`.
   Findings only read - nothing is started or stopped. `DGXM_HEALTH_TICK` sets the interval.
+- **Recipes by engine:** **Group → Engine** (vLLM, SGLang, TensorFold, llama.cpp, MLX, Custom; Docker and
+  native of one engine together, with a 🐳 / ⚙ count) and **Host → Engine**; engine and host filter chips
+  with counts next to the tags; one badge colour per engine with a 🐳 / ⚙ mark. Removed: the *Framework*
+  sort (Group → Engine replaces it); Host, Group and Sort are chips instead of dropdowns (also the Images
+  tab's host filter); the host on each card and the
+  engine name on its badge are left out under a heading that already says them.
+- **Host meters in the Hosts graph:** memory, GPU load, GPU and CPU temperature as one 0-100 bar each
+  (% or °C) with the value beside it, instead of one line of text. Temperatures turn yellow from 85 °C and
+  red from 90 °C - the health-finding thresholds - with a tick at 85; memory from 75 / 90 % used. Readings
+  a host does not have (e.g. temperatures on a Mac) are left out.
+  Hub and agent PCs stand side by side when they fit in one line (each link on its own track above the
+  cards); with many agents or a narrow window the hub stays on top as before.
 - **GGUF weights as a folder:** a llama.cpp recipe whose weights are a folder (as a Hugging Face download
   is) now starts the model file in it - skipping vision projectors (`mmproj`) and using the first part of a
   split model. A folder with several models is refused with their names instead of a failing start.

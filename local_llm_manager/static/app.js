@@ -138,8 +138,44 @@ function memPct(m) { return m.total_gb ? (m.used_gb / m.total_gb) * 100 : 0; }
 // CPU temperature (°C) from a host's readings; null when the machine reports none (e.g. macOS, older agents).
 const cpuTemp = (h) => h.system?.cpu?.temperature ?? null;
 function tempHtml(t) {
-  return `<span class="temp${t >= 95 ? " crit" : t >= 85 ? " warn" : ""}" title="CPU temperature">CPU ${t}°C</span>`;
+  return `<span class="temp ${t >= 90 ? "crit" : t >= 85 ? "warn" : ""}" title="CPU temperature">CPU ${t}°C</span>`;
 }
+/* Host meters: one bar per reading, 0-100 (% or °C). Temperatures turn yellow / red at the same
+   thresholds as the health findings (85 / 90 °C), memory at 75 / 90 % used; GPU load is never "bad". */
+const TEMP_WARN = 85, TEMP_CRIT = 90;
+function meterRow(label, pct, value, cls = "", title = "", mark = null) {
+  const p = Math.max(0, Math.min(100, pct));
+  return `<div class="meter" title="${esc(title || `${label}: ${value}`)}">
+      <span class="meter-label">${label}</span>
+      <span class="meter-bar"><span class="meter-fill ${cls}" style="width:${p.toFixed(1)}%"></span>${mark != null ? `<i class="meter-mark" style="left:${mark}%"></i>` : ""}</span>
+      <span class="meter-value ${cls}">${value}</span>
+    </div>`;
+}
+const tempClass = (t) => t >= TEMP_CRIT ? "crit" : t >= TEMP_WARN ? "warn" : "";
+function hostMetersHtml(h) {
+  const m = h.system?.memory;
+  if (!m) return "";
+  const gpus = (h.system.gpus || []).filter((g) => g);
+  const util = gpus.map((g) => g.utilization).filter((v) => typeof v === "number");
+  const temps = gpus.map((g) => g.temperature).filter((v) => typeof v === "number");
+  const many = gpus.length > 1 ? ` ×${gpus.length}` : "";
+  const pct = memPct(m);
+  const rows = [meterRow("Memory", pct, `${Math.round(pct)}%`, pct > 90 ? "crit" : pct > 75 ? "warn" : "",
+    `Memory: ${memText(m)} used, ${m.available_gb} GB free`), `<small class="meter-sub">${esc(memText(m))} · ${m.available_gb} GB free</small>`];
+  if (util.length) {
+    const u = util.reduce((a, b) => a + b, 0) / util.length;
+    rows.push(meterRow(`GPU${many}`, u, `${Math.round(u)}%`, "load", `GPU load${many ? " (average)" : ""}: ${util.map((v) => `${v}%`).join(", ")}`));
+  }
+  if (temps.length) {
+    const t = Math.max(...temps);
+    rows.push(meterRow("GPU °C", t, `${Math.round(t)}°`, tempClass(t),
+      `GPU temperature${many ? " (hottest)" : ""}: ${temps.map((v) => `${v} °C`).join(", ")} · warning from ${TEMP_WARN} °C`, TEMP_WARN));
+  }
+  const c = cpuTemp(h);
+  if (c != null) rows.push(meterRow("CPU °C", c, `${Math.round(c)}°`, tempClass(c), `CPU temperature: ${c} °C · warning from ${TEMP_WARN} °C`, TEMP_WARN));
+  return `<div class="topo-meters">${rows.join("")}</div>`;
+}
+
 function barClass(pct) { return "bar-fill" + (pct > 90 ? " crit" : pct > 75 ? " warn" : ""); }
 
 // Address of a model endpoint: the host's own name for remote hosts, else the one in the address bar.
@@ -288,14 +324,7 @@ $("#btn-theme").addEventListener("click", () => {
 renderThemeToggle();
 
 function renderHostOptions() {
-  const opts = state.hosts.map((h) => `<option value="${h.id}">${esc(maskAddr(h.name))}${h.is_local ? " (this machine)" : ""}</option>`).join("");
-  const filter = $("#recipe-host");
-  // The saved filter may arrive before the host options exist; keep it in sync with the view.
-  const cur = view.host || filter.value;
-  filter.innerHTML = `<option value="">All hosts</option>` + opts;
-  filter.value = state.hosts.some((h) => String(h.id) === cur) ? cur : "";
-  if (view.host !== filter.value) { view.host = filter.value; saveView(); }
-  filter.closest("label").classList.toggle("hidden", !multiHost());
+  renderHostFilter();
   // Editor selects are refreshed when their dialog opens, so an open form keeps its choice.
 }
 
@@ -322,8 +351,6 @@ function topoNode(h, role) {
     .sort((a, b) => (kindOf(a) === kindOf(b) ? 0 : kindOf(a) === "model" ? -1 : 1));
   const stoppedItems = mine.filter((r) => !shown.includes(r));
   const stopped = stoppedItems.length;
-  const m = h.system?.memory;
-  const gpu = h.system?.gpus?.[0];
   const platform = h.info ? `${PLATFORM[h.info.platform] ?? h.info.platform} · ${h.info.machine}` : "";
   const item = (r) => {
     const agent = kindOf(r) === "agent";
@@ -343,8 +370,7 @@ function topoNode(h, role) {
         <span class="topo-role">${role === "hub" ? "Hub" : "Agent PC"}</span>
       </div>
       <div class="topo-sub">${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span>`}${platform ? ` · ${esc(platform)}` : ""}</div>
-      ${m ? `<div class="topo-mem"><div class="bar"><div class="${barClass(memPct(m))}" style="width:${memPct(m).toFixed(1)}%"></div></div>
-        <small>${esc(memText(m))}${gpu ? ` · GPU ${gpu.utilization ?? "?"}% · ${gpu.temperature ?? "?"}°C` : ""}${cpuTemp(h) != null ? ` · ${tempHtml(cpuTemp(h))}` : ""}</small></div>` : ""}
+      ${hostMetersHtml(h)}
       ${hostFindings(h).length ? `<div class="topo-health">${findingChips(hostFindings(h), true)}</div>` : ""}
       <div class="topo-items">${shown.map(item).join("") || `<span class="topo-none">${h.online ? "Nothing running" : "Unreachable"}</span>`}</div>
       ${stopped ? `<div class="topo-stopped" title="${esc(stoppedItems.map((r) => r.name).join("\n"))}">${stopped} stopped</div>` : ""}
@@ -371,12 +397,21 @@ function drawTopoLinks() {
   // through the cards.
   box.classList.toggle("narrow", box.clientWidth < 600);
   const narrow = box.classList.contains("narrow");
+  // Hub and agent PCs side by side when they fit in one line (cards 250 px, hub 290, gaps), linked by a
+  // bus above the cards; otherwise the hub on top and the agents below.
+  const nAgents = $$("#topo-agents .topo-node").length;
+  box.classList.toggle("row", !narrow && nAgents > 0 && box.clientWidth >= 290 + 56 + nAgents * 270 + 24);
+  const row = box.classList.contains("row");
+  // One track per agent above the cards, so links of different colours do not hide each other.
+  box.style.paddingTop = row ? `${22 + 7 * nAgents}px` : "";
   const o = box.getBoundingClientRect();
   svg.setAttribute("viewBox", `0 0 ${o.width} ${o.height}`);
   const hr = hubEl.getBoundingClientRect();
-  const x1 = narrow ? 14 : hr.left + hr.width / 2 - o.left, y1 = narrow ? hr.top + hr.height / 2 - o.top : hr.bottom - o.top;
+  const x1 = narrow ? 14 : hr.left + hr.width / 2 - o.left;
+  const y1 = narrow ? hr.top + hr.height / 2 - o.top : row ? hr.top - o.top : hr.bottom - o.top;
+  const bus = (i) => y1 - 12 - 7 * i;  // row layout: agent i's track above the cards
   const hubLink = narrow ? `<path class="topo-link trunk" d="M${hr.left - o.left},${y1} H${x1}"></path>` : "";
-  svg.innerHTML = hubLink + $$("#topo-agents .topo-node").map((el) => {
+  svg.innerHTML = hubLink + $$("#topo-agents .topo-node").map((el, i) => {
     const h = hostById(el.dataset.host);
     const r = el.getBoundingClientRect();
     const cls = !h?.online ? "offline" : h.transport === "plain" ? "plain" : "ok";
@@ -385,6 +420,10 @@ function drawTopoLinks() {
     if (narrow) {
       x2 = r.left - o.left; y2 = Math.min(r.top - o.top + 22, r.bottom - o.top - 8);
       d = `M${x1},${y1} V${y2 - 10} Q${x1},${y2} ${x1 + 10},${y2} H${x2}`;
+    } else if (row) {
+      x2 = r.left + r.width / 2 - o.left; y2 = r.top - o.top;
+      const b = bus(i);
+      d = `M${x1},${y1} V${b + 6} Q${x1},${b} ${x1 + 6},${b} H${x2 - 6} Q${x2},${b} ${x2},${b + 6} V${y2}`;
     } else {
       x2 = r.left + r.width / 2 - o.left; y2 = r.top - o.top;
       const my = (y1 + y2) / 2;
@@ -554,7 +593,6 @@ const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 
 const SORTS = {
   name: byName,
   status: (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || byName(a, b),
-  framework: (a, b) => a.framework.localeCompare(b.framework) || byName(a, b),
   port: (a, b) => a.host_port - b.host_port || byName(a, b),
   updated: (a, b) => (b.updated_at || "").localeCompare(a.updated_at || "") || byName(a, b),
 };
@@ -571,6 +609,7 @@ function visibleRecipes() {
   return state.recipes.filter((r) => {
     if (view.host && String(r.host_id) !== view.host) return false;
     if (view.kind && kindOf(r) !== view.kind) return false;
+    if (view.engine && (kindOf(r) === "agent" || engineOf(r) !== view.engine)) return false;
     const tags = (r.tags || []).map((t) => t.toLowerCase());
     if (!want.every((t) => tags.includes(t))) return false;
     if (!q) return true;
@@ -581,9 +620,28 @@ function visibleRecipes() {
 
 const kindOf = (r) => r.kind === "agent" ? "agent" : "model";
 
+/* Engine family of a recipe: Docker and native presets of the same engine belong together. */
+const ENGINE_OF = { vllm: "vllm", sglang: "sglang", tensorfold: "tensorfold", llamacpp: "llamacpp",
+  "llamacpp-native": "llamacpp", mlx: "mlx", custom: "custom", "process-custom": "custom" };
+const ENGINE_LABEL = { vllm: "vLLM", sglang: "SGLang", tensorfold: "TensorFold", llamacpp: "llama.cpp", mlx: "MLX", custom: "Custom" };
+const ENGINE_ORDER = ["vllm", "sglang", "tensorfold", "llamacpp", "mlx", "custom"];
+const engineOf = (r) => ENGINE_OF[r.framework] ?? "custom";
+const groupedByHost = () => view.group === "host" || view.group === "host-engine";
+const runtimeMark = (r) => r.runtime === "process"
+  ? `<span class="rt" title="Native process">⚙</span>` : `<span class="rt" title="Docker container">🐳</span>`;
+// Engine + Docker/native; under an engine heading only the Docker/native mark is left.
+function engineBadge(r) {
+  const e = engineOf(r);
+  const full = state.meta?.frameworks[r.framework]?.label ?? r.framework;
+  const short = view.group === "engine" || view.group === "host-engine";
+  return `<span class="badge eng eng-${e}" title="${esc(full)}">${short ? "" : `${esc(ENGINE_LABEL[e])} `}${runtimeMark(r)}</span>`;
+}
+
 function renderToolbar() {
   $$("#recipe-kind button").forEach((b) => b.classList.toggle("on", b.dataset.kind === view.kind));
   $$("#recipe-layout button").forEach((b) => b.classList.toggle("on", b.dataset.layout === (view.layout === "tiles" ? "tiles" : "rows")));
+  $$("#recipe-group button").forEach((b) => b.classList.toggle("on", b.dataset.group === (view.group || "")));
+  $$("#recipe-sort button").forEach((b) => b.classList.toggle("on", b.dataset.sort === view.sort));
   const tags = allTags();
   // Drop filters for tags that no longer exist.
   const known = new Set(tags.map(([t]) => t.toLowerCase()));
@@ -594,6 +652,28 @@ function renderToolbar() {
       tags.map(([t, n]) => `<button class="chip ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}">${esc(t)} <span>${n}</span></button>`).join("")
     : `<span class="hint">Add tags to recipes (e.g. the model name) to filter and group them here.</span>`;
   $("#tag-list").innerHTML = tags.map(([t]) => `<option value="${esc(t)}">`).join("");
+  renderEngineFilter();
+  renderHostFilter();
+}
+
+// Chips with counts: one per engine family in use (models only), and one per host.
+function renderEngineFilter() {
+  const models = state.recipes.filter((r) => kindOf(r) === "model");
+  const used = ENGINE_ORDER.filter((e) => models.some((r) => engineOf(r) === e));
+  if (view.engine && !used.includes(view.engine)) view.engine = "";
+  const chip = (e, label, n, running) => `<button class="chip${(view.engine || "") === e ? " on" : ""}" data-engine="${e}">
+      ${e ? `<i class="eng-dot eng-${e}"></i>` : ""}${esc(label)} <span>${n}${running ? ` · ${running}▶` : ""}</span></button>`;
+  const run = (list) => list.filter((r) => RUNNING.includes(r.status)).length;
+  $("#engine-filter").innerHTML = chip("", "All", models.length, run(models))
+    + used.map((e) => { const l = models.filter((r) => engineOf(r) === e); return chip(e, ENGINE_LABEL[e], l.length, run(l)); }).join("");
+  $("#engine-filter").closest(".rail-block").classList.toggle("hidden", used.length < 2);
+}
+function renderHostFilter() {
+  if (view.host && !state.hosts.some((h) => String(h.id) === view.host)) view.host = "";
+  const chip = (id, label, n) => `<button class="chip${(view.host || "") === id ? " on" : ""}" data-host-filter="${id}">${esc(label)} <span>${n}</span></button>`;
+  $("#host-filter").innerHTML = chip("", "All", state.recipes.length)
+    + state.hosts.map((h) => chip(String(h.id), maskAddr(h.name), state.recipes.filter((r) => r.host_id === h.id).length)).join("");
+  $("#host-filter").closest(".rail-block").classList.toggle("hidden", !multiHost());
 }
 
 function fmtTps(v) { return v >= 100 ? Math.round(v).toLocaleString() : +v.toFixed(1); }
@@ -827,8 +907,8 @@ function cardHtml(r) {
         <div class="row-main">
           <div class="row-title">
             <span class="card-title">${esc(recipeTitle(r))}</span>
-            <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
-            ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
+            ${engineBadge(r)}
+            ${multiHost() && !groupedByHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
           </div>
           <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}${findingChips(r.findings)}
@@ -848,10 +928,10 @@ function cardHtml(r) {
           <div class="card-title">${esc(recipeTitle(r))}</div>
           <div class="card-head-right">
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
-            <span class="badge ${esc(r.framework)}">${esc(fw)}</span>
+            ${engineBadge(r)}
           </div>
         </div>
-        ${multiHost() ? `<div class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</div>` : ""}
+        ${multiHost() && !groupedByHost() ? `<div class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</div>` : ""}
         <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}${findingChips(r.findings)}</div>
         ${r.tags?.length ? `<div class="card-tags">${r.tags.map((t) =>
           `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}</div>` : ""}
@@ -882,7 +962,7 @@ function agentCardHtml(r) {
           <div class="agent-title-row">
             <span class="card-title">${esc(recipeTitle(r))}</span>
             <span class="badge agent" title="An agent: uses a model, kept running by “Switch to”">Agent · ${r.runtime === "process" ? "native" : "Docker"}</span>
-            ${multiHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
+            ${multiHost() && !groupedByHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
           </div>
           <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : AGENT_STATUS_LABEL[r.status] ?? r.status}</span>${uptime}${findingChips(r.findings)}</div>
@@ -948,7 +1028,7 @@ function renderRecipes() {
     return;
   }
   let html = "";
-  if (!view.kind && !state.recipes.some((r) => kindOf(r) === "agent")) {
+  if (!view.kind && state.recipes.length < 3 && !state.recipes.some((r) => kindOf(r) === "agent")) {
     html += `<div class="agent-empty">🤖 No agents yet. To add one (e.g. a Hermes gateway), use “Add recipe” with
       <code>kind: agent</code> in a YAML recipe.</div>`;
   }
@@ -957,26 +1037,68 @@ function renderRecipes() {
 
 // Group by host, or by each recipe's first tag (e.g. the model name); every recipe appears once, and
 // each group stacks its agents above its models.
-function groupedHtml(list) {
+function groupOf(r) {
+  if (view.group === "host" || view.group === "host-engine") {
+    return { key: String(state.hosts.findIndex((h) => h.id === r.host_id)).padStart(3, "0"),
+      label: maskAddr(hostName(r.host_id)), icon: "⌂ ", hostId: r.host_id };
+  }
+  if (view.group === "engine") return engineGroup(r);
+  const tag = r.tags?.[0] ?? "";
+  return { key: tag.toLowerCase(), label: tag || "Untagged", icon: "" };
+}
+function engineGroup(r) {
+  if (kindOf(r) === "agent") return { key: "9", label: "Agents", icon: "🤖 ", engine: "agent" };
+  const e = engineOf(r);
+  return { key: String(ENGINE_ORDER.indexOf(e)), label: ENGINE_LABEL[e], icon: "", engine: e };
+}
+function bucket(list, fn) {
   const groups = new Map();
   for (const r of list) {
-    const label = view.group === "host" ? maskAddr(hostName(r.host_id)) : r.tags?.[0] ?? "";
-    const key = view.group === "host" ? String(state.hosts.findIndex((h) => h.id === r.host_id)).padStart(3, "0") : label.toLowerCase();
-    if (!groups.has(key)) groups.set(key, { label, hostId: view.group === "host" ? r.host_id : "", items: [] });
-    groups.get(key).items.push(r);
+    const g = fn(r);
+    if (!groups.has(g.key)) groups.set(g.key, { ...g, items: [] });
+    groups.get(g.key).items.push(r);
   }
-  const keys = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b, undefined, { numeric: true }));
-  return keys.map((k) => {
-    const g = groups.get(k);
-    const running = g.items.filter((r) => RUNNING.includes(r.status)).length;
-    const nAgents = g.items.filter((r) => kindOf(r) === "agent").length;
-    const nModels = g.items.length - nAgents;
-    const parts = [nAgents && `${nAgents} agent${nAgents === 1 ? "" : "s"}`, nModels && `${nModels} model${nModels === 1 ? "" : "s"}`].filter(Boolean);
-    const collapsed = !!view.collapsed[`${view.group}:${k}`];
-    return `<section class="group${collapsed ? " is-collapsed" : ""}" data-gkey="${esc(k)}">
-        <h3 class="group-title" title="Click to ${collapsed ? "expand" : "collapse"}"><span class="group-caret">${collapsed ? "▸" : "▾"}</span>${view.group === "host" ? "⌂ " : ""}${g.label ? esc(g.label) : "Untagged"} <span>${parts.join(" · ")}${running ? ` · ${running} running` : ""}</span></h3>
-        <div class="group-body">${kindsHtml(g.items, g.hostId)}</div>
-      </section>`;
+  return [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b, undefined, { numeric: true }))
+    .map((k) => groups.get(k));
+}
+function groupCounts(items) {
+  const running = items.filter((r) => RUNNING.includes(r.status)).length;
+  const nAgents = items.filter((r) => kindOf(r) === "agent").length;
+  const nModels = items.length - nAgents;
+  const parts = [nAgents && `${nAgents} agent${nAgents === 1 ? "" : "s"}`, nModels && `${nModels} model${nModels === 1 ? "" : "s"}`].filter(Boolean);
+  // Docker and native side by side (e.g. llama.cpp): say how many of each.
+  const docker = items.filter((r) => kindOf(r) === "model" && r.runtime !== "process").length;
+  const native = items.filter((r) => kindOf(r) === "model" && r.runtime === "process").length;
+  const split = docker && native ? ` (${docker} 🐳 · ${native} ⚙)` : "";
+  return `${parts.join(" · ")}${split}${running ? ` · ${running} running` : ""}`;
+}
+// Cards without the Models / Agents headings (the group heading already says which).
+function plainCardsHtml(items) {
+  const agents = items.filter((r) => kindOf(r) === "agent");
+  const models = items.filter((r) => kindOf(r) === "model");
+  return (agents.length ? `<div class="agent-list">${agents.map(agentCardHtml).join("")}</div>` : "")
+    + (models.length ? `<div class="${view.layout === "tiles" ? "grid" : "row-list"}">${models.map(cardHtml).join("")}</div>` : "");
+}
+function groupSection(g, key, body, level = 3) {
+  const collapsed = !!view.collapsed[`${view.group}:${key}`];
+  const dot = g.engine && g.engine !== "agent" ? `<i class="eng-dot eng-${g.engine}"></i>` : "";
+  return `<section class="group${level > 3 ? " sub" : ""}${collapsed ? " is-collapsed" : ""}" data-gkey="${esc(key)}">
+      <h${level} class="group-title" title="Click to ${collapsed ? "expand" : "collapse"}"><span class="group-caret">${collapsed ? "▸" : "▾"}</span>${dot}${g.icon}${esc(g.label)} <span>${groupCounts(g.items)}</span></h${level}>
+      <div class="group-body">${body}</div>
+    </section>`;
+}
+// Group by host, engine, host → engine, or each recipe's first tag; every recipe appears once.
+function groupedHtml(list) {
+  return bucket(list, groupOf).map((g) => {
+    let body;
+    if (view.group === "host-engine") {
+      body = bucket(g.items, engineGroup).map((e) => groupSection(e, `${g.key}/${e.key}`, plainCardsHtml(e.items), 4)).join("");
+    } else if (view.group === "engine") {
+      body = plainCardsHtml(g.items);
+    } else {
+      body = kindsHtml(g.items, g.hostId ?? "");
+    }
+    return groupSection(g, g.key, body);
   }).join("");
 }
 
@@ -993,8 +1115,20 @@ $("#tag-filter").addEventListener("click", (ev) => {
   if (chip) toggleTagFilter(chip.dataset.tag);
 });
 $("#recipe-search").addEventListener("input", (ev) => { view.search = ev.target.value; saveView(); renderRecipes(); });
-$("#recipe-sort").addEventListener("change", (ev) => { view.sort = ev.target.value; saveView(); renderRecipes(); });
-$("#recipe-group").addEventListener("change", (ev) => { view.group = ev.target.value; saveView(); renderRecipes(); });
+$("#recipe-sort").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-sort]");
+  if (!b) return;
+  view.sort = b.dataset.sort;
+  saveView();
+  renderRecipes();
+});
+$("#recipe-group").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-group]");
+  if (!b) return;
+  view.group = b.dataset.group;
+  saveView();
+  renderRecipes();
+});
 $("#recipe-layout").addEventListener("click", (ev) => {
   const b = ev.target.closest("button[data-layout]");
   if (!b) return;
@@ -1009,10 +1143,23 @@ $("#recipe-kind").addEventListener("click", (ev) => {
   saveView();
   renderRecipes();
 });
-$("#recipe-host").addEventListener("change", (ev) => { view.host = ev.target.value; saveView(); renderRecipes(); });
+$("#host-filter").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-host-filter]");
+  if (!b) return;
+  view.host = b.dataset.hostFilter;
+  saveView();
+  renderRecipes();
+});
+$("#engine-filter").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-engine]");
+  if (!b) return;
+  view.engine = b.dataset.engine;
+  saveView();
+  renderRecipes();
+});
 $("#recipe-search").value = view.search;
-$("#recipe-sort").value = SORTS[view.sort] ? view.sort : "name";
-$("#recipe-group").value = ["host", "tag"].includes(view.group) ? view.group : "";
+if (!SORTS[view.sort]) view.sort = "name";  // e.g. the former "framework" sort
+if (!["host", "engine", "host-engine", "tag"].includes(view.group)) view.group = "";
 
 async function runAction(key, path, okMsg, busyLabel = "Working…") {
   state.busy.set(key, busyLabel);
@@ -2296,11 +2443,11 @@ function revealRecipes(ids) {
   const visible = new Set(visibleRecipes().map((r) => r.id));
   if (wanted.some((r) => !visible.has(r.id))) {
     view.host = "";
+    view.engine = "";
     view.kind = "";
     view.search = "";
     view.tags = [];
     view.collapsed = {};
-    $("#recipe-host").value = "";
     $("#recipe-search").value = "";
     saveView();
     renderRecipes();
@@ -2859,11 +3006,13 @@ function renderImages() {
   if (!imagesData) return;
   const n = imagesData.native_recipes;
   $("#images-native").textContent = n ? `${n} native-process recipe${n === 1 ? "" : "s"} run without an image and ${n === 1 ? "is" : "are"} not listed.` : "";
-  const hostSel = $("#images-host");
+  // Host chips with the number of images each host's recipes use, like the recipe filters.
   const hosts = imageHosts();
-  hostSel.innerHTML = `<option value="">All hosts</option>` + hosts.map((h) => `<option value="${h.id}">${esc(maskAddr(h.name))}</option>`).join("");
-  hostSel.value = hosts.some((h) => String(h.id) === imagesView.host) ? imagesView.host : "";
-  hostSel.closest("label").classList.toggle("hidden", hosts.length < 2);
+  if (!hosts.some((h) => String(h.id) === imagesView.host)) imagesView.host = "";
+  const used = (id) => imagesData.images.filter((img) => img.hosts.some((x) => x.host_id === id)).length;
+  const hostChip = (id, label, n) => `<button type="button" class="chip${imagesView.host === id ? " on" : ""}" data-host-filter="${id}">${esc(label)} <span>${n}</span></button>`;
+  $("#images-host").innerHTML = hosts.length < 2 ? ""
+    : hostChip("", "All hosts", imagesData.images.length) + hosts.map((h) => hostChip(String(h.id), maskAddr(h.name), used(h.id))).join("");
 
   const all = imagesData.images;
   const nNewer = all.filter(imgHasNewer).length, nMissing = all.filter(imgHasMissing).length;
@@ -2922,7 +3071,12 @@ function renderImages() {
 
 $("#btn-refresh-images").addEventListener("click", loadImages);
 $("#images-search").addEventListener("input", (e) => { imagesView.search = e.target.value; renderImages(); });
-$("#images-host").addEventListener("change", (e) => { imagesView.host = e.target.value; renderImages(); });
+$("#images-host").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-host-filter]");
+  if (!b) return;
+  imagesView.host = b.dataset.hostFilter;
+  renderImages();
+});
 $("#images-only-newer").addEventListener("click", () => { imagesView.onlyNewer = !imagesView.onlyNewer; renderImages(); });
 $("#images-only-missing").addEventListener("click", () => { imagesView.onlyMissing = !imagesView.onlyMissing; renderImages(); });
 
