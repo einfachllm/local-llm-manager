@@ -2960,11 +2960,13 @@ function renderImages() {
   if (!imagesData) return;
   const n = imagesData.native_recipes;
   $("#images-native").textContent = n ? `${n} native-process recipe${n === 1 ? "" : "s"} run without an image and ${n === 1 ? "is" : "are"} not listed.` : "";
-  const hostSel = $("#images-host");
+  // Host chips with the number of images each host's recipes use, like the recipe filters.
   const hosts = imageHosts();
-  hostSel.innerHTML = `<option value="">All hosts</option>` + hosts.map((h) => `<option value="${h.id}">${esc(maskAddr(h.name))}</option>`).join("");
-  hostSel.value = hosts.some((h) => String(h.id) === imagesView.host) ? imagesView.host : "";
-  hostSel.closest("label").classList.toggle("hidden", hosts.length < 2);
+  if (!hosts.some((h) => String(h.id) === imagesView.host)) imagesView.host = "";
+  const used = (id) => imagesData.images.filter((img) => img.hosts.some((x) => x.host_id === id)).length;
+  const hostChip = (id, label, n) => `<button type="button" class="chip${imagesView.host === id ? " on" : ""}" data-host-filter="${id}">${esc(label)} <span>${n}</span></button>`;
+  $("#images-host").innerHTML = hosts.length < 2 ? ""
+    : hostChip("", "All hosts", imagesData.images.length) + hosts.map((h) => hostChip(String(h.id), maskAddr(h.name), used(h.id))).join("");
 
   const all = imagesData.images;
   const nNewer = all.filter(imgHasNewer).length, nMissing = all.filter(imgHasMissing).length;
@@ -3023,7 +3025,12 @@ function renderImages() {
 
 $("#btn-refresh-images").addEventListener("click", loadImages);
 $("#images-search").addEventListener("input", (e) => { imagesView.search = e.target.value; renderImages(); });
-$("#images-host").addEventListener("change", (e) => { imagesView.host = e.target.value; renderImages(); });
+$("#images-host").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-host-filter]");
+  if (!b) return;
+  imagesView.host = b.dataset.hostFilter;
+  renderImages();
+});
 $("#images-only-newer").addEventListener("click", () => { imagesView.onlyNewer = !imagesView.onlyNewer; renderImages(); });
 $("#images-only-missing").addEventListener("click", () => { imagesView.onlyMissing = !imagesView.onlyMissing; renderImages(); });
 

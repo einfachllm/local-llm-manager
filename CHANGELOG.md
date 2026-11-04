@@ -20,7 +20,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Recipes by engine:** **Group → Engine** (vLLM, SGLang, TensorFold, llama.cpp, MLX, Custom; Docker and
   native of one engine together, with a 🐳 / ⚙ count) and **Host → Engine**; engine and host filter chips
   with counts next to the tags; one badge colour per engine with a 🐳 / ⚙ mark. Removed: the *Framework*
-  sort (Group → Engine replaces it); Host, Group and Sort are chips instead of dropdowns; the host on each card and the
+  sort (Group → Engine replaces it); Host, Group and Sort are chips instead of dropdowns (also the Images
+  tab's host filter); the host on each card and the
   engine name on its badge are left out under a heading that already says them.
 - **GGUF weights as a folder:** a llama.cpp recipe whose weights are a folder (as a Hugging Face download
   is) now starts the model file in it - skipping vision projectors (`mmproj`) and using the first part of a
