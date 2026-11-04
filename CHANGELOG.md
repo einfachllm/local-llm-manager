@@ -27,6 +27,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (% or °C) with the value beside it, instead of one line of text. Temperatures turn yellow from 85 °C and
   red from 90 °C - the health-finding thresholds - with a tick at 85; memory from 75 / 90 % used. Readings
   a host does not have (e.g. temperatures on a Mac) are left out.
+  Hub and agent PCs stand side by side when they fit in one line (each link on its own track above the
+  cards); with many agents or a narrow window the hub stays on top as before.
 - **GGUF weights as a folder:** a llama.cpp recipe whose weights are a folder (as a Hugging Face download
   is) now starts the model file in it - skipping vision projectors (`mmproj`) and using the first part of a
   split model. A folder with several models is refused with their names instead of a failing start.

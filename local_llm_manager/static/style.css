@@ -458,7 +458,7 @@ input[readonly] { opacity: .6; }
   .hosts-strip { margin-left: 0; width: 100%; justify-content: flex-start; }
 }
 
-/* hosts: topology graph (hub on top, agent PCs below, linked) */
+/* hosts: topology graph (hub and agent PCs side by side when they fit, else hub on top; linked) */
 .topology {
   position: relative; display: flex; flex-direction: column; align-items: center; gap: 56px;
   padding: 18px 12px 22px; margin-bottom: 18px;
@@ -515,6 +515,8 @@ input[readonly] { opacity: .6; }
 .temp.warn { color: var(--yellow); }
 .temp.crit { color: var(--red); font-weight: 600; }
 .topo-link.trunk { stroke: var(--accent); }
+.topology.row { flex-direction: row; align-items: flex-start; justify-content: center; }
+.topology.row .topo-agents { width: auto; flex-wrap: nowrap; justify-content: flex-start; }
 .topology.narrow { align-items: stretch; gap: 20px; padding-left: 34px; }
 .topology.narrow .topo-node, .topology.narrow .topo-node.hub { width: 100%; }
 .topology.narrow .topo-agents { flex-direction: column; gap: 14px; }

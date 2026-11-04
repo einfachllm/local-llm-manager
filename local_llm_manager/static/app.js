@@ -397,12 +397,21 @@ function drawTopoLinks() {
   // through the cards.
   box.classList.toggle("narrow", box.clientWidth < 600);
   const narrow = box.classList.contains("narrow");
+  // Hub and agent PCs side by side when they fit in one line (cards 250 px, hub 290, gaps), linked by a
+  // bus above the cards; otherwise the hub on top and the agents below.
+  const nAgents = $$("#topo-agents .topo-node").length;
+  box.classList.toggle("row", !narrow && nAgents > 0 && box.clientWidth >= 290 + 56 + nAgents * 270 + 24);
+  const row = box.classList.contains("row");
+  // One track per agent above the cards, so links of different colours do not hide each other.
+  box.style.paddingTop = row ? `${22 + 7 * nAgents}px` : "";
   const o = box.getBoundingClientRect();
   svg.setAttribute("viewBox", `0 0 ${o.width} ${o.height}`);
   const hr = hubEl.getBoundingClientRect();
-  const x1 = narrow ? 14 : hr.left + hr.width / 2 - o.left, y1 = narrow ? hr.top + hr.height / 2 - o.top : hr.bottom - o.top;
+  const x1 = narrow ? 14 : hr.left + hr.width / 2 - o.left;
+  const y1 = narrow ? hr.top + hr.height / 2 - o.top : row ? hr.top - o.top : hr.bottom - o.top;
+  const bus = (i) => y1 - 12 - 7 * i;  // row layout: agent i's track above the cards
   const hubLink = narrow ? `<path class="topo-link trunk" d="M${hr.left - o.left},${y1} H${x1}"></path>` : "";
-  svg.innerHTML = hubLink + $$("#topo-agents .topo-node").map((el) => {
+  svg.innerHTML = hubLink + $$("#topo-agents .topo-node").map((el, i) => {
     const h = hostById(el.dataset.host);
     const r = el.getBoundingClientRect();
     const cls = !h?.online ? "offline" : h.transport === "plain" ? "plain" : "ok";
@@ -411,6 +420,10 @@ function drawTopoLinks() {
     if (narrow) {
       x2 = r.left - o.left; y2 = Math.min(r.top - o.top + 22, r.bottom - o.top - 8);
       d = `M${x1},${y1} V${y2 - 10} Q${x1},${y2} ${x1 + 10},${y2} H${x2}`;
+    } else if (row) {
+      x2 = r.left + r.width / 2 - o.left; y2 = r.top - o.top;
+      const b = bus(i);
+      d = `M${x1},${y1} V${b + 6} Q${x1},${b} ${x1 + 6},${b} H${x2 - 6} Q${x2},${b} ${x2},${b + 6} V${y2}`;
     } else {
       x2 = r.left + r.width / 2 - o.left; y2 = r.top - o.top;
       const my = (y1 + y2) / 2;
