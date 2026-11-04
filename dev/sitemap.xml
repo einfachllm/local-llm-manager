@@ -2,30 +2,34 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://einfachllm.github.io/local-llm-manager/dev/</loc>
-         <lastmod>2026-11-02</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://einfachllm.github.io/local-llm-manager/dev/configuration/</loc>
-         <lastmod>2026-11-02</lastmod>
+         <lastmod>2026-11-04</lastmod>
+    </url>
+    <url>
+         <loc>https://einfachllm.github.io/local-llm-manager/dev/health/</loc>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://einfachllm.github.io/local-llm-manager/dev/how-it-works/</loc>
-         <lastmod>2026-11-02</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://einfachllm.github.io/local-llm-manager/dev/quick-start/</loc>
-         <lastmod>2026-11-02</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://einfachllm.github.io/local-llm-manager/dev/recipes/</loc>
-         <lastmod>2026-11-02</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://einfachllm.github.io/local-llm-manager/dev/several-machines/</loc>
-         <lastmod>2026-11-02</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://einfachllm.github.io/local-llm-manager/dev/weights/</loc>
-         <lastmod>2026-11-02</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
 </urlset>

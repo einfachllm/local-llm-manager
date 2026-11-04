@@ -523,6 +523,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health findings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../how-it-works/" class="md-nav__link">
         
   
@@ -739,6 +766,12 @@ argument itself. In a YAML recipe the same is one line:</p>
 <span class="nt">weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Qwen3.8-27B-NVFP4</span><span class="w">   </span><span class="c1"># the row's name in the Weights tab</span>
 <span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8101</span>
 </code></pre></div>
+<p><strong>GGUF in a folder (llama.cpp):</strong> llama.cpp loads one <code>.gguf</code> file, but a Hugging Face download is a folder.
+When a <code>llamacpp</code> / <code>llamacpp-native</code> recipe's weights are a folder, the start picks the model file in it on
+that host: vision projectors (<code>mmproj-…</code>) are skipped and of a split model (<code>…-00001-of-00003.gguf</code>) the
+first part is used - llama.cpp loads the rest itself. If the folder holds several models (e.g. <code>Q4_K_M</code> and
+<code>Q8_0</code>), the start is refused with their names: set <strong>Model</strong> to one, e.g. <code>/model/Qwen3-8B-Q4_K_M.gguf</code>
+(Docker) or <code>{weights}/Qwen3-8B-Q4_K_M.gguf</code> (native).</p>
 <p>When the recipe starts, <code>{weights}</code> becomes the path of the host it runs on. So <strong>moving a recipe to another
 host, or copying it to many, needs no edits</strong> - as long as the model has a path there. The editor shows
 right away whether the weights are on the selected host, and a start is refused with a clear message when
