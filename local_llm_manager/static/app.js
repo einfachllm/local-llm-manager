@@ -126,7 +126,15 @@ function blurHostText(text, url) {
   let str = String(text ?? "");
   if (!state.blur) return str;
   try { const h = new URL(url).hostname; if (h) str = str.split(h).join(maskAddr(h)); } catch { /* no URL */ }
-  return blurText(str);
+  return blurText(blurHostNames(str));
+}
+// Replace every known host name (dashboard name and machine name) inside free text, e.g. in an error
+// such as "Host 'LocalPC' is not reachable" – longest first, so "pc-2" is not cut by "pc".
+function blurHostNames(str) {
+  const names = [...new Set((state.hosts || []).flatMap((h) => [h.name, h.info?.hostname]).filter((n) => n && n.length > 1))]
+    .sort((a, b) => b.length - a.length);
+  for (const n of names) str = str.split(n).join(maskAddr(n));
+  return str;
 }
 // Mask bare IPv4 addresses inside free text (e.g. activity log messages).
 function blurText(s) {
@@ -352,16 +360,39 @@ function topoNode(h, role) {
   const stoppedItems = mine.filter((r) => !shown.includes(r));
   const stopped = stoppedItems.length;
   const platform = h.info ? `${PLATFORM[h.info.platform] ?? h.info.platform} · ${h.info.machine}` : "";
+  // One row per model/agent. Failed: the reason and Retry / Logs right below it. Running: Copy and
+  // Stop appear on hover or keyboard focus, so a calm card stays calm.
   const item = (r) => {
     const agent = kindOf(r) === "agent";
     const label = (agent ? AGENT_STATUS_LABEL : STATUS_LABEL)[r.status] ?? r.status;
     const stats = agent ? "" : metricsText(r.metrics);
-    return `<button type="button" class="topo-item ${agent ? "agent" : "model"} ${r.status}" data-recipe="${r.id}"
-        title="${esc(`${agent ? "Agent" : "Model"} · ${label}${agent ? "" : ` · port ${r.host_port}`}${stats ? ` · ${stats}` : ""}`)}">
+    const busy = state.busy.get(r.id);
+    const running = RUNNING.includes(r.status);
+    const why = r.status === "failed" ? (r.findings || []).find((f) => !f.muted)?.message ?? "" : "";
+    const logs = `<button type="button" class="btn small ghost" data-tact="logs" ${r.container ? "" : "disabled title=\"No container log yet\""}>Logs</button>`;
+    const acts = busy ? `<span class="topo-busy">${esc(busy)}</span>`
+      : r.status === "failed" ? `<button type="button" class="btn small go" data-tact="start">Retry</button>${logs}`
+      : running ? `${agent ? "" : `<button type="button" class="btn small ghost" data-tact="copy" title="Copy endpoint">Copy</button>`}
+          <button type="button" class="btn small ghost" data-tact="stop">Stop</button>` : "";
+    return `<div class="topo-row ${r.status}${busy ? " busy" : ""}" data-recipe="${r.id}">
+      <button type="button" class="topo-item ${agent ? "agent" : "model"} ${r.status}" data-open="${r.id}"
+        title="${esc(`${agent ? "Agent" : "Model"} · ${label}${agent ? "" : ` · port ${r.host_port}`}${stats ? ` · ${stats}` : ""} – click to edit`)}">
         <span class="topo-dot"></span><span class="topo-kind">${agent ? "🤖" : "🧠"}</span><span class="topo-name">${esc(r.name)}</span>
-        ${agent ? "" : `<span class="topo-port">:${r.host_port}</span>`}</button>`;
+        ${r.status === "ready" ? "" : `<span class="topo-state">${esc(label)}</span>`}
+        ${agent ? "" : `<span class="topo-port">:${r.host_port}</span>`}</button>
+      ${why ? `<div class="topo-why" title="${esc(blurHostText(why, h.url))}">${esc(blurHostText(why, h.url))}</div>` : ""}
+      ${acts ? `<div class="topo-acts">${acts}</div>` : ""}
+    </div>`;
   };
   const live = liveFindings(hostFindings(h));
+  // On the card only what concerns the machine itself: a recipe's problem is already shown on its own
+  // row (red dot + "Failed"), and an offline machine gets one plain sentence instead of a chip.
+  const machineFindings = (h.findings || []).filter((f) => !f.recipe_id && !(f.rule === "host_offline" && !h.online));
+  const nRunning = mine.filter((r) => RUNNING.includes(r.status)).length;
+  const hostBusy = state.busy.get(`host-${h.id}`);
+  const offlineBox = `<div class="topo-offline"><b>Can't reach this machine</b>
+      <span>Is it switched on and is the manager running there?</span>
+      ${h.error ? `<small title="${esc(blurHostText(h.error, h.url))}">${esc(blurHostText(h.error, h.url))}</small>` : ""}</div>`;
   const worst = live.some((f) => f.severity === "critical") ? "crit" : live.length ? "warn" : "";
   return `<div class="topo-node ${role} ${h.online ? "" : "offline"} ${worst ? `health-${worst}` : ""}" data-host="${h.id}" role="button" tabindex="0" title="Edit host">
       <div class="topo-head">
@@ -371,9 +402,16 @@ function topoNode(h, role) {
       </div>
       <div class="topo-sub">${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span>`}${platform ? ` · ${esc(platform)}` : ""}</div>
       ${hostMetersHtml(h)}
-      ${hostFindings(h).length ? `<div class="topo-health">${findingChips(hostFindings(h), true)}</div>` : ""}
-      <div class="topo-items">${shown.map(item).join("") || `<span class="topo-none">${h.online ? "Nothing running" : "Unreachable"}</span>`}</div>
-      ${stopped ? `<div class="topo-stopped" title="${esc(stoppedItems.map((r) => r.name).join("\n"))}">${stopped} stopped</div>` : ""}
+      ${machineFindings.length ? `<div class="topo-health">${findingChips(machineFindings, true)}${
+        h.online && machineFindings.some((f) => f.rule === "mem_low" && !f.muted)
+          ? `<button type="button" class="btn small ghost" data-hact="free" ${hostBusy ? "disabled" : ""} title="Stop all models on this machine and drop the page cache">Free memory</button>` : ""}</div>` : ""}
+      ${h.online ? `<div class="topo-items">${shown.map(item).join("") || `<span class="topo-none">Nothing running</span>`}</div>` : offlineBox}
+      <div class="topo-foot">
+        ${mine.length ? `<span class="topo-stopped" title="${esc(stoppedItems.map((r) => r.name).join("\n"))}">${nRunning} running${stopped ? ` · ${stopped} stopped` : ""}</span>` : "<span></span>"}
+        <span class="topo-hacts">${hostBusy ? `<span class="topo-busy">${esc(hostBusy)}</span>`
+          : h.online ? (nRunning ? `<button type="button" class="btn small ghost" data-hact="stop-all">Stop all</button>` : "")
+          : `<button type="button" class="btn small ghost" data-hact="recheck" title="Try to reach this machine again">Check again</button>`}</span>
+      </div>
     </div>`;
 }
 
@@ -397,10 +435,10 @@ function drawTopoLinks() {
   // through the cards.
   box.classList.toggle("narrow", box.clientWidth < 600);
   const narrow = box.classList.contains("narrow");
-  // Hub and agent PCs side by side when they fit in one line (cards 250 px, hub 290, gaps), linked by a
+  // Hub and agent PCs side by side when they fit in one line (cards 270 px, hub 310, gaps), linked by a
   // bus above the cards; otherwise the hub on top and the agents below.
   const nAgents = $$("#topo-agents .topo-node").length;
-  box.classList.toggle("row", !narrow && nAgents > 0 && box.clientWidth >= 290 + 56 + nAgents * 270 + 24);
+  box.classList.toggle("row", !narrow && nAgents > 0 && box.clientWidth >= 310 + 56 + nAgents * 290 + 24);
   const row = box.classList.contains("row");
   // One track per agent above the cards, so links of different colours do not hide each other.
   box.style.paddingTop = row ? `${22 + 7 * nAgents}px` : "";
@@ -436,11 +474,56 @@ function drawTopoLinks() {
 
 if (window.ResizeObserver) new ResizeObserver(() => drawTopoLinks()).observe($("#topology"));
 
-$("#topology").addEventListener("click", (ev) => {
-  const it = ev.target.closest("[data-recipe]");
-  if (it) { const r = state.recipes.find((x) => x.id === Number(it.dataset.recipe)); if (r) openRecipeEditor(r); return; }
+$("#topology").addEventListener("click", async (ev) => {
   const node = ev.target.closest(".topo-node");
-  if (node) openHostEditor(hostById(node.dataset.host));
+  if (!node) return;
+  const h = hostById(node.dataset.host);
+  const ract = ev.target.closest("[data-tact]");
+  if (ract) {
+    if (ract.disabled) return;
+    const id = Number(ract.closest("[data-recipe]").dataset.recipe);
+    const r = state.recipes.find((x) => x.id === id);
+    if (!r) return;
+    const act = ract.dataset.tact;
+    if (act === "start") {
+      const res = await runAction(id, `/api/recipes/${id}/start`, null, await startBusyLabel(r));
+      if (res instanceof Error && /memory/i.test(res.message) && confirm(`${res.message}\n\nStart anyway?`)) {
+        await runAction(id, `/api/recipes/${id}/start?force=true`, null, "Starting…");
+      }
+    } else if (act === "stop") {
+      await runAction(id, `/api/recipes/${id}/stop`, null, "Stopping…");
+    } else if (act === "logs") {
+      openLogs(r);
+    } else if (act === "copy") {
+      const ep = endpointUrl(r);
+      try { await navigator.clipboard.writeText(ep); toast("Endpoint copied", "ok"); }
+      catch { prompt("Copy the endpoint:", ep); }
+    }
+    return;
+  }
+  const hact = ev.target.closest("[data-hact]");
+  if (hact) {
+    if (hact.disabled) return;
+    const act = hact.dataset.hact;
+    if (act === "stop-all") {
+      if (confirm(`Stop all models on ${h.name}?`)) await runAction(`host-${h.id}`, `/api/system/stop-all?host_id=${h.id}`, null, "Stopping all…");
+    } else if (act === "free") {
+      if (confirm(`Stop all models on ${h.name} and drop its page cache?`)) await runAction(`host-${h.id}`, `/api/system/free-memory?host_id=${h.id}`, null, "Freeing memory…");
+    } else if (act === "recheck") {
+      state.busy.set(`host-${h.id}`, "Checking…");
+      renderTopology();
+      await loadHosts();
+      state.busy.delete(`host-${h.id}`);
+      renderTopology();
+      const now = hostById(h.id);
+      toast(now?.online ? `${now.name} is online` : `${h.name} is still not reachable`, now?.online ? "ok" : "bad");
+    }
+    return;
+  }
+  if (ev.target.closest("[data-act]")) return;  // a finding chip
+  const it = ev.target.closest("[data-open]");
+  if (it) { const r = state.recipes.find((x) => x.id === Number(it.dataset.open)); if (r) openRecipeEditor(r); return; }
+  openHostEditor(h);
 });
 $("#topology").addEventListener("keydown", (ev) => {
   if ((ev.key === "Enter" || ev.key === " ") && ev.target.classList.contains("topo-node")) {
@@ -1164,6 +1247,7 @@ if (!["host", "engine", "host-engine", "tag"].includes(view.group)) view.group =
 async function runAction(key, path, okMsg, busyLabel = "Working…") {
   state.busy.set(key, busyLabel);
   renderRecipes();
+  if (state.tab === "hosts") renderTopology();
   try {
     const res = await api(path, { method: "POST" });
     toast(okMsg ?? res?.message ?? "Done", "ok");
@@ -1423,33 +1507,55 @@ $("#btn-next-port").addEventListener("click", () => {
 
 function endpointUrl(r) { return `http://${endpointHost(r.host_id)}:${r.host_port}/v1`; }
 
+/* Ports & endpoints: by default only what is running – the URL to copy is what most people need here.
+ * The port is part of the URL; a second model on the same port is flagged next to it. */
+let portsAll = false;
+try { portsAll = localStorage.getItem("llm.portsAll") === "1"; } catch { /* storage unavailable */ }
+// Running but nothing going on: "idle" instead of a row of zeros (the numbers stay in the tooltip).
+function portLoad(r) {
+  const m = r.metrics;
+  if (RUNNING.includes(r.status) && m && metricsText(m) && !m.gen_tps && !m.prompt_tps && !m.running && !m.waiting) {
+    return `<span class="muted" title="${esc(metricsText(m))}">idle</span>`;
+  }
+  return metricsSummary(r);
+}
 function renderPorts() {
   const order = (r) => state.hosts.findIndex((h) => h.id === r.host_id);
-  const rows = [...state.recipes].sort((a, b) => order(a) - order(b) || a.host_port - b.host_port || byName(a, b));
+  const all = [...state.recipes].sort((a, b) => order(a) - order(b) || a.host_port - b.host_port || byName(a, b));
+  const live = all.filter((r) => RUNNING.includes(r.status));
+  const rows = portsAll ? all : live;
+  const hidden = all.length - live.length;
+  const toggle = $("#ports-all");
+  toggle.classList.toggle("hidden", !hidden);
+  toggle.setAttribute("aria-pressed", String(portsAll));
+  toggle.textContent = portsAll ? "Only running" : `Show all (${hidden} not running)`;
+  const multi = multiHost();
+  const withLoad = rows.some((r) => kindOf(r) !== "agent" && RUNNING.includes(r.status) && metricsText(r.metrics));
+  $("#ports-head").innerHTML = `<tr><th>Model</th><th>Status</th><th>Endpoint</th>${withLoad ? `<th title="Output / input speed, requests, KV cache">Load</th>` : ""}</tr>`;
+  const cols = withLoad ? 4 : 3;
   $("#ports").innerHTML = rows.length ? rows.map((r) => {
     const shared = recipesOnPort(r.host_id, r.host_port, r.id);
     const running = RUNNING.includes(r.status);
-    if (kindOf(r) === "agent") {
-      return `<tr>
-      <td>${esc(maskAddr(hostName(r.host_id)))}</td>
-      <td class="mono">${r.host_port}${shared.length ? ` <span class="chip small warn-chip" title="Also used by: ${esc(shared.map((x) => x.name).join(", "))}">shared</span>` : ""}</td>
-      <td>🤖 ${esc(r.name)}</td>
-      <td><span class="pill ${r.status}">${AGENT_STATUS_LABEL[r.status] ?? r.status}</span></td>
-      <td class="muted">–</td>
-      <td class="muted">agent – no LLM API</td>
-    </tr>`;
-    }
+    const agent = kindOf(r) === "agent";
+    const sharedChip = shared.length ? ` <span class="chip small warn-chip" title="Port ${r.host_port} is also used by: ${esc(shared.map((x) => x.name).join(", "))} – only one of them can run at a time">shared port</span>` : "";
+    const name = `${agent ? "🤖 " : ""}${esc(r.name)}${multi ? `<br><small class="muted">${esc(maskAddr(hostName(r.host_id)))}</small>` : ""}`;
+    const endpoint = agent ? `<span class="muted">agent – no LLM API · port ${r.host_port}</span>${sharedChip}`
+      : `${running ? `<a class="mono" href="${esc(endpointUrl(r))}/models" target="_blank" rel="noopener">${esc(maskEndpoint(endpointUrl(r)))}</a>` : `<span class="mono muted">${esc(maskEndpoint(endpointUrl(r)))}</span>`}
+        <button class="btn small ghost copy" data-copy="${esc(endpointUrl(r))}" title="Copy endpoint">Copy</button>${sharedChip}`;
     return `<tr>
-      <td>${esc(maskAddr(hostName(r.host_id)))}</td>
-      <td class="mono">${r.host_port}${shared.length ? ` <span class="chip small warn-chip" title="Also used by: ${esc(shared.map((x) => x.name).join(", "))}">shared</span>` : ""}</td>
-      <td>${esc(r.name)}</td>
-      <td><span class="pill ${r.status}">${STATUS_LABEL[r.status] ?? r.status}</span></td>
-      <td>${metricsSummary(r)}</td>
-      <td class="mono">${running ? `<a href="${esc(endpointUrl(r))}/models" target="_blank" rel="noopener">${esc(maskEndpoint(endpointUrl(r)))}</a>` : `<span class="muted">${esc(maskEndpoint(endpointUrl(r)))}</span>`}
-        <button class="btn small ghost copy" data-copy="${esc(endpointUrl(r))}" title="Copy endpoint">Copy</button></td>
+      <td>${name}</td>
+      <td><span class="pill ${r.status}">${(agent ? AGENT_STATUS_LABEL : STATUS_LABEL)[r.status] ?? r.status}</span></td>
+      <td>${endpoint}</td>
+      ${withLoad ? `<td>${agent ? `<span class="muted">–</span>` : portLoad(r)}</td>` : ""}
     </tr>`;
-  }).join("") : `<tr><td colspan="6" class="empty">No recipes yet.</td></tr>`;
+  }).join("") : `<tr><td colspan="${cols}" class="empty">${all.length ? "Nothing is running right now." : "No recipes yet."}</td></tr>`;
 }
+
+$("#ports-all").addEventListener("click", () => {
+  portsAll = !portsAll;
+  try { localStorage.setItem("llm.portsAll", portsAll ? "1" : "0"); } catch { /* ignore */ }
+  renderPorts();
+});
 
 $("#ports").addEventListener("click", async (ev) => {
   const b = ev.target.closest("[data-copy]");

@@ -117,10 +117,17 @@
         <h2>Hosts</h2>
         <button class="btn primary" id="btn-new-host">+ Add host</button>
       </div>
-      <p class="hint">This dashboard controls models on every machine listed here. To add another machine
-        (e.g. a Mac Studio), install the manager there in <b>agent mode</b> (<code>DGXM_MODE=agent</code> and a
-        long random <code>DGXM_AGENT_TOKEN</code>), then add it with its URL and that token – or also set
-        <code>DGXM_HUB_URL=</code> this dashboard's address there: the machine then asks to be added and shows up below.</p>
+      <p class="hint">Every machine this dashboard controls. Click a machine to edit it, a model to open it.</p>
+      <details class="hint-more">
+        <summary>How do I add another machine?</summary>
+        <ol>
+          <li>Install the manager on that machine (e.g. a Mac Studio) in <b>agent mode</b>:
+            <code>DGXM_MODE=agent</code> and a long random <code>DGXM_AGENT_TOKEN</code> (the installer offers both).</li>
+          <li>Click <b>+ Add host</b> here and enter its address and that token.</li>
+          <li>Or set <code>DGXM_HUB_URL=</code> this dashboard's address on that machine: it then asks to be
+            added and you approve it here.</li>
+        </ol>
+      </details>
       <div id="join-requests" class="join-requests hidden"></div>
       <div class="topology" id="topology" aria-label="Hub and agent machines with what runs on each">
         <svg class="topo-links" id="topo-links" aria-hidden="true"></svg>
@@ -128,7 +135,7 @@
         <div class="topo-agents" id="topo-agents"></div>
       </div>
       <details class="host-details" id="host-details">
-        <summary>Host details &amp; actions</summary>
+        <summary>Table view · stop all, free memory, remove</summary>
         <div class="table-wrap">
           <table class="table">
             <thead><tr><th>Host</th><th>Status</th><th>Platform</th><th>Memory</th><th>GPU / CPU</th><th>Models</th><th></th></tr></thead>
@@ -137,12 +144,11 @@
         </div>
       </details>
 
-      <div class="panel-head ports-head"><h2>Ports &amp; endpoints</h2></div>
-      <p class="hint">Every recipe's port per host. The API of a running model is at its endpoint (OpenAI-compatible
-        for vLLM, SGLang, llama.cpp and MLX). Recipes that share a port on the same host can't run at the same time.
-        Running models show live output/input speed, requests and KV-cache use.</p>
+      <div class="panel-head ports-head"><h2>Ports &amp; endpoints</h2>
+        <button type="button" class="chip" id="ports-all" aria-pressed="false"></button></div>
+      <p class="hint">The address to use a running model from other apps (OpenAI-compatible API). Click <b>Copy</b> and paste it as the base URL.</p>
       <div class="table-wrap"><table class="table">
-        <thead><tr><th>Host</th><th>Port</th><th>Recipe</th><th>Status</th><th>Metrics</th><th>Endpoint</th></tr></thead>
+        <thead id="ports-head"></thead>
         <tbody id="ports"></tbody>
       </table></div>
     </section>

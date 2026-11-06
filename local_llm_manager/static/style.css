@@ -102,7 +102,12 @@ main { padding: 24px; max-width: 1500px; margin: 0 auto; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .panel-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .host-details { margin-bottom: 18px; }
-.host-details summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; }
+.host-details summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; width: fit-content; }
+.host-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.host-details summary:focus:not(:focus-visible) { outline: none; }
+.hint-more { margin: -10px 0 16px; color: var(--muted); font-size: 13px; }
+.hint-more summary { cursor: pointer; width: fit-content; color: var(--accent); }
+.hint-more ol { margin: 6px 0 0; padding-left: 20px; line-height: 1.6; }
 .host-details summary:hover { color: var(--text); }
 .host-details[open] summary { margin-bottom: 8px; }
 .hint { color: var(--muted); margin: -6px 0 16px; }
@@ -480,36 +485,64 @@ input[readonly] { opacity: .6; }
 .topo-hub, .topo-agents { position: relative; z-index: 1; }
 .topo-agents { display: flex; flex-wrap: wrap; justify-content: center; gap: 56px 20px; width: 100%; }
 .topo-node {
-  width: 250px; max-width: 100%; padding: 10px 12px; cursor: pointer;
+  width: 270px; max-width: 100%; padding: 10px 12px; cursor: pointer;
   background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius);
   display: flex; flex-direction: column; gap: 6px;
 }
 .topo-node:hover, .topo-node:focus-visible { border-color: var(--border-strong); outline: none; }
-.topo-node.hub { width: 290px; border: 2px solid var(--accent); box-shadow: 0 0 0 4px rgba(79,140,255,.12); }
+.topo-node.hub { width: 310px; border: 2px solid var(--accent); box-shadow: 0 0 0 4px rgba(79,140,255,.12); }
 .topo-node.offline { border-color: rgba(239,91,91,.5); opacity: .8; }
 .topo-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .topo-icon { font-size: 18px; }
 .topo-host { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-.topo-role { font-size: 10px; letter-spacing: .4px; text-transform: uppercase; color: var(--muted);
+.topo-role { font-size: 11px; letter-spacing: .4px; text-transform: uppercase; color: var(--muted);
   border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
 .topo-node.hub .topo-role { color: var(--badge-text); border-color: var(--accent); }
-.topo-sub { font-size: 12px; color: var(--muted); }
+.topo-sub { font-size: 13px; color: var(--muted); }
 .topo-mem small { font-size: 11px; }
 .topo-items { display: flex; flex-direction: column; gap: 4px; }
+.topo-row { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.topo-row.failed { padding: 6px; margin: 0 -6px; border-radius: 8px; background: rgba(239,91,91,.06); }
+.topo-why { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
+.topo-acts { display: flex; gap: 6px; align-items: center; }
+.topo-acts .btn.small, .topo-foot .btn.small, .topo-health .btn.small { padding: 3px 10px; font-size: 12.5px; }
+/* Running rows: Copy / Stop float over the port on hover or focus, so the card stays quiet otherwise. */
+.topo-row.ready .topo-acts, .topo-row.loading .topo-acts, .topo-row.starting .topo-acts {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%); gap: 4px;
+  background: var(--panel); padding-left: 6px; opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+.topo-row:hover .topo-acts, .topo-row:focus-within .topo-acts, .topo-row.busy .topo-acts { opacity: 1; pointer-events: auto; }
+@media (hover: none) {
+  .topo-row.ready .topo-acts, .topo-row.loading .topo-acts, .topo-row.starting .topo-acts {
+    position: static; transform: none; padding-left: 0; opacity: 1; pointer-events: auto; }
+}
+.topo-row .topo-acts .btn.small { padding: 2px 8px; }
+.topo-busy { font-size: 12.5px; color: var(--yellow); }
+.topo-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 26px; }
+.topo-health { align-items: center; }
 .topo-item {
   display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; cursor: pointer;
-  font: inherit; font-size: 12.5px; color: var(--text); padding: 4px 8px; border-radius: 7px;
+  font: inherit; font-size: 13.5px; color: var(--text); padding: 6px 9px; border-radius: 7px;
   background: var(--panel); border: 1px solid var(--border);
 }
 .topo-item:hover { border-color: var(--border-strong); }
 .topo-item.agent { background: var(--agent-bg); border-color: color-mix(in srgb, var(--agent) 40%, transparent); }
 .topo-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topo-port { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; color: var(--muted); }
+.topo-port { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; color: var(--muted); }
+.topo-state { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.topo-item.failed .topo-state { color: var(--red); font-weight: 600; }
+.topo-item.loading .topo-state, .topo-item.starting .topo-state { color: var(--yellow); }
+.topo-item.failed { border-color: rgba(239,91,91,.4); }
+.topo-offline { display: flex; flex-direction: column; gap: 3px; font-size: 13px; padding: 8px 10px; border-radius: 7px;
+  background: rgba(239,91,91,.06); border: 1px solid rgba(239,91,91,.3); }
+.topo-offline b { color: var(--red); }
+.topo-offline span { color: var(--muted); }
+.topo-offline small { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topo-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
 .topo-item.ready .topo-dot { background: var(--green); }
 .topo-item.loading .topo-dot, .topo-item.starting .topo-dot { background: var(--yellow); }
 .topo-item.failed .topo-dot { background: var(--red); }
-.topo-none, .topo-stopped { font-size: 12px; color: var(--muted); }
+.topo-none, .topo-stopped { font-size: 12.5px; color: var(--muted); }
 .topo-empty { color: var(--muted); font-size: 13px; text-align: center; max-width: 420px; }
 .temp { white-space: nowrap; }
 .temp.warn { color: var(--yellow); }
@@ -749,7 +782,7 @@ span.hf { cursor: default; padding: 0 7px; }
 
 /* ---- host meters (Hosts graph) ---- */
 .topo-meters { display: grid; gap: 5px; margin: 8px 0 4px; }
-.meter { display: grid; grid-template-columns: 52px 1fr 38px; align-items: center; gap: 8px; font-size: 11.5px; }
+.meter { display: grid; grid-template-columns: 56px 1fr 40px; align-items: center; gap: 8px; font-size: 12.5px; }
 .meter-label { color: var(--muted); white-space: nowrap; }
 .meter-bar { position: relative; height: 7px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
 .meter-fill { display: block; height: 100%; background: var(--green); border-radius: 4px; transition: width .4s; }
@@ -760,4 +793,4 @@ span.hf { cursor: default; padding: 0 7px; }
 .meter-value { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
 .meter-value.warn { color: var(--yellow); }
 .meter-value.crit { color: var(--red); }
-.meter-sub { color: var(--muted); font-size: 10.5px; margin: -3px 0 2px 60px; }
+.meter-sub { color: var(--muted); font-size: 11.5px; margin: -3px 0 2px 64px; }
