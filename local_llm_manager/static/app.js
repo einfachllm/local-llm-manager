@@ -359,9 +359,17 @@ function topoNode(h, role) {
     return `<button type="button" class="topo-item ${agent ? "agent" : "model"} ${r.status}" data-recipe="${r.id}"
         title="${esc(`${agent ? "Agent" : "Model"} · ${label}${agent ? "" : ` · port ${r.host_port}`}${stats ? ` · ${stats}` : ""}`)}">
         <span class="topo-dot"></span><span class="topo-kind">${agent ? "🤖" : "🧠"}</span><span class="topo-name">${esc(r.name)}</span>
+        ${r.status === "ready" ? "" : `<span class="topo-state">${esc(label)}</span>`}
         ${agent ? "" : `<span class="topo-port">:${r.host_port}</span>`}</button>`;
   };
   const live = liveFindings(hostFindings(h));
+  // On the card only what concerns the machine itself: a recipe's problem is already shown on its own
+  // row (red dot + "Failed"), and an offline machine gets one plain sentence instead of a chip.
+  const machineFindings = (h.findings || []).filter((f) => !f.recipe_id && !(f.rule === "host_offline" && !h.online));
+  const nRunning = mine.filter((r) => RUNNING.includes(r.status)).length;
+  const offlineBox = `<div class="topo-offline"><b>Can't reach this machine</b>
+      <span>Is it switched on and is the manager running there?</span>
+      ${h.error ? `<small title="${esc(blurHostText(h.error, h.url))}">${esc(blurHostText(h.error, h.url))}</small>` : ""}</div>`;
   const worst = live.some((f) => f.severity === "critical") ? "crit" : live.length ? "warn" : "";
   return `<div class="topo-node ${role} ${h.online ? "" : "offline"} ${worst ? `health-${worst}` : ""}" data-host="${h.id}" role="button" tabindex="0" title="Edit host">
       <div class="topo-head">
@@ -371,9 +379,9 @@ function topoNode(h, role) {
       </div>
       <div class="topo-sub">${h.online ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span>`}${platform ? ` · ${esc(platform)}` : ""}</div>
       ${hostMetersHtml(h)}
-      ${hostFindings(h).length ? `<div class="topo-health">${findingChips(hostFindings(h), true)}</div>` : ""}
-      <div class="topo-items">${shown.map(item).join("") || `<span class="topo-none">${h.online ? "Nothing running" : "Unreachable"}</span>`}</div>
-      ${stopped ? `<div class="topo-stopped" title="${esc(stoppedItems.map((r) => r.name).join("\n"))}">${stopped} stopped</div>` : ""}
+      ${machineFindings.length ? `<div class="topo-health">${findingChips(machineFindings, true)}</div>` : ""}
+      ${h.online ? `<div class="topo-items">${shown.map(item).join("") || `<span class="topo-none">Nothing running</span>`}</div>` : offlineBox}
+      ${mine.length ? `<div class="topo-stopped" title="${esc(stoppedItems.map((r) => r.name).join("\n"))}">${nRunning} running${stopped ? ` · ${stopped} stopped` : ""}</div>` : ""}
     </div>`;
 }
 
@@ -397,10 +405,10 @@ function drawTopoLinks() {
   // through the cards.
   box.classList.toggle("narrow", box.clientWidth < 600);
   const narrow = box.classList.contains("narrow");
-  // Hub and agent PCs side by side when they fit in one line (cards 250 px, hub 290, gaps), linked by a
+  // Hub and agent PCs side by side when they fit in one line (cards 270 px, hub 310, gaps), linked by a
   // bus above the cards; otherwise the hub on top and the agents below.
   const nAgents = $$("#topo-agents .topo-node").length;
-  box.classList.toggle("row", !narrow && nAgents > 0 && box.clientWidth >= 290 + 56 + nAgents * 270 + 24);
+  box.classList.toggle("row", !narrow && nAgents > 0 && box.clientWidth >= 310 + 56 + nAgents * 290 + 24);
   const row = box.classList.contains("row");
   // One track per agent above the cards, so links of different colours do not hide each other.
   box.style.paddingTop = row ? `${22 + 7 * nAgents}px` : "";
