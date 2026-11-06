@@ -250,8 +250,13 @@ $("#join-requests").addEventListener("click", async (ev) => {
   } catch (e) { toast(e.message, "bad"); }
 });
 
+// The top bar and the machine cards only flag the machine itself (memory, temperature, ...): a failed
+// recipe is shown on the Recipes page, and "offline" already says the machine is unreachable.
+function machineFindingsOf(h) {
+  return (h.findings || []).filter((f) => !f.recipe_id && !(f.rule === "host_offline" && !h.online));
+}
 function healthBadge(h) {
-  const live = liveFindings(hostFindings(h));
+  const live = liveFindings(machineFindingsOf(h));
   if (!live.length) return "";
   const crit = live.some((f) => f.severity === "critical");
   const lines = live.map((f) => `${SEV_ICON[f.severity]} ${f.title}: ${f.message}`).join("\n");
@@ -382,7 +387,7 @@ function topoNode(h, role) {
   };
   // On the card only what concerns the machine itself: a recipe's problem is already shown on its own
   // row (red dot + "Failed"), and an offline machine gets one plain sentence instead of a chip.
-  const machineFindings = (h.findings || []).filter((f) => !f.recipe_id && !(f.rule === "host_offline" && !h.online));
+  const machineFindings = machineFindingsOf(h);
   // The frame colour follows the machine's own state too, not a failed recipe on it.
   const live = liveFindings(machineFindings);
   const worst = live.some((f) => f.severity === "critical") ? "crit" : live.length ? "warn" : "";
@@ -625,7 +630,7 @@ async function loadRecipes() {
     recordMetrics(state.recipes);
     if (watchStarts(state.recipes)) await loadStartTimes();  // a boot just finished
     renderRecipes();
-    if (state.hosts.length) renderHostsStrip();  // its health badges count the recipes' findings
+    if (state.hosts.length) renderHostsStrip();
     if (state.tab === "hosts") { renderTopology(); renderPorts(); }
   } catch (e) {
     $("#recipes").innerHTML = `<div class="empty">Failed to load recipes: ${esc(e.message)}</div>`;
