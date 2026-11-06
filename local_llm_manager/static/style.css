@@ -501,6 +501,25 @@ input[readonly] { opacity: .6; }
 .topo-sub { font-size: 13px; color: var(--muted); }
 .topo-mem small { font-size: 11px; }
 .topo-items { display: flex; flex-direction: column; gap: 4px; }
+.topo-row { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.topo-row.failed { padding: 6px; margin: 0 -6px; border-radius: 8px; background: rgba(239,91,91,.06); }
+.topo-why { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
+.topo-acts { display: flex; gap: 6px; align-items: center; }
+.topo-acts .btn.small, .topo-foot .btn.small, .topo-health .btn.small { padding: 3px 10px; font-size: 12.5px; }
+/* Running rows: Copy / Stop float over the port on hover or focus, so the card stays quiet otherwise. */
+.topo-row.ready .topo-acts, .topo-row.loading .topo-acts, .topo-row.starting .topo-acts {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%); gap: 4px;
+  background: var(--panel); padding-left: 6px; opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+.topo-row:hover .topo-acts, .topo-row:focus-within .topo-acts, .topo-row.busy .topo-acts { opacity: 1; pointer-events: auto; }
+@media (hover: none) {
+  .topo-row.ready .topo-acts, .topo-row.loading .topo-acts, .topo-row.starting .topo-acts {
+    position: static; transform: none; padding-left: 0; opacity: 1; pointer-events: auto; }
+}
+.topo-row .topo-acts .btn.small { padding: 2px 8px; }
+.topo-busy { font-size: 12.5px; color: var(--yellow); }
+.topo-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 26px; }
+.topo-health { align-items: center; }
 .topo-item {
   display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; cursor: pointer;
   font: inherit; font-size: 13.5px; color: var(--text); padding: 6px 9px; border-radius: 7px;
