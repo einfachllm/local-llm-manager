@@ -350,28 +350,25 @@ const plainHosts = (ids) => state.hosts.filter((h) => ids.includes(h.id) && h.tr
 
 /* ---------------- hosts: topology graph ----------------
  * The hub (this machine, running the dashboard) on top, a line to every agent machine below it, and
- * on each machine what runs there: models (🧠) and agents such as a Hermes gateway (🤖). Stopped
- * recipes are only counted, so a busy host stays readable. Click a machine to edit it, a recipe to
+ * on each machine what runs there: models (🧠) and agents such as a Hermes gateway (🤖). Recipes that
+ * are not running (stopped or failed) are only counted, so a busy host stays readable. Click a machine to edit it, a recipe to
  * open its editor. */
 function topoNode(h, role) {
   const mine = state.recipes.filter((r) => r.host_id === h.id).sort(byName);
-  const shown = mine.filter((r) => RUNNING.includes(r.status) || r.status === "failed")
+  const shown = mine.filter((r) => RUNNING.includes(r.status))
     .sort((a, b) => (kindOf(a) === kindOf(b) ? 0 : kindOf(a) === "model" ? -1 : 1));
   const stoppedItems = mine.filter((r) => !shown.includes(r));
   const stopped = stoppedItems.length;
   const platform = h.info ? `${PLATFORM[h.info.platform] ?? h.info.platform} · ${h.info.machine}` : "";
-  // One row per model/agent. Failed: the reason and Retry / Logs right below it. Running: Copy and
-  // Stop appear on hover or keyboard focus, so a calm card stays calm.
+  // One row per running model/agent (failed and stopped recipes are only counted: they live on the
+  // Recipes page). Copy and Stop appear on hover or keyboard focus, so a calm card stays calm.
   const item = (r) => {
     const agent = kindOf(r) === "agent";
     const label = (agent ? AGENT_STATUS_LABEL : STATUS_LABEL)[r.status] ?? r.status;
     const stats = agent ? "" : metricsText(r.metrics);
     const busy = state.busy.get(r.id);
     const running = RUNNING.includes(r.status);
-    const why = r.status === "failed" ? (r.findings || []).find((f) => !f.muted)?.message ?? "" : "";
-    const logs = `<button type="button" class="btn small ghost" data-tact="logs" ${r.container ? "" : "disabled title=\"No container log yet\""}>Logs</button>`;
     const acts = busy ? `<span class="topo-busy">${esc(busy)}</span>`
-      : r.status === "failed" ? `<button type="button" class="btn small go" data-tact="start">Retry</button>${logs}`
       : running ? `${agent ? "" : `<button type="button" class="btn small ghost" data-tact="copy" title="Copy endpoint">Copy</button>`}
           <button type="button" class="btn small ghost" data-tact="stop">Stop</button>` : "";
     return `<div class="topo-row ${r.status}${busy ? " busy" : ""}" data-recipe="${r.id}">
@@ -380,20 +377,20 @@ function topoNode(h, role) {
         <span class="topo-dot"></span><span class="topo-kind">${agent ? "🤖" : "🧠"}</span><span class="topo-name">${esc(r.name)}</span>
         ${r.status === "ready" ? "" : `<span class="topo-state">${esc(label)}</span>`}
         ${agent ? "" : `<span class="topo-port">:${r.host_port}</span>`}</button>
-      ${why ? `<div class="topo-why" title="${esc(blurHostText(why, h.url))}">${esc(blurHostText(why, h.url))}</div>` : ""}
       ${acts ? `<div class="topo-acts">${acts}</div>` : ""}
     </div>`;
   };
-  const live = liveFindings(hostFindings(h));
   // On the card only what concerns the machine itself: a recipe's problem is already shown on its own
   // row (red dot + "Failed"), and an offline machine gets one plain sentence instead of a chip.
   const machineFindings = (h.findings || []).filter((f) => !f.recipe_id && !(f.rule === "host_offline" && !h.online));
+  // The frame colour follows the machine's own state too, not a failed recipe on it.
+  const live = liveFindings(machineFindings);
+  const worst = live.some((f) => f.severity === "critical") ? "crit" : live.length ? "warn" : "";
   const nRunning = mine.filter((r) => RUNNING.includes(r.status)).length;
   const hostBusy = state.busy.get(`host-${h.id}`);
   const offlineBox = `<div class="topo-offline"><b>Can't reach this machine</b>
       <span>Is it switched on and is the manager running there?</span>
       ${h.error ? `<small title="${esc(blurHostText(h.error, h.url))}">${esc(blurHostText(h.error, h.url))}</small>` : ""}</div>`;
-  const worst = live.some((f) => f.severity === "critical") ? "crit" : live.length ? "warn" : "";
   return `<div class="topo-node ${role} ${h.online ? "" : "offline"} ${worst ? `health-${worst}` : ""}" data-host="${h.id}" role="button" tabindex="0" title="Edit host">
       <div class="topo-head">
         <span class="topo-icon">${role === "hub" ? "🛰️" : "🖥️"}</span>
@@ -407,7 +404,7 @@ function topoNode(h, role) {
           ? `<button type="button" class="btn small ghost" data-hact="free" ${hostBusy ? "disabled" : ""} title="Stop all models on this machine and drop the page cache">Free memory</button>` : ""}</div>` : ""}
       ${h.online ? `<div class="topo-items">${shown.map(item).join("") || `<span class="topo-none">Nothing running</span>`}</div>` : offlineBox}
       <div class="topo-foot">
-        ${mine.length ? `<span class="topo-stopped" title="${esc(stoppedItems.map((r) => r.name).join("\n"))}">${nRunning} running${stopped ? ` · ${stopped} stopped` : ""}</span>` : "<span></span>"}
+        ${mine.length ? `<span class="topo-stopped" title="${esc(stoppedItems.map((r) => r.name).join("\n"))}">${nRunning} running${stopped ? ` · ${stopped} not running` : ""}</span>` : "<span></span>"}
         <span class="topo-hacts">${hostBusy ? `<span class="topo-busy">${esc(hostBusy)}</span>`
           : h.online ? (nRunning ? `<button type="button" class="btn small ghost" data-hact="stop-all">Stop all</button>` : "")
           : `<button type="button" class="btn small ghost" data-hact="recheck" title="Try to reach this machine again">Check again</button>`}</span>
@@ -485,15 +482,8 @@ $("#topology").addEventListener("click", async (ev) => {
     const r = state.recipes.find((x) => x.id === id);
     if (!r) return;
     const act = ract.dataset.tact;
-    if (act === "start") {
-      const res = await runAction(id, `/api/recipes/${id}/start`, null, await startBusyLabel(r));
-      if (res instanceof Error && /memory/i.test(res.message) && confirm(`${res.message}\n\nStart anyway?`)) {
-        await runAction(id, `/api/recipes/${id}/start?force=true`, null, "Starting…");
-      }
-    } else if (act === "stop") {
+    if (act === "stop") {
       await runAction(id, `/api/recipes/${id}/stop`, null, "Stopping…");
-    } else if (act === "logs") {
-      openLogs(r);
     } else if (act === "copy") {
       const ep = endpointUrl(r);
       try { await navigator.clipboard.writeText(ep); toast("Endpoint copied", "ok"); }
