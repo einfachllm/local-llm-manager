@@ -126,7 +126,15 @@ function blurHostText(text, url) {
   let str = String(text ?? "");
   if (!state.blur) return str;
   try { const h = new URL(url).hostname; if (h) str = str.split(h).join(maskAddr(h)); } catch { /* no URL */ }
-  return blurText(str);
+  return blurText(blurHostNames(str));
+}
+// Replace every known host name (dashboard name and machine name) inside free text, e.g. in an error
+// such as "Host 'LocalPC' is not reachable" – longest first, so "pc-2" is not cut by "pc".
+function blurHostNames(str) {
+  const names = [...new Set((state.hosts || []).flatMap((h) => [h.name, h.info?.hostname]).filter((n) => n && n.length > 1))]
+    .sort((a, b) => b.length - a.length);
+  for (const n of names) str = str.split(n).join(maskAddr(n));
+  return str;
 }
 // Mask bare IPv4 addresses inside free text (e.g. activity log messages).
 function blurText(s) {
@@ -1431,33 +1439,55 @@ $("#btn-next-port").addEventListener("click", () => {
 
 function endpointUrl(r) { return `http://${endpointHost(r.host_id)}:${r.host_port}/v1`; }
 
+/* Ports & endpoints: by default only what is running – the URL to copy is what most people need here.
+ * The port is part of the URL; a second model on the same port is flagged next to it. */
+let portsAll = false;
+try { portsAll = localStorage.getItem("llm.portsAll") === "1"; } catch { /* storage unavailable */ }
+// Running but nothing going on: "idle" instead of a row of zeros (the numbers stay in the tooltip).
+function portLoad(r) {
+  const m = r.metrics;
+  if (RUNNING.includes(r.status) && m && metricsText(m) && !m.gen_tps && !m.prompt_tps && !m.running && !m.waiting) {
+    return `<span class="muted" title="${esc(metricsText(m))}">idle</span>`;
+  }
+  return metricsSummary(r);
+}
 function renderPorts() {
   const order = (r) => state.hosts.findIndex((h) => h.id === r.host_id);
-  const rows = [...state.recipes].sort((a, b) => order(a) - order(b) || a.host_port - b.host_port || byName(a, b));
+  const all = [...state.recipes].sort((a, b) => order(a) - order(b) || a.host_port - b.host_port || byName(a, b));
+  const live = all.filter((r) => RUNNING.includes(r.status));
+  const rows = portsAll ? all : live;
+  const hidden = all.length - live.length;
+  const toggle = $("#ports-all");
+  toggle.classList.toggle("hidden", !hidden);
+  toggle.setAttribute("aria-pressed", String(portsAll));
+  toggle.textContent = portsAll ? "Only running" : `Show all (${hidden} not running)`;
+  const multi = multiHost();
+  const withLoad = rows.some((r) => kindOf(r) !== "agent" && RUNNING.includes(r.status) && metricsText(r.metrics));
+  $("#ports-head").innerHTML = `<tr><th>Model</th><th>Status</th><th>Endpoint</th>${withLoad ? `<th title="Output / input speed, requests, KV cache">Load</th>` : ""}</tr>`;
+  const cols = withLoad ? 4 : 3;
   $("#ports").innerHTML = rows.length ? rows.map((r) => {
     const shared = recipesOnPort(r.host_id, r.host_port, r.id);
     const running = RUNNING.includes(r.status);
-    if (kindOf(r) === "agent") {
-      return `<tr>
-      <td>${esc(maskAddr(hostName(r.host_id)))}</td>
-      <td class="mono">${r.host_port}${shared.length ? ` <span class="chip small warn-chip" title="Also used by: ${esc(shared.map((x) => x.name).join(", "))}">shared</span>` : ""}</td>
-      <td>🤖 ${esc(r.name)}</td>
-      <td><span class="pill ${r.status}">${AGENT_STATUS_LABEL[r.status] ?? r.status}</span></td>
-      <td class="muted">–</td>
-      <td class="muted">agent – no LLM API</td>
-    </tr>`;
-    }
+    const agent = kindOf(r) === "agent";
+    const sharedChip = shared.length ? ` <span class="chip small warn-chip" title="Port ${r.host_port} is also used by: ${esc(shared.map((x) => x.name).join(", "))} – only one of them can run at a time">shared port</span>` : "";
+    const name = `${agent ? "🤖 " : ""}${esc(r.name)}${multi ? `<br><small class="muted">${esc(maskAddr(hostName(r.host_id)))}</small>` : ""}`;
+    const endpoint = agent ? `<span class="muted">agent – no LLM API · port ${r.host_port}</span>${sharedChip}`
+      : `${running ? `<a class="mono" href="${esc(endpointUrl(r))}/models" target="_blank" rel="noopener">${esc(maskEndpoint(endpointUrl(r)))}</a>` : `<span class="mono muted">${esc(maskEndpoint(endpointUrl(r)))}</span>`}
+        <button class="btn small ghost copy" data-copy="${esc(endpointUrl(r))}" title="Copy endpoint">Copy</button>${sharedChip}`;
     return `<tr>
-      <td>${esc(maskAddr(hostName(r.host_id)))}</td>
-      <td class="mono">${r.host_port}${shared.length ? ` <span class="chip small warn-chip" title="Also used by: ${esc(shared.map((x) => x.name).join(", "))}">shared</span>` : ""}</td>
-      <td>${esc(r.name)}</td>
-      <td><span class="pill ${r.status}">${STATUS_LABEL[r.status] ?? r.status}</span></td>
-      <td>${metricsSummary(r)}</td>
-      <td class="mono">${running ? `<a href="${esc(endpointUrl(r))}/models" target="_blank" rel="noopener">${esc(maskEndpoint(endpointUrl(r)))}</a>` : `<span class="muted">${esc(maskEndpoint(endpointUrl(r)))}</span>`}
-        <button class="btn small ghost copy" data-copy="${esc(endpointUrl(r))}" title="Copy endpoint">Copy</button></td>
+      <td>${name}</td>
+      <td><span class="pill ${r.status}">${(agent ? AGENT_STATUS_LABEL : STATUS_LABEL)[r.status] ?? r.status}</span></td>
+      <td>${endpoint}</td>
+      ${withLoad ? `<td>${agent ? `<span class="muted">–</span>` : portLoad(r)}</td>` : ""}
     </tr>`;
-  }).join("") : `<tr><td colspan="6" class="empty">No recipes yet.</td></tr>`;
+  }).join("") : `<tr><td colspan="${cols}" class="empty">${all.length ? "Nothing is running right now." : "No recipes yet."}</td></tr>`;
 }
+
+$("#ports-all").addEventListener("click", () => {
+  portsAll = !portsAll;
+  try { localStorage.setItem("llm.portsAll", portsAll ? "1" : "0"); } catch { /* ignore */ }
+  renderPorts();
+});
 
 $("#ports").addEventListener("click", async (ev) => {
   const b = ev.target.closest("[data-copy]");

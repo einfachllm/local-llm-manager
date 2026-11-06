@@ -144,12 +144,11 @@
         </div>
       </details>
 
-      <div class="panel-head ports-head"><h2>Ports &amp; endpoints</h2></div>
-      <p class="hint">Every recipe's port per host. The API of a running model is at its endpoint (OpenAI-compatible
-        for vLLM, SGLang, llama.cpp and MLX). Recipes that share a port on the same host can't run at the same time.
-        Running models show live output/input speed, requests and KV-cache use.</p>
+      <div class="panel-head ports-head"><h2>Ports &amp; endpoints</h2>
+        <button type="button" class="chip" id="ports-all" aria-pressed="false"></button></div>
+      <p class="hint">The address to use a running model from other apps (OpenAI-compatible API). Click <b>Copy</b> and paste it as the base URL.</p>
       <div class="table-wrap"><table class="table">
-        <thead><tr><th>Host</th><th>Port</th><th>Recipe</th><th>Status</th><th>Metrics</th><th>Endpoint</th></tr></thead>
+        <thead id="ports-head"></thead>
         <tbody id="ports"></tbody>
       </table></div>
     </section>
