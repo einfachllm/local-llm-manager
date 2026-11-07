@@ -50,7 +50,11 @@ silicon, or any Linux box - from any browser on your network:
   [More](https://einfachllm.github.io/local-llm-manager/health/)
 - **Activity log** of every start, stop and switch with the exact command and result.
 - **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
-  ⭐ pinned recipes, collapsible groups and keyboard shortcuts (`?` shows them).
+  ⭐ pinned recipes (shown in a dedicated “Pinned” section at the top), collapsible groups, larger recipe
+  cards, and keyboard shortcuts (`?` shows them). Blur and theme toggles live in the left sidebar.
+- **Recipe toolbar:** filter recipes by engine (vLLM, SGLang, llama.cpp, MLX, TensorFold, Custom –
+  derived automatically from your recipes), by model/agent kind, by host, by tag, and sort by name,
+  status, or port. Search across name, model, host, image and tag.
 
 Model weights and Docker images must be on the machine that runs them. The manager can pull images and
 download / copy weights for you (Images and Weights tabs), or you put them there yourself.

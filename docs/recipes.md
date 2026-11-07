@@ -107,4 +107,15 @@ The current examples:
 - **vLLM images:** the preset command starts with `vllm serve`. For `vllm/vllm-openai` (whose entrypoint already runs `vllm serve`), the manager drops the duplicate; images with a plain `vllm` entrypoint keep `serve`. The preview shows the actual command.
 - Recipes are a starting point: the flags are tuned for the machine they ran on. Check `--gpu-memory-utilization`, `--max-model-len` and `--max-num-seqs` against your GPU's memory.
 
+## Recipe list, filters and pinned recipes
+
+The recipe list shows larger cards for quicker scanning. Use the top toolbar to:
+
+- **Search** across name, model, host, image and tag.
+- **Filter by engine** (vLLM, SGLang, llama.cpp, MLX, TensorFold, Custom – derived automatically from your recipes).
+- **Filter by kind** (Models or Agents), by host and by tag.
+- **Sort** by name, status or port.
+
+Pinned recipes (★) appear in a dedicated “Pinned (always on top)” section at the top of the list. Blur and theme toggles live in the left sidebar.
+
 More of your own? Drop new `.yaml` / `.json` files in `examples/recipes` and add a row to its table - or export one from the editor with **Recipe file…**.
