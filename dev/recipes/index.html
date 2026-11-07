@@ -432,6 +432,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#recipe-list-filters-and-pinned-recipes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recipe list, filters and pinned recipes
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -656,6 +667,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#recipe-list-filters-and-pinned-recipes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recipe list, filters and pinned recipes
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -870,6 +892,15 @@ every machine that has the model.</p>
 <li><strong>vLLM images:</strong> the preset command starts with <code>vllm serve</code>. For <code>vllm/vllm-openai</code> (whose entrypoint already runs <code>vllm serve</code>), the manager drops the duplicate; images with a plain <code>vllm</code> entrypoint keep <code>serve</code>. The preview shows the actual command.</li>
 <li>Recipes are a starting point: the flags are tuned for the machine they ran on. Check <code>--gpu-memory-utilization</code>, <code>--max-model-len</code> and <code>--max-num-seqs</code> against your GPU's memory.</li>
 </ul>
+<h2 id="recipe-list-filters-and-pinned-recipes">Recipe list, filters and pinned recipes<a class="headerlink" href="#recipe-list-filters-and-pinned-recipes" title="Permanent link">&para;</a></h2>
+<p>The recipe list shows larger cards for quicker scanning. Use the top toolbar to:</p>
+<ul>
+<li><strong>Search</strong> across name, model, host, image and tag.</li>
+<li><strong>Filter by engine</strong> (vLLM, SGLang, llama.cpp, MLX, TensorFold, Custom – derived automatically from your recipes).</li>
+<li><strong>Filter by kind</strong> (Models or Agents), by host and by tag.</li>
+<li><strong>Sort</strong> by name, status or port.</li>
+</ul>
+<p>Pinned recipes (★) appear in a dedicated “Pinned (always on top)” section at the top of the list. Blur and theme toggles live in the left sidebar.</p>
 <p>More of your own? Drop new <code>.yaml</code> / <code>.json</code> files in <code>examples/recipes</code> and add a row to its table - or export one from the editor with <strong>Recipe file…</strong>.</p>
 
 
