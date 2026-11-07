@@ -74,6 +74,9 @@ small { color: var(--muted); font-weight: 400; }
 }
 .tab:hover { color: var(--text); }
 .tab.active { background: var(--panel-2); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }
+.sidebar-foot { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+.sidebar-foot .btn { width: 100%; text-align: left; justify-content: flex-start; padding: 9px 12px; font-size: 13px; border-radius: 9px; }
+.sidebar-foot .btn.on { background: var(--panel-2); color: var(--text); border-color: var(--accent); }
 .topbar {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -87,8 +90,9 @@ small { color: var(--muted); font-weight: 400; }
 .nav-toggle:hover { border-color: var(--border-strong); }
 .nav-scrim { position: fixed; inset: 0; z-index: 6; background: rgba(0,0,0,.45); }
 .blur-toggle {
+  width: 100%; text-align: left; justify-content: flex-start;
   background: none; border: 1px solid var(--border); color: var(--muted);
-  padding: 5px 10px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12px;
+  padding: 9px 12px; border-radius: 9px; cursor: pointer; font: inherit; font-size: 13px;
   white-space: nowrap;
 }
 .blur-toggle:hover { color: var(--text); border-color: var(--border-strong); }
@@ -127,11 +131,20 @@ main { padding: 24px; max-width: 1500px; margin: 0 auto; }
 .btn.danger { color: var(--red); }
 
 /* recipe cards */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 20px; }
 .card {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 16px; display: flex; flex-direction: column; gap: 10px;
+  padding: 20px; display: flex; flex-direction: column; gap: 12px;
 }
+.card:hover { border-color: var(--border-strong); }
+/* pinned section: always on top */
+.pinned-section { margin-bottom: 20px; }
+.pinned-head {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 10px; font-size: 12.5px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .05em; font-weight: 600;
+}
+.pinned-head .pinned-icon { color: var(--yellow); font-size: 18px; }
 .card.is-ready { border-color: rgba(34,197,139,.5); }
 .card.is-loading, .card.is-starting { border-color: rgba(240,180,41,.5); }
 .card.is-failed { border-color: rgba(239,91,91,.5); }

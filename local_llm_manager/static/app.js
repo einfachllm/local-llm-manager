@@ -722,7 +722,6 @@ function engineBadge(r) {
 
 function renderToolbar() {
   $$("#recipe-kind button").forEach((b) => b.classList.toggle("on", b.dataset.kind === view.kind));
-  $$("#recipe-layout button").forEach((b) => b.classList.toggle("on", b.dataset.layout === (view.layout === "tiles" ? "tiles" : "rows")));
   $$("#recipe-group button").forEach((b) => b.classList.toggle("on", b.dataset.group === (view.group || "")));
   $$("#recipe-sort button").forEach((b) => b.classList.toggle("on", b.dataset.sort === view.sort));
   const tags = allTags();
@@ -750,6 +749,11 @@ function renderEngineFilter() {
   $("#engine-filter").innerHTML = chip("", "All", models.length, run(models))
     + used.map((e) => { const l = models.filter((r) => engineOf(r) === e); return chip(e, ENGINE_LABEL[e], l.length, run(l)); }).join("");
   $("#engine-filter").closest(".rail-block").classList.toggle("hidden", used.length < 2);
+  // Also render the engine chips in the top toolbar (compact, no counts).
+  const tchip = (e, label) => `<button class="chip${(view.engine || "") === e ? " on" : ""}" data-engine="${e}">
+      ${e ? `<i class="eng-dot eng-${e}"></i>` : ""}${esc(label)}</button>`;
+  $("#recipe-engine-toolbar").innerHTML = tchip("", "All engines")
+    + used.map((e) => tchip(e, ENGINE_LABEL[e])).join("");
 }
 function renderHostFilter() {
   if (view.host && !state.hosts.some((h) => String(h.id) === view.host)) view.host = "";
@@ -1103,19 +1107,26 @@ function renderRecipes() {
   renderToolbar();
   if (!state.recipes.length) {
     $("#recipes").innerHTML = `<div class="empty">No recipes yet. Click “Add recipe”.</div>`;
+    $("#pinned-list").innerHTML = "";
     return;
   }
   const list = visibleRecipes();
-  if (!list.length) {
-    $("#recipes").innerHTML = `<div class="empty">No recipe matches the current filter.</div>`;
-    return;
-  }
+  const pinned = list.filter((r) => r.pinned);
+  const rest = list.filter((r) => !r.pinned);
+  // Pinned section: always on top, as cards.
+  $("#pinned-list").innerHTML = pinned.length
+    ? `<div class="grid">${pinned.map((r) => cardHtml(r)).join("")}</div>`
+    : "";
+  // Remaining recipes: grouped or flat.
   let html = "";
-  if (!view.kind && state.recipes.length < 3 && !state.recipes.some((r) => kindOf(r) === "agent")) {
+  if (!view.kind && rest.length < 3 && !rest.some((r) => kindOf(r) === "agent")) {
     html += `<div class="agent-empty">🤖 No agents yet. To add one (e.g. a Hermes gateway), use “Add recipe” with
       <code>kind: agent</code> in a YAML recipe.</div>`;
   }
-  $("#recipes").innerHTML = html + (view.group ? groupedHtml(list) : kindsHtml(list));
+  $("#recipes").innerHTML = html + (rest.length ? (view.group ? groupedHtml(rest) : kindsHtml(rest)) : "");
+  if (!rest.length && !pinned.length) {
+    $("#recipes").innerHTML = `<div class="empty">No recipe matches the current filter.</div>`;
+  }
 }
 
 // Group by host, or by each recipe's first tag (e.g. the model name); every recipe appears once, and
@@ -1212,13 +1223,6 @@ $("#recipe-group").addEventListener("click", (ev) => {
   saveView();
   renderRecipes();
 });
-$("#recipe-layout").addEventListener("click", (ev) => {
-  const b = ev.target.closest("button[data-layout]");
-  if (!b) return;
-  view.layout = b.dataset.layout;
-  saveView();
-  renderRecipes();
-});
 $("#recipe-kind").addEventListener("click", (ev) => {
   const b = ev.target.closest("button[data-kind]");
   if (!b) return;
@@ -1234,6 +1238,13 @@ $("#host-filter").addEventListener("click", (ev) => {
   renderRecipes();
 });
 $("#engine-filter").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-engine]");
+  if (!b) return;
+  view.engine = b.dataset.engine;
+  saveView();
+  renderRecipes();
+});
+$("#recipe-engine-toolbar").addEventListener("click", (ev) => {
   const b = ev.target.closest("button[data-engine]");
   if (!b) return;
   view.engine = b.dataset.engine;

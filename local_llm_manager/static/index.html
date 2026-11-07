@@ -22,14 +22,16 @@
         <button class="tab" data-tab="images">Images</button>
         <button class="tab" data-tab="models" title="Whether each host has the model weights your recipes use">Weights</button>
       </nav>
+      <div class="sidebar-foot">
+        <button id="btn-blur" class="blur-toggle" title="Blur IP addresses and host names" aria-pressed="true">🙈 Blur</button>
+        <button id="btn-theme" class="blur-toggle" title="Switch between dark and light theme">🌙 Dark</button>
+      </div>
     </aside>
     <div class="nav-scrim hidden" id="nav-scrim"></div>
     <div class="main-col">
       <header class="topbar">
         <button class="nav-toggle" id="btn-nav" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">☰</button>
         <div class="section-title" id="section-title">Recipes</div>
-        <button id="btn-blur" class="blur-toggle" title="Blur IP addresses and host names" aria-pressed="true">🙈 Blur</button>
-        <button id="btn-theme" class="blur-toggle" title="Switch between dark and light theme">🌙 Dark</button>
         <div class="hosts-strip" id="hosts-strip"></div>
       </header>
 
@@ -42,6 +44,10 @@
         </div>
       </div>
       <div class="recipes-layout">
+        <div class="pinned-section">
+          <div class="pinned-head"><span class="pinned-icon">★</span> <span>Pinned (always on top)</span></div>
+          <div id="pinned-list"></div>
+        </div>
         <div id="recipes"></div>
         <aside class="filter-rail" aria-label="Recipe filters">
           <div class="toolbar">
@@ -50,12 +56,9 @@
               <button type="button" data-kind="model">🧠 Models</button>
               <button type="button" data-kind="agent">🤖 Agents</button>
             </div>
-            <label class="inline">Models as
-              <span class="seg" id="recipe-layout" role="group" aria-label="Model layout">
-                <button type="button" data-layout="rows" title="One wide row per model, like agents">☰ Rows</button>
-                <button type="button" data-layout="tiles" title="Cards in a grid">▦ Tiles</button>
-              </span>
-            </label>
+            <div class="seg" id="recipe-engine-toolbar" role="group" aria-label="Filter by engine">
+              <button type="button" data-engine="" class="on">All engines</button>
+            </div>
             <input id="recipe-search" type="search" placeholder="Search name, model, image, tag…">
           </div>
           <div class="rail-label">Group</div>
