@@ -329,6 +329,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 
 /* recipe toolbar, tags, groups */
 .recipes-layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 20px; align-items: start; }
+.recipes-main { min-width: 0; }
 .filter-rail {
   position: sticky; top: 84px; display: flex; flex-direction: column; gap: 14px;
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px;

@@ -648,6 +648,7 @@ const VIEW_KEY = "dgxm.recipeView";
 const view = { search: "", tags: [], sort: "name", group: "", host: "", kind: "", layout: "rows", collapsed: {} };
 try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || "{}")); } catch { /* storage unavailable */ }
 if (typeof view.group === "boolean") view.group = view.group ? "tag" : "";  // older saved views
+view.layout = "tiles";  // the rows/tiles toggle was removed from the UI – always tiles
 const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* ignore */ } };
 
 const RUNNING = ["ready", "loading", "starting"];
@@ -750,10 +751,10 @@ function renderEngineFilter() {
     + used.map((e) => { const l = models.filter((r) => engineOf(r) === e); return chip(e, ENGINE_LABEL[e], l.length, run(l)); }).join("");
   $("#engine-filter").closest(".rail-block").classList.toggle("hidden", used.length < 2);
   // Also render the engine chips in the top toolbar (compact, no counts).
-  const tchip = (e, label) => `<button class="chip${(view.engine || "") === e ? " on" : ""}" data-engine="${e}">
+  const tbtn = (e, label) => `<button type="button"${(view.engine || "") === e ? ' class="on"' : ""} data-engine="${e}">
       ${e ? `<i class="eng-dot eng-${e}"></i>` : ""}${esc(label)}</button>`;
-  $("#recipe-engine-toolbar").innerHTML = tchip("", "All engines")
-    + used.map((e) => tchip(e, ENGINE_LABEL[e])).join("");
+  $("#recipe-engine-toolbar").innerHTML = tbtn("", "All engines")
+    + used.map((e) => tbtn(e, ENGINE_LABEL[e])).join("");
 }
 function renderHostFilter() {
   if (view.host && !state.hosts.some((h) => String(h.id) === view.host)) view.host = "";
@@ -1108,12 +1109,16 @@ function renderRecipes() {
   if (!state.recipes.length) {
     $("#recipes").innerHTML = `<div class="empty">No recipes yet. Click “Add recipe”.</div>`;
     $("#pinned-list").innerHTML = "";
+    const ps = $("#pinned-list").closest(".pinned-section");
+    if (ps) ps.classList.add("hidden");
     return;
   }
   const list = visibleRecipes();
   const pinned = list.filter((r) => r.pinned);
   const rest = list.filter((r) => !r.pinned);
-  // Pinned section: always on top, as cards.
+  // Pinned section: always on top, as cards. Hide the whole section when nothing is pinned.
+  const pinnedSection = $("#pinned-list").closest(".pinned-section");
+  if (pinnedSection) pinnedSection.classList.toggle("hidden", !pinned.length);
   $("#pinned-list").innerHTML = pinned.length
     ? `<div class="grid">${pinned.map((r) => cardHtml(r)).join("")}</div>`
     : "";
@@ -1293,7 +1298,9 @@ function recipeBodyFrom(r, overrides = {}) {
   return { ...body, ...overrides };
 }
 
-$("#recipes").addEventListener("click", async (ev) => {
+$("#recipes").addEventListener("click", handleRecipeCardsClick);
+$("#pinned-list").addEventListener("click", handleRecipeCardsClick);
+async function handleRecipeCardsClick(ev) {
   const head = ev.target.closest(".group-title");
   if (head) {
     const key = head.closest(".group").dataset.gkey;
@@ -1370,7 +1377,7 @@ $("#recipes").addEventListener("click", async (ev) => {
       loadRecipes();
     } catch (e) { toast(e.message, "bad"); }
   }
-});
+}
 
 /* ---------------- recipe editor ---------------- */
 
@@ -3251,7 +3258,7 @@ document.addEventListener("keydown", (ev) => {
   const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
   const card = document.activeElement instanceof Element ? document.activeElement.closest(".card") : null;
   if (card && k.startsWith("Arrow")) {  // move focus between cards
-    const cards = $$("#recipes .card");
+    const cards = $$("#pinned-list .card, #recipes .card");
     const i = cards.indexOf(card);
     const next = (k === "ArrowRight" || k === "ArrowDown") ? cards[i + 1] : cards[i - 1];
     if (next) { next.focus(); ev.preventDefault(); }
