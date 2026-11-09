@@ -46,8 +46,10 @@ share the weights entry and differ in image and port.
   Create it in the **Weights** tab with the folder on each host that runs the recipe, or change the name in
   the file. If a main model and a draft model share a folder, register that folder once, mount it, and point
   `model:` at the subfolder (see `nemotron-3.5-super-vl.yaml`, `qwen38-dflash.yaml`). Note that a parent
-  folder registered for that reason (`Qwen3.8-Models`, `Nemotron-3.5-Models` = `~/models`) is **typed in** -
-  "Search hosts" lists the model folders inside `DGXM_MODEL_DIR`, not their parent. Starter scripts mount a
+  folder registered for that reason (`Qwen3.8-Models`, `Nemotron-3.5-Models`) is **typed in** - "Search
+  hosts" lists the model folders inside `DGXM_MODEL_DIR`, not their parent - and that **one folder is one
+  row**: keep each family in a folder of its own (`~/models/qwen38`), or register the flat `~/models` once
+  and let every recipe that needs a subfolder of it use that single entry. Starter scripts mount a
   concrete folder; download the model there, or point the volume at your copy. "Search hosts" in the
   **Weights** tab finds model folders under `DGXM_MODEL_DIR` and registers them.
 - **Ports:** the port in `host_port:` / `port:` / `--port` becomes the recipe's port. Keep it the **same across models**

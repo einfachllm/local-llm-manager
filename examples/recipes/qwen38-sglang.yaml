@@ -2,8 +2,9 @@
 # Qwen3.8-27B (NVIDIA ModelOpt NVFP4) with the DFlash2 drafter, served by SGLang's official Docker
 # image on one NVIDIA DGX Spark. Same "Qwen3.8-Models" folder and the same port as qwen38-dflash.yaml, so
 # **Switch to** changes the engine under one endpoint: http://<host>:8101/v1.
-# Register the parent folder that holds model and drafter (e.g. ~/models) as "Qwen3.8-Models", or
-# change `weights:` and the /models paths below.
+# Register the folder that holds model and drafter (e.g. ~/models/qwen38, or ~/models if they sit there)
+# as "Qwen3.8-Models", or change `weights:` and the /models paths below. One folder is one row in the
+# Weights tab, so a shared ~/models is one entry used by all the qwen38 recipes.
 name: qwen3.8-sglang
 description: Qwen3.8-27B-NVFP4 with the DFlash2 drafter via SGLang - speculative decoding
 framework: sglang

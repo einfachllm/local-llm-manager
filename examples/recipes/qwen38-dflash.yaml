@@ -1,7 +1,8 @@
 # Compact recipe file (Local LLM Manager): paste into Recipes -> Import.
 # Qwen3.8-27B (NVIDIA ModelOpt NVFP4) with the DFlash2 drafter, served by vLLM on one NVIDIA DGX Spark.
-# Register the parent folder that holds both models (e.g. ~/models) as "Qwen3.8-Models" in the Weights
-# tab, or change `weights:` and the /models paths below - one entry covers model and drafter.
+# Register the folder that holds both models (e.g. ~/models/qwen38, or ~/models if they sit there) as
+# "Qwen3.8-Models" in the Weights tab, or change `weights:` and the /models paths below - one entry
+# covers model and drafter. One folder is one row, so a shared ~/models is a single entry for them all.
 # The vLLM preset fills in the command, Docker flags, the Hugging Face cache volume and HF_TOKEN.
 name: qwen3.8-dflash
 description: Qwen3.8-27B-NVFP4 with the DFlash2 drafter via vLLM - speculative decoding
