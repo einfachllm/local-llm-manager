@@ -850,44 +850,64 @@ every machine that has the model.</p>
 <thead>
 <tr>
 <th>File</th>
+<th>Engine</th>
 <th>What it is</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-27b.yaml"><code>qwen38-27b.yaml</code></a></td>
-<td>Qwen3.8 27B served by vLLM - a small compact recipe with registered weights.</td>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-mtp.yaml"><code>qwen38-mtp.yaml</code></a></td>
+<td>vLLM</td>
+<td>Qwen3.8-27B-NVFP4 with the model's own MTP drafts - the small compact recipe, and the one a fresh install starts with.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-dflash.yaml"><code>qwen38-dflash.yaml</code></a></td>
+<td>vLLM</td>
+<td>Qwen3.8-27B-NVFP4 with the DFlash2 drafter: speculative decoding, model and drafter from one registered folder.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-dflash-docker.sh"><code>qwen38-dflash-docker.sh</code></a></td>
+<td>vLLM</td>
+<td>The same recipe as a <strong>starter script</strong>: a plain <code>docker run</code>, and the fields the manager reads out of it.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-sglang.yaml"><code>qwen38-sglang.yaml</code></a></td>
+<td>SGLang</td>
+<td>The same model and drafter on SGLang's official image, <strong>same port</strong> - <strong>Switch to</strong> swaps the engine.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-tensorfold.yaml"><code>qwen38-tensorfold.yaml</code></a></td>
+<td>TensorFold</td>
+<td>The same model and drafter served natively (no Docker) by TensorFold's CUDA engine on a DGX Spark.</td>
 </tr>
 <tr>
 <td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-fp4.yaml"><code>qwen38-flash-next-fp4.yaml</code></a></td>
-<td>Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121): b12x image, tuned flags, caches, tool calling. Compact form.</td>
+<td>vLLM</td>
+<td>Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121): b12x image, tuned flags, caches, tool calling.</td>
 </tr>
 <tr>
 <td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-tensorfold.yaml"><code>qwen38-flash-next-tensorfold.yaml</code></a></td>
+<td>TensorFold</td>
 <td>The same Flash-Next weights on TensorFold's Zig engine in MiaAI-Lab's starter image: 262k window, 5 streams, fp8 KV, MTP drafts, image and video in.</td>
 </tr>
 <tr>
 <td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/nemotron-3.5-super-vl.yaml"><code>nemotron-3.5-super-vl.yaml</code></a></td>
+<td>vLLM</td>
 <td>Nemotron-3.5-Super-VL with a draft model for speculative decoding; both models sit in one registered folder.</td>
 </tr>
 <tr>
 <td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/hermes-agent-docker.yaml"><code>hermes-agent-docker.yaml</code></a></td>
+<td>-</td>
 <td>A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU.</td>
-</tr>
-<tr>
-<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/embeddinggemma-2-llamacpp.yaml"><code>embeddinggemma-2-llamacpp.yaml</code></a></td>
-<td>EmbeddingGemma 2 (GGUF) as an OpenAI-compatible <code>/v1/embeddings</code> server via llama.cpp.</td>
-</tr>
-<tr>
-<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/sglang-flint.sh"><code>sglang-flint.sh</code></a></td>
-<td>RecursiveSI/flint served natively by SGLang's <code>sglang serve</code> CLI, port 30000.</td>
-</tr>
-<tr>
-<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/sglang-flint-docker.sh"><code>sglang-flint-docker.sh</code></a></td>
-<td>The same model in the official <code>lmsysorg/sglang</code> Docker image (<code>python3 -m sglang.launch_server</code>).</td>
 </tr>
 </tbody>
 </table>
+<p>The four Qwen3.8-27B recipes (<code>qwen38-mtp</code>, <code>qwen38-dflash</code>, <code>qwen38-sglang</code>, <code>qwen38-tensorfold</code>) are the
+same model on four engines: they share port <strong>8101</strong> and the served name <code>qwen3.8</code>, so one endpoint
+<code>http://&lt;host&gt;:8101/v1</code> keeps working while you switch (<code>qwen38-dflash-docker.sh</code> is the second one again,
+as a starter script). The three with a drafter mount one registered folder - the folder holding model and
+drafter - which is how the two stay together on every host. The two <code>qwen38-flash-next-*</code> recipes are one
+model on two engines as well: same weights entry, different image and port.</p>
 <h2 id="before-you-start">Before you start<a class="headerlink" href="#before-you-start" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Weights:</strong> compact recipes name a registered entry (<code>weights:</code>). Create it in the <strong>Weights</strong> tab with the folder on each host that runs the recipe, or change the name in the file. If a main model and a draft model share a folder, register that folder once, mount it, and point <code>model:</code> at the subfolder (see <code>nemotron-3.5-super-vl.yaml</code>). Starter scripts mount a concrete folder; download the model there, or point the volume at your copy. The <strong>Weights</strong> tab finds model folders under <code>DGXM_MODEL_DIR</code> by itself and offers them under "Found on your hosts".</li>
