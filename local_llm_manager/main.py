@@ -307,11 +307,11 @@ class HostIn(BaseModel):
         return self
 
 
-SEED_EXAMPLE = Path(__file__).resolve().parent.parent / "examples/recipes/qwen38-27b.yaml"
+SEED_EXAMPLE = Path(__file__).resolve().parent.parent / "examples/recipes/qwen38-mtp.yaml"
 
 
 def seed_examples(db: Database) -> None:
-    """On a fresh database, add the qwen3.8 example recipe from examples/recipes.
+    """On a fresh database, add the qwen3.8-mtp example recipe from examples/recipes.
 
     The example names a registered weights entry. On a fresh install that entry does not exist yet,
     so create it without a path: the Weights tab can then find the folder or download it, and the

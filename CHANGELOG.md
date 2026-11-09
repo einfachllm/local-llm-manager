@@ -42,7 +42,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - **Example recipes are one Qwen3.8 family:** `examples/recipes` keeps the recipes that actually run here.
-  The same Qwen3.8-27B-NVFP4 on four engines - vLLM with MTP (`qwen38-27b`), vLLM with the DFlash2 drafter
+  The same Qwen3.8-27B-NVFP4 on four engines - vLLM with MTP (`qwen38-mtp`, renamed from `qwen38-27b` and
+  still the file a fresh install seeds from), vLLM with the DFlash2 drafter
   (`qwen38-dflash`), SGLang with DFlash2 (`qwen38-sglang`) and native TensorFold (`qwen38-tensorfold`) - all
   on port **8101** with the served name `qwen3.8`, so **Switch to** changes the engine under one endpoint;
   plus Qwen3.8-Flash-Next-FP4 (b12x) on a DGX Spark, Nemotron-3.5-Super-VL and the Hermes agent. The three

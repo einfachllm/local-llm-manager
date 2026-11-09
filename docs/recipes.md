@@ -91,7 +91,7 @@ The current examples:
 
 | File | Engine | What it is |
 |---|---|---|
-| [`qwen38-27b.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-27b.yaml) | vLLM | Qwen3.8 27B with MTP - the small compact recipe, and the one a fresh install starts with. |
+| [`qwen38-mtp.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-mtp.yaml) | vLLM | Qwen3.8-27B-NVFP4 with the model's own MTP drafts - the small compact recipe, and the one a fresh install starts with. |
 | [`qwen38-dflash.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-dflash.yaml) | vLLM | Qwen3.8-27B-NVFP4 with the DFlash2 drafter: speculative decoding, model and drafter from one registered folder. |
 | [`qwen38-dflash-docker.sh`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-dflash-docker.sh) | vLLM | The same recipe as a **starter script**: a plain `docker run`, and the fields the manager reads out of it. |
 | [`qwen38-sglang.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-sglang.yaml) | SGLang | The same model and drafter on SGLang's official image, **same port** - **Switch to** swaps the engine. |
@@ -101,7 +101,7 @@ The current examples:
 | [`nemotron-3.5-super-vl.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/nemotron-3.5-super-vl.yaml) | vLLM | Nemotron-3.5-Super-VL with a draft model for speculative decoding; both models sit in one registered folder. |
 | [`hermes-agent-docker.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/hermes-agent-docker.yaml) | - | A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU. |
 
-The four Qwen3.8-27B recipes (`qwen38-27b`, `qwen38-dflash`, `qwen38-sglang`, `qwen38-tensorfold`) are the
+The four Qwen3.8-27B recipes (`qwen38-mtp`, `qwen38-dflash`, `qwen38-sglang`, `qwen38-tensorfold`) are the
 same model on four engines: they share port **8101** and the served name `qwen3.8`, so one endpoint
 `http://<host>:8101/v1` keeps working while you switch (`qwen38-dflash-docker.sh` is the second one again,
 as a starter script). The three with a drafter mount one registered folder - the folder holding model and

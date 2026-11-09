@@ -20,7 +20,7 @@ DOCS_PAGE = ROOT / "docs" / "recipes.md"
 
 SUFFIXES = (".yaml", ".yml", ".json", ".sh")
 # The same Qwen3.8-27B-NVFP4 on four engines: one port, one served name, so **Switch to** keeps the endpoint.
-FAMILY = ("qwen38-27b.yaml", "qwen38-dflash.yaml", "qwen38-sglang.yaml", "qwen38-tensorfold.yaml")
+FAMILY = ("qwen38-mtp.yaml", "qwen38-dflash.yaml", "qwen38-sglang.yaml", "qwen38-tensorfold.yaml")
 
 
 def files() -> list[pathlib.Path]:
