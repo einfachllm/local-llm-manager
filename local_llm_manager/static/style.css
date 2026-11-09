@@ -335,6 +335,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px;
 }
 .filter-rail .toolbar { flex-direction: column; align-items: stretch; gap: 10px; margin-bottom: 0; }
+/* A segmented control in the rail may not squeeze its labels onto two lines or run past the panel:
+   let the buttons keep their text and wrap to a second row instead (250 px is narrow). */
+.filter-rail .seg { flex-wrap: wrap; max-width: 100%; }
+.filter-rail .seg button { flex: 0 0 auto; white-space: nowrap; }
 .filter-rail .toolbar input[type=search] { width: 100%; }
 .filter-rail label.inline { flex-direction: column; align-items: stretch; gap: 4px; }
 .filter-rail label.inline select { width: 100%; }
