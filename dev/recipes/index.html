@@ -757,9 +757,9 @@ check, so a recipe only writes down what differs from it.</p>
 <tr>
 <td><code>tensorfold</code></td>
 <td>TensorFold <em>(experimental)</em></td>
-<td>native process</td>
+<td>native process, or Docker when the recipe brings its own <code>image:</code> and <code>command:</code></td>
 <td><code>tensorfold serve</code></td>
-<td>trying TensorFold</td>
+<td>trying TensorFold; a starter image that ships the engine</td>
 </tr>
 <tr>
 <td><code>custom</code> / <code>process-custom</code></td>
@@ -861,6 +861,10 @@ every machine that has the model.</p>
 <tr>
 <td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-fp4.yaml"><code>qwen38-flash-next-fp4.yaml</code></a></td>
 <td>Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121): b12x image, tuned flags, caches, tool calling. Compact form.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-tensorfold.yaml"><code>qwen38-flash-next-tensorfold.yaml</code></a></td>
+<td>The same Flash-Next weights on TensorFold's Zig engine in MiaAI-Lab's starter image: 262k window, 5 streams, fp8 KV, MTP drafts, image and video in.</td>
 </tr>
 <tr>
 <td><a href="https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/nemotron-3.5-super-vl.yaml"><code>nemotron-3.5-super-vl.yaml</code></a></td>
