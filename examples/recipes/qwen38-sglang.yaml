@@ -1,0 +1,33 @@
+# Compact recipe file (Local LLM Manager): paste into Recipes -> Import.
+# Qwen3.8-27B (NVIDIA ModelOpt NVFP4) with the DFlash2 drafter, served by SGLang's official Docker
+# image on one NVIDIA DGX Spark. Same "Qwen3.8-Models" folder and the same port as qwen38-dflash.yaml, so
+# **Switch to** changes the engine under one endpoint: http://<host>:8101/v1.
+# Register the folder that holds model and drafter (e.g. ~/models/qwen38, or ~/models if they sit there)
+# as "Qwen3.8-Models", or change `weights:` and the /models paths below. One folder is one row in the
+# Weights tab, so a shared ~/models is one entry used by all the qwen38 recipes.
+name: qwen3.8-sglang
+description: Qwen3.8-27B-NVFP4 with the DFlash2 drafter via SGLang - speculative decoding
+framework: sglang
+image: lmsysorg/sglang:v0.5.23
+weights: Qwen3.8-Models
+model: /models/Qwen3.8-27B-NVFP4
+host_port: 8101
+args: |
+  --served-model-name qwen3.8
+  --context-length 256000
+  --max-running-requests 6
+  --mem-fraction-static 0.80
+  --chunked-prefill-size 16384
+  --kv-cache-dtype fp8_e4m3
+  --attention-backend flashinfer
+  --disable-radix-cache
+  --speculative-algorithm DFLASH
+  --speculative-draft-model-path /models/Qwen3.8-27B-DFlash2
+  --speculative-num-draft-tokens 8
+volumes: |-
+  {weights}:/models:ro
+  ~/.cache/huggingface:/root/.cache/huggingface
+tags:
+  - qwen3.8
+  - dflash2
+color: teal

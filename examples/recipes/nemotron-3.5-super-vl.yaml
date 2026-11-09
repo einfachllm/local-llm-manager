@@ -1,6 +1,7 @@
 # Nemotron-3.5-Super-VL with a draft model for speculative decoding.
-# Register the parent folder that holds both models (e.g. ~/models) as "Nemotron-3.5-Models"
-# in the Weights tab, or change `weights:` and the /models paths below.
+# Register the folder that holds both models (e.g. ~/models/nemotron, or ~/models if they sit there) as
+# "Nemotron-3.5-Models" in the Weights tab, or change `weights:` and the /models paths below. One folder
+# is one row, so a shared ~/models is a single entry used by every recipe that mounts a subfolder of it.
 # Paste this file into Recipes -> Import; the vLLM preset fills in the command,
 # Docker flags, Hugging Face cache volume and HF_TOKEN.
 # The image must be a vLLM build with dflash and the mamba flags; adjust the tag.
