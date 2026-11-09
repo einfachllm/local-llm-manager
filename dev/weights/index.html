@@ -757,6 +757,11 @@ new ones from Hugging Face and copies them from machine to machine over your own
 <p>Click a cell to change the path. The same model is often in a different folder on each machine
 (<code>~/models/Nemotron-VL</code> on one Spark, <code>/mnt/nvme/nemotron-vl</code> on another) - that is fine, each host keeps
 its own path. <code>~</code> is the home directory of the machine that runs the recipe.</p>
+<p><strong>One model is one row</strong>, whatever the case of its name, and <strong>one folder on a host belongs to one row</strong>:
+registering <code>~/models/x</code> again under another name is refused, because the tab would then offer two
+downloads and two copies of the same weights. Several models that sit in one folder (a main model and its
+drafter) get one row for that folder, and the recipe points <code>model:</code> inside it - a folder holding
+everything (<code>~/models</code>) is such a row, and then it is the row for all of them.</p>
 <h2 id="use-weights-in-a-recipe">Use weights in a recipe<a class="headerlink" href="#use-weights-in-a-recipe" title="Permanent link">&para;</a></h2>
 <p>In the recipe editor, pick the model under <strong>Weights</strong> and write <code>{weights}</code> where the path goes - picking
 an entry adds the usual volume <code>{weights}:/model:ro</code> for you; in native recipes <code>{weights}</code> is the model
@@ -827,10 +832,11 @@ left per machine.</p>
 <code>DGXM_PUBLIC_URL</code>.</p>
 <h2 id="machines-with-little-disk-space">Machines with little disk space<a class="headerlink" href="#machines-with-little-disk-space" title="Permanent link">&para;</a></h2>
 <p>Not every machine can hold every model. The table shows each model's size per host, so you see at a
-glance what fills a disk. Keep a model on one machine (or a NAS-mounted folder) and <strong>⇉ copy</strong> it only
-to the machines that need it now; free disk space is checked before a copy starts. After deleting a model
-folder on a host, <strong>Refresh</strong> turns its cell into <strong>✗</strong> and recipes that use it there refuse to start with
-a clear message instead of failing halfway.</p>
+glance what fills a disk (GB, a million bytes - <code>du</code> shows the same folder in GiB; a shard that is only a
+link to a file of the same folder counts once). Keep a model on one machine (or a NAS-mounted folder) and
+<strong>⇉ copy</strong> it only to the machines that need it now; free disk space is checked before a copy starts. After
+deleting a model folder on a host, <strong>Refresh</strong> turns its cell into <strong>✗</strong> and recipes that use it there
+refuse to start with a clear message instead of failing halfway.</p>
 <h2 id="typical-flow">Typical flow<a class="headerlink" href="#typical-flow" title="Permanent link">&para;</a></h2>
 <ol>
 <li><strong>Download from Hugging Face…</strong> onto one host - or let <strong>Found on your hosts</strong> pick up what is
