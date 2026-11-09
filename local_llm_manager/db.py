@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import socket
 import sqlite3
 import threading
@@ -170,6 +171,23 @@ def normalize_tags(tags: Any) -> list[str]:
     return out
 
 
+class WeightExists(Exception):
+    """A weights entry for this model - by name or by the folder on a host - is registered already.
+
+    The Weights tab is one row per model, so a second row for the same model or the same folder is a
+    mistake rather than a variant: it offers two downloads / copies for one thing on disk.
+    """
+
+
+def norm_weight_path(path: str) -> str:
+    """How a weights path is stored: trimmed, no doubled or trailing slashes.
+
+    `~/models/x`, `~/models/x/` and `~/models//x` name one folder, and the path goes straight into a
+    docker volume, where the spelling would otherwise differ between hosts.
+    """
+    return re.sub(r"/{2,}", "/", (path or "").strip()).rstrip("/")
+
+
 # NOT NULL columns with a schema default; a missing or None input value would
 # otherwise be inserted as NULL and violate the constraint (create_recipe and
 # update_recipe always write the full RECIPE_FIELDS list).
@@ -223,6 +241,18 @@ class Database:
                 existing = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
                 if column not in existing:
                     self._conn.execute(sql)
+            # One row per model whatever the case: UNIQUE on the column is case-sensitive, so
+            # "qwen3.8" could sit next to "Qwen3.8" - and list_weights sorts NOCASE, which puts the
+            # two right beside each other. Skipped (with the old rows left alone) when a database
+            # already holds such a pair: it must still start, and the API refuses the next one.
+            try:
+                self._conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS weights_name_ci "
+                                   "ON weights(name COLLATE NOCASE)")
+            except sqlite3.IntegrityError:
+                pass
+            # Paths were stored as typed: `~/models/x/` and `~/models/x` are one folder.
+            self._conn.execute("UPDATE weight_locations SET path = RTRIM(TRIM(path), '/') "
+                               "WHERE LENGTH(path) > 1 AND path <> RTRIM(TRIM(path), '/')")
             if not self._conn.execute("SELECT 1 FROM hosts WHERE url = ''").fetchone():
                 self._conn.execute("INSERT INTO hosts (name, url, token, created_at) VALUES (?, '', '', ?)",
                                    (socket.gethostname().split(".")[0] or "local", now_iso()))
@@ -447,33 +477,61 @@ class Database:
         rows = self._query("SELECT path FROM weight_locations WHERE weight_id = ? AND host_id = ?", (weight_id, host_id))
         return rows[0]["path"] if rows else None
 
+    def _require_free_name(self, name: str, skip_id: Optional[int] = None) -> None:
+        """No second row for a model that is registered already, whatever the case."""
+        wanted = name.strip().casefold()
+        for w in self._query("SELECT id, name FROM weights"):
+            if w["id"] != skip_id and w["name"].strip().casefold() == wanted:
+                raise WeightExists(f"Weights named '{w['name']}' already exist")
+
+    def _require_free_paths(self, locations: dict[int, str], skip_id: Optional[int] = None) -> None:
+        """No second row pointing at a folder that another entry already has on that host."""
+        taken = {(l["host_id"], norm_weight_path(l["path"])): l["weight_id"]
+                 for l in self._query("SELECT weight_id, host_id, path FROM weight_locations")
+                 if l["weight_id"] != skip_id and norm_weight_path(l["path"])}
+        if not taken:
+            return
+        names = {w["id"]: w["name"] for w in self._query("SELECT id, name FROM weights")}
+        for host_id, path in locations.items():
+            key = (host_id, norm_weight_path(path))
+            if key[1] and key in taken:
+                raise WeightExists(f"'{key[1]}' is already registered on this host as "
+                                   f"'{names.get(taken[key], '?')}': one folder is one row - pick that "
+                                   "entry, or keep this model in a folder of its own")
+
     def _set_locations(self, weight_id: int, locations: dict[int, str]) -> None:
         # Caller holds the lock. An empty path removes the host's entry.
         self._conn.execute("DELETE FROM weight_locations WHERE weight_id = ?", (weight_id,))
         for host_id, path in locations.items():
             if path.strip():
                 self._conn.execute("INSERT INTO weight_locations (weight_id, host_id, path) VALUES (?, ?, ?)",
-                                   (weight_id, host_id, path.strip()))
+                                   (weight_id, host_id, norm_weight_path(path)))
 
     def create_weight(self, name: str, source: str, locations: dict[int, str]) -> int:
+        self._require_free_name(name)
+        self._require_free_paths(locations)
         with self._lock:
             wid = self._conn.execute("INSERT INTO weights (name, source, created_at) VALUES (?, ?, ?)",
-                                     (name, source, now_iso())).lastrowid
+                                     (name.strip(), source, now_iso())).lastrowid
             self._set_locations(wid, locations)
             self._conn.commit()
             return wid
 
     def update_weight(self, weight_id: int, name: str, source: str, locations: dict[int, str]) -> None:
+        self._require_free_name(name, skip_id=weight_id)
+        self._require_free_paths(locations, skip_id=weight_id)
         with self._lock:
-            self._conn.execute("UPDATE weights SET name = ?, source = ? WHERE id = ?", (name, source, weight_id))
+            self._conn.execute("UPDATE weights SET name = ?, source = ? WHERE id = ?",
+                               (name.strip(), source, weight_id))
             self._set_locations(weight_id, locations)
             self._conn.commit()
 
     def set_weight_location(self, weight_id: int, host_id: int, path: str) -> None:
+        self._require_free_paths({host_id: path}, skip_id=weight_id)
         if path.strip():
             self._execute("INSERT INTO weight_locations (weight_id, host_id, path) VALUES (?, ?, ?) "
                           "ON CONFLICT(weight_id, host_id) DO UPDATE SET path = excluded.path",
-                          (weight_id, host_id, path.strip()))
+                          (weight_id, host_id, norm_weight_path(path)))
         else:
             self._execute("DELETE FROM weight_locations WHERE weight_id = ? AND host_id = ?", (weight_id, host_id))
 

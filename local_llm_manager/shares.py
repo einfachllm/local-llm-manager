@@ -97,6 +97,30 @@ def list_files(root: Path) -> list[Path]:
     return out
 
 
+def folder_bytes(path: Path | str) -> int:
+    """Bytes a folder really occupies: every file once, link or no link.
+
+    Hugging Face downloads often keep the shards in a subfolder and put a symlink of the published
+    name next to them (`model-00002-of-00021.safetensors` -> `tensors/model-00002-of-00021.safetensors`).
+    `os.stat` follows those links, so a plain sum over the tree reports the model at twice its size -
+    `du` counts the file once, and so does this.
+    """
+    total, seen = 0, set()
+    for dirpath, _, files in os.walk(path):
+        for f in files:
+            full = os.path.join(dirpath, f)
+            try:
+                size = os.stat(full).st_size
+            except OSError:
+                continue
+            real = os.path.realpath(full)
+            if real in seen:
+                continue
+            seen.add(real)
+            total += size
+    return total
+
+
 class Shares:
     def __init__(self, cache: HashCache):
         self.cache = cache
@@ -111,11 +135,17 @@ class Shares:
         for k in [k for k, s in self.shares.items() if s["expires"] < now]:
             self.shares.pop(k)
         files = list_files(root)
+        # A link to a file of the same share travels as a link: its bytes are already in the manifest,
+        # so the target gets this machine's layout instead of a second copy of every shard.
+        real = {str(p.resolve()) for p in files if not p.is_symlink()}
+        entries = [{"path": "." if root.is_file() else str(p.relative_to(root)), "abs": p,
+                    "size": 0, "sha256": None, "link": os.readlink(p)}
+                   if p.is_symlink() and str(p.resolve()) in real else
+                   {"path": "." if root.is_file() else str(p.relative_to(root)), "abs": p,
+                    "size": p.stat().st_size, "sha256": self.cache.get(p)} for p in files]
         share = {"id": secrets.token_hex(8), "ticket": secrets.token_urlsafe(32), "root": root,
                  "expires": now + ttl, "kind": "file" if root.is_file() else "dir", "name": root.name,
-                 "files": [{"path": "." if root.is_file() else str(p.relative_to(root)), "abs": p,
-                            "size": p.stat().st_size, "sha256": self.cache.get(p)} for p in files],
-                 "hashed": 0}
+                 "files": entries, "hashed": 0}
         share["total"] = sum(f["size"] for f in share["files"])
         share["hashed"] = sum(f["size"] for f in share["files"] if f["sha256"])
         self.shares[share["id"]] = share
@@ -132,8 +162,8 @@ class Shares:
             share["hashed"] += n
 
         async def one(f: dict[str, Any]) -> None:
-            if f["sha256"]:
-                return
+            if f["sha256"] or f.get("link") is not None:
+                return  # a link is verified with the file it points at, which is in this share too
             async with sem:
                 f["sha256"] = await asyncio.to_thread(sha256_file, f["abs"], progress)
                 self.cache.put(f["abs"], f["sha256"])
@@ -149,10 +179,11 @@ class Shares:
 
     @staticmethod
     def manifest(share: dict[str, Any]) -> dict[str, Any]:
-        ready = all(f["sha256"] for f in share["files"])
+        # A link needs no checksum: the file it points at is in the same share and has one.
+        ready = all(f["sha256"] or f.get("link") is not None for f in share["files"])
+        files = [{k: f[k] for k in ("path", "size", "sha256", "link") if k in f} for f in share["files"]]
         return {"kind": share["kind"], "name": share["name"], "total": share["total"], "ready": ready,
-                "hashed": min(share["hashed"], share["total"]),
-                "files": [{k: f[k] for k in ("path", "size", "sha256")} for f in share["files"]] if ready else []}
+                "hashed": min(share["hashed"], share["total"]), "files": files if ready else []}
 
     @staticmethod
     def file(share: dict[str, Any], rel: str) -> Path:

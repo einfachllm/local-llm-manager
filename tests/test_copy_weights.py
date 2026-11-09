@@ -229,3 +229,51 @@ def test_transport_kinds():
     assert transport_for("http://192.168.1.20:8090") == "plain"
     assert transport_for("http://127.0.0.1:8090") == "local"
     assert transport_for("http://no-such-host.invalid:8090") == "plain"
+
+
+def test_a_share_reports_a_symlinked_shard_once(tmp_path):
+    """A shard that is only a link to a file of the same share travels as a link: the manifest counts
+    the bytes once, and the link needs no checksum of its own."""
+    from local_llm_manager.shares import HashCache, Shares
+
+    src = tmp_path / "Qwen3.8"
+    (src / "tensors").mkdir(parents=True)
+    (src / "tensors" / "model.safetensors").write_bytes(b"z" * 1000)
+    (src / "model.safetensors").symlink_to("tensors/model.safetensors")
+    (src / "config.json").write_text("{}")
+
+    async def manifest():
+        shares = Shares(HashCache(None))
+        info = shares.create(str(src))
+        for _ in range(200):
+            m = Shares.manifest(shares.shares[info["id"]])
+            if m["ready"]:
+                return m
+            await asyncio.sleep(0.01)
+        raise AssertionError("the share never became ready")
+
+    m = asyncio.run(manifest())
+    assert m["total"] == 1002, "the linked shard was counted next to its target"
+    by_path = {f["path"]: f for f in m["files"]}
+    assert set(by_path) == {"model.safetensors", "tensors/model.safetensors", "config.json"}
+    assert by_path["model.safetensors"]["link"] == "tensors/model.safetensors"
+    assert by_path["model.safetensors"]["size"] == 0 and by_path["model.safetensors"]["sha256"] is None
+    assert by_path["tensors/model.safetensors"]["sha256"]
+
+
+def test_a_symlinked_shard_arrives_as_a_link(hub):
+    """The same folder on the target machine, not 100 GB of it twice over."""
+    client, local, mac, src, dest = hub
+    data = (src / "model.safetensors").read_bytes()
+    (src / "tensors").mkdir()
+    (src / "tensors" / "model.safetensors").write_bytes(data)
+    (src / "model.safetensors").unlink()
+    (src / "model.safetensors").symlink_to("tensors/model.safetensors")
+
+    wid = weights(client, **{str(local): str(src)})
+    items = wait(client, client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac]}).json()["id"])
+    assert items[mac]["state"] == "ok", items[mac]
+    assert os.path.islink(dest / "model.safetensors"), "the link arrived as a second copy of the shard"
+    assert (dest / "tensors" / "model.safetensors").read_bytes() == data
+    assert (dest / "model.safetensors").read_bytes() == data  # through the link
+    assert os.path.islink(dest / "sub") is False
