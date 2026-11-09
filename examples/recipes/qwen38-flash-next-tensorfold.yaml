@@ -1,0 +1,88 @@
+# Qwen3.8 Flash Next served by TensorFold's Zig engine (tensorfold-native) on one NVIDIA DGX Spark,
+# from MiaAI-Lab's starter: https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
+# Every serve argument, environment value and Docker flag below is the value start.sh / scripts/config.sh
+# use with their defaults: 262,144-token window, 5 requests at once, fp8 KV, MTP drafts, image + video,
+# port 8888, model id Qwen3.8-Flash-Next. Change one here instead of in a ./.env next to start.sh.
+#
+# Before the first start:
+#   1. Image: docker pull ghcr.io/miaai-lab/qwen3.8-flash-next-single-dgx-spark-tensorfold:v1.1.4-eab8582-4baf16137ecd
+#      (that is what scripts/prepare.sh pulls, the v1.1.4 build + patches 0001-0017; pinned digest
+#       sha256:5c6c42b9747318c1cd8b6cb85cb69493fff2e82cb23b61e49b9cf54cd09ac28e. Run ./scripts/prepare.sh
+#       if you would rather build it: the recipe then wants image: tensorfold-qwen38:v1.1.4-eab8582.)
+#   2. Weights: register your checkpoint folder in the Weights tab under the name below
+#      (nvidia/Qwen3.8-Flash-Next-FP4-Local, ~96 GiB, CHECKPOINT=nvfp4 - the starter's default).
+#   3. Memory: the default window wants ~107 GiB MemAvailable at start (weights ~81 GiB), so stop the
+#      other models first. est_memory_gb makes the manager refuse the start instead of freezing the Spark.
+name: qwen38-flash-next-tensorfold
+description: 'Starter: nvidia/Qwen3.8-Flash-Next-FP4-Local on one NVIDIA DGX Spark (GB10, SM121) with
+  TensorFold''s Zig engine'
+framework: tensorfold
+runtime: docker            # the starter runs tensorfold-native in Docker; the preset would run it natively
+image: ghcr.io/miaai-lab/qwen3.8-flash-next-single-dgx-spark-tensorfold:v1.1.4-eab8582-4baf16137ecd
+weights: Qwen3.8-Flash-Next-FP4-Local
+model: /model
+command: tensorfold-native serve {model} --name Qwen3.8-Flash-Next --host {bind_host} --port {port}
+args: |
+  # start.sh SERVE_ARGS, with the defaults from scripts/config.sh
+  --context 262144
+  --parallel 5
+  --max-tokens 32768
+  --temperature 1.0
+  --top-p 0.95
+  --top-k 20
+  --thinking
+  --kv-cache fp8
+  --vision
+  --vision-max-images 50
+  --vision-max-videos 4
+  --vision-image-tokens 16384
+  # DRAFTS=1 keeps the engine's MTP drafts on (only DRAFTS=0 adds --no-drafts);
+  # VISION_URLS=0 accepts data URLs only (1 adds --vision-urls for public https:// URLs);
+  # CONTEXT above 262144 needs YaRN, which this TensorFold 1.1.4 engine does not have.
+env: |
+  HF_HUB_OFFLINE=1
+  # TENSORFOLD_* / TF_FLASHNEXT_* values scripts/config.sh exports into the container.
+  TENSORFOLD_NO_UPDATE_CHECK=1
+  TENSORFOLD_MEMORY_RESERVE_GIB=9
+  TENSORFOLD_MAX_IMAGES=50
+  TENSORFOLD_IMAGE_TOKENS=16384
+  TENSORFOLD_VIDEO_TOKENS=16384
+  TENSORFOLD_VISION_WORKSPACE_MIB=2048
+  TF_FLASHNEXT_DRAFTS=6
+  TF_FLASHNEXT_CONFIDENCE=-0.4
+  TF_FLASHNEXT_PRODUCT_STREAMS=5
+  TF_FLASHNEXT_SAMPLED_HEADS=1
+  TF_FLASHNEXT_SAMPLE_CAND=1
+  TF_FLASHNEXT_GATHER_EARLY=1
+  TF_FLASHNEXT_HOST_DRAW_THREADS=7
+  TF_FLASHNEXT_KEEP_LATE=1
+  TF_FLASHNEXT_GATHER_READ=pread
+  TF_FLASHNEXT_DRAFT_AHEAD=1
+  TF_FLASHNEXT_WARM_AHEAD=1
+  TF_FLASHNEXT_PREFILL_TAIL=512
+  TF_FLASHNEXT_PROMPT_HC2=1
+  TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1
+  TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256
+  TF_FLASHNEXT_HEAD_PIECE=1536
+  TF_FLASHNEXT_PROMPT_GEMM2=1
+  TF_FLASHNEXT_SHARED_SIDE=1
+  TF_FLASHNEXT_GDN_LANES=1
+  # Optional, like the starter's -e TENSORFOLD_API_KEY: put the value in the manager's .env, never here.
+  TENSORFOLD_API_KEY
+volumes: |
+  {weights}:/model:ro
+  # CUDA_CACHE_PATH=/cache/nv in the image: keeps the JIT kernels across restarts. The starter mounts a
+  # per-patch-set folder under ~/.cache/tensorfold-qwen38; any stable folder of yours works.
+  ~/.cache/tensorfold-qwen38/recipe:/cache
+docker_args: |
+  # the flags of the starter's docker run (gpus all is the recipe's own Gpus field)
+  --network host
+  --ipc=host
+  --ulimit memlock=-1
+  --ulimit stack=67108864
+host_port: 8888
+container_port: 8888
+container_name: qwen38-flash-next-tf
+est_memory_gb: 107
+tags: dgx-spark,tensorfold,vision
+color: purple

@@ -109,7 +109,14 @@ class RecipeIn(BaseModel):
         if self.runtime not in RUNTIMES:
             raise ValueError(f"runtime must be one of {', '.join(RUNTIMES)}")
         if FRAMEWORKS[self.framework]["runtime"] != self.runtime:
-            raise ValueError(f"framework '{self.framework}' is not a {RUNTIMES[self.runtime]} framework")
+            # A preset names the runtime its engine is usually run in, not the only one it can run in:
+            # TensorFold also arrives as a container image (its own starter recipe). Crossing over that
+            # way is fine when the recipe brings what the container needs itself, because the preset
+            # describes the native binary. The other way stays refused - a Docker engine run natively
+            # needs an installation on the host that no preset can describe.
+            if not (self.runtime == "docker" and self.image.strip() and self.command.strip()):
+                # (an image and a command of its own mean the preset's native ones are not needed)
+                raise ValueError(f"framework '{self.framework}' is not a {RUNTIMES[self.runtime]} framework")
         if self.runtime == "docker" and not self.image:
             raise ValueError("image is required for Docker recipes")
         if self.runtime == "process":

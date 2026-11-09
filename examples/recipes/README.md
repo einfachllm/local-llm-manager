@@ -24,6 +24,7 @@ folder.
 |---|---|
 | [`qwen38-27b.yaml`](qwen38-27b.yaml) | Qwen3.8 27B served by vLLM - a small compact recipe with registered weights. |
 | [`qwen38-flash-next-fp4.yaml`](qwen38-flash-next-fp4.yaml) | Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121): b12x image, tuned flags, caches, tool calling. Compact form. |
+| [`qwen38-flash-next-tensorfold.yaml`](qwen38-flash-next-tensorfold.yaml) | The same Flash-Next weights on TensorFold's Zig engine in MiaAI-Lab's starter image: 262k window, 5 streams, fp8 KV, MTP drafts, image and video in. |
 | [`nemotron-3.5-super-vl.yaml`](nemotron-3.5-super-vl.yaml) | Nemotron-3.5-Super-VL with a draft model for speculative decoding; both models sit in one registered folder. |
 | [`hermes-agent-docker.yaml`](hermes-agent-docker.yaml) | A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU. |
 | [`embeddinggemma-2-llamacpp.yaml`](embeddinggemma-2-llamacpp.yaml) | EmbeddingGemma 2 (GGUF) as an OpenAI-compatible `/v1/embeddings` server via llama.cpp. |

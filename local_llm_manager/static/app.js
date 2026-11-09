@@ -1401,7 +1401,7 @@ function fillRecipeForm(r) {
   // Runtime first: it decides which frameworks are selectable.
   if (r.runtime) {
     recipeForm.elements.runtime.value = r.runtime;
-    renderFrameworkOptions(r.runtime);
+    renderFrameworkOptions(r.runtime, r.framework);
   }
   for (const el of recipeForm.elements) {
     if (el.name && el.name in r) el.value = Array.isArray(r[el.name]) ? r[el.name].join(", ") : r[el.name] ?? "";
@@ -1410,11 +1410,14 @@ function fillRecipeForm(r) {
   markSwatch();
 }
 
-function renderFrameworkOptions(runtime) {
+function renderFrameworkOptions(runtime, keep) {
   const sel = $("#sel-framework");
-  const current = sel.value;
+  const current = keep ?? sel.value;
+  // A recipe may serve its engine in the other runtime (TensorFold from a starter image in Docker);
+  // keep that framework selectable, or editing such a recipe would silently move it to the first
+  // framework of this runtime.
   sel.innerHTML = Object.entries(state.meta.frameworks)
-    .filter(([, v]) => v.runtime === runtime)
+    .filter(([k, v]) => v.runtime === runtime || k === current)
     .map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join("");
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
 }

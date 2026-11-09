@@ -54,6 +54,25 @@ def test_validation(client):
     assert client.post("/api/recipes", json=recipe_body(host_port=70000)).status_code == 422
 
 
+def test_a_framework_may_cross_runtimes_when_it_brings_its_own_settings(client):
+    """TensorFold also arrives as a container image (a starter recipe of its own), so one framework
+    covers both runtimes - as long as the recipe says what to run, since the preset says the other."""
+    tf = {**recipe_body(name="TF in Docker"), "framework": "tensorfold", "runtime": "docker",
+          "image": "tensorfold-qwen38:v1.1.4-eab8582",
+          "command": "tensorfold-native serve {model} --host {bind_host} --port {port}"}
+    created = client.post("/api/recipes", json=tf)
+    assert created.status_code == 201 and created.json()["framework"] == "tensorfold"
+    cmd = client.post("/api/recipes/preview", json=tf).json()["command"]
+    assert "tensorfold-native serve Qwen/Qwen3-8B" in cmd and "--gpus all" in cmd
+
+    # Without its own container settings there would be nothing to run, so the crossing is refused -
+    # and so is the other direction, which needs an installation on the host no preset describes.
+    assert client.post("/api/recipes", json={**tf, "name": "no image", "image": ""}).status_code == 422
+    assert client.post("/api/recipes", json={**tf, "name": "no cmd", "command": ""}).status_code == 422
+    assert client.post("/api/recipes", json={**recipe_body(name="vLLM natively"), "framework": "vllm",
+                                             "runtime": "process", "image": ""}).status_code == 422
+
+
 def test_preview(client):
     cmd = client.post("/api/recipes/preview", json=recipe_body()).json()["command"]
     assert cmd.startswith("docker run -d --name test-vllm")
