@@ -740,6 +740,8 @@ function renderToolbar() {
 }
 
 // Chips with counts: one per engine family in use (models only), and one per host.
+// The engine filter lives here only: a second segmented control at the top of the rail showed the
+// same four choices without counts and overflowed the 250 px rail (its longest label clipped).
 function renderEngineFilter() {
   const models = state.recipes.filter((r) => kindOf(r) === "model");
   const used = ENGINE_ORDER.filter((e) => models.some((r) => engineOf(r) === e));
@@ -749,12 +751,8 @@ function renderEngineFilter() {
   const run = (list) => list.filter((r) => RUNNING.includes(r.status)).length;
   $("#engine-filter").innerHTML = chip("", "All", models.length, run(models))
     + used.map((e) => { const l = models.filter((r) => engineOf(r) === e); return chip(e, ENGINE_LABEL[e], l.length, run(l)); }).join("");
+  // A single engine has nothing to filter; with two or more the block is worth its space.
   $("#engine-filter").closest(".rail-block").classList.toggle("hidden", used.length < 2);
-  // Also render the engine chips in the top toolbar (compact, no counts).
-  const tbtn = (e, label) => `<button type="button"${(view.engine || "") === e ? ' class="on"' : ""} data-engine="${e}">
-      ${e ? `<i class="eng-dot eng-${e}"></i>` : ""}${esc(label)}</button>`;
-  $("#recipe-engine-toolbar").innerHTML = tbtn("", "All engines")
-    + used.map((e) => tbtn(e, ENGINE_LABEL[e])).join("");
 }
 function renderHostFilter() {
   if (view.host && !state.hosts.some((h) => String(h.id) === view.host)) view.host = "";
@@ -1243,13 +1241,6 @@ $("#host-filter").addEventListener("click", (ev) => {
   renderRecipes();
 });
 $("#engine-filter").addEventListener("click", (ev) => {
-  const b = ev.target.closest("button[data-engine]");
-  if (!b) return;
-  view.engine = b.dataset.engine;
-  saveView();
-  renderRecipes();
-});
-$("#recipe-engine-toolbar").addEventListener("click", (ev) => {
   const b = ev.target.closest("button[data-engine]");
   if (!b) return;
   view.engine = b.dataset.engine;
