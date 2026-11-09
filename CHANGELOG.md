@@ -40,6 +40,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is) now starts the model file in it - skipping vision projectors (`mmproj`) and using the first part of a
   split model. A folder with several models is refused with their names instead of a failing start.
 
+### Changed
+- **Example recipes are one Qwen3.8 family:** `examples/recipes` keeps the recipes that actually run here.
+  The same Qwen3.8-27B-NVFP4 on four engines - vLLM with MTP (`qwen38-27b`), vLLM with the DFlash2 drafter
+  (`qwen38-dflash`), SGLang with DFlash2 (`qwen38-sglang`) and native TensorFold (`qwen38-tensorfold`) - all
+  on port **8101** with the served name `qwen3.8`, so **Switch to** changes the engine under one endpoint;
+  plus Qwen3.8-Flash-Next-FP4 (b12x) on a DGX Spark, Nemotron-3.5-Super-VL and the Hermes agent. The three
+  with a drafter now mount **one** registered folder (`Qwen3.8-Models` = the folder holding model and
+  drafter) instead of a fixed `/home/<user>/models/...`, so importing one on another machine needs no edits.
+- **The two example tables stop drifting:** `docs/recipes.md` and `examples/recipes/README.md` list the same
+  rows, and `tests/test_examples.py` keeps folder and both tables in step - every file listed exactly once in
+  each, every example importing without a warning, no server flag or mount set twice, the family sharing one
+  port and served name, and no example naming a user's home directory.
+
+### Removed
+- **Example recipes:** `embeddinggemma-2-llamacpp.yaml`, `sglang-flint.sh` and `sglang-flint-docker.sh`. The
+  formats they showed stay documented (compact files and starter scripts); `examples/hermes-agent/` keeps the
+  `.sh` samples.
+
 ## [0.2.0] - 2026-11-02
 
 ### Highlights

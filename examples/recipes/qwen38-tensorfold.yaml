@@ -1,0 +1,21 @@
+# Compact recipe file (Local LLM Manager): paste into Recipes -> Import.
+# Qwen3.8-27B (NVIDIA ModelOpt NVFP4) with the DFlash2 drafter, served by TensorFold's native CUDA
+# engine on one NVIDIA DGX Spark (GB10). No Docker: unpack the Linux release archive first (its
+# install.sh puts the binary at ~/.tensorfold/bin/tensorfold) and keep the absolute path below - the
+# manager's service does not inherit the shell PATH, and `~` is not expanded inside `command:`/`args:`.
+# Register the parent folder that holds both models (e.g. ~/models) as "Qwen3.8-Models": {weights}
+# becomes that folder on the machine the recipe starts on, so model and drafter travel together.
+# The TensorFold preset fills in the native process and the /health check.
+name: tensorfold-qwen38-27b
+description: Qwen3.8-27B-NVFP4 with the DFlash2 drafter, native TensorFold CUDA engine
+framework: tensorfold
+command: /home/YOU/.tensorfold/bin/tensorfold serve {model} --host {bind_host} --port {port}
+weights: Qwen3.8-Models
+model: '{weights}/Qwen3.8-27B-NVFP4'
+host_port: 8101
+args: |
+  --name qwen3.8-27b
+  --drafter {weights}/Qwen3.8-27B-DFlash2
+  --context 262144
+  --parallel 4
+color: pink
