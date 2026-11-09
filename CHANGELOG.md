@@ -12,6 +12,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and prefix-cache hits are now read from them; generated tokens of requests still running are counted
   live (TensorFold adds them to its total only when a request ends). The KV-cache health finding now works
   for TensorFold too.
+- **Weights tab size for symlinked models:** a Hugging Face download can keep its shards in `tensors/`
+  and put a symlink of the published name next to them. `os.stat` follows those links, so the tab added
+  the bytes of every shard to its own: a 102 GB model was listed as 204 GB. Each file now counts once,
+  the way `du` counts it (`du` reports GiB, the tab GB). The list under "Found on your hosts" and the GB
+  of a finished download use the same rule.
+- **Copies wrote symlinked shards twice:** the share listed the link and its target as two files, and the
+  target machine wrote both as real files - about 100 GB of duplicated weights for a model like that, and
+  a free-space check that asked for twice what the copy needed. A link inside a share now travels as a
+  link: it is not hashed, not transferred and recreated with `symlink` on the target, so the copy has the
+  same layout as the source. Shares and older managers still work together: an old source sends links as
+  files (as before), an old target downloads them as files.
+- **One model, one row in the Weights tab:** `qwen3.8-27b-nvfp4` could be created next to
+  `Qwen3.8-27B-NVFP4` (`UNIQUE` on the column is case-sensitive, and the tab sorts case-insensitively, so
+  the two sat side by side), and two rows could point at the *same folder* on a host - the tab then offered
+  two downloads and two copies of one thing on disk. Names are now unique whatever the case, a folder that
+  another entry already has is refused by name, and paths are stored without the trailing slash that made
+  `~/models/x` and `~/models/x/` look like two folders. The parent folder that holds model and drafter (the
+  example recipes register `Qwen3.8-Models` / `Nemotron-3.5-Models`) stays its own row: that is a different
+  folder, not a second spelling of one.
 
 ### Added
 - **Health findings:** the hub checks every 15 s for problems and names them where you look anyway - a

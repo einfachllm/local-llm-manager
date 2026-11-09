@@ -20,6 +20,12 @@ Click a cell to change the path. The same model is often in a different folder o
 (`~/models/Nemotron-VL` on one Spark, `/mnt/nvme/nemotron-vl` on another) - that is fine, each host keeps
 its own path. `~` is the home directory of the machine that runs the recipe.
 
+**One model is one row**, whatever the case of its name, and **one folder on a host belongs to one row**:
+registering `~/models/x` again under another name is refused, because the tab would then offer two
+downloads and two copies of the same weights. Several models that sit in one folder (a main model and its
+drafter) get one row for that folder, and the recipe points `model:` inside it - a folder holding
+everything (`~/models`) is such a row, and then it is the row for all of them.
+
 ## Use weights in a recipe
 
 In the recipe editor, pick the model under **Weights** and write `{weights}` where the path goes - picking
@@ -105,10 +111,11 @@ To copy *from* the hub's own machine, open the dashboard by its network name (no
 ## Machines with little disk space
 
 Not every machine can hold every model. The table shows each model's size per host, so you see at a
-glance what fills a disk. Keep a model on one machine (or a NAS-mounted folder) and **⇉ copy** it only
-to the machines that need it now; free disk space is checked before a copy starts. After deleting a model
-folder on a host, **Refresh** turns its cell into **✗** and recipes that use it there refuse to start with
-a clear message instead of failing halfway.
+glance what fills a disk (GB, a million bytes - `du` shows the same folder in GiB; a shard that is only a
+link to a file of the same folder counts once). Keep a model on one machine (or a NAS-mounted folder) and
+**⇉ copy** it only to the machines that need it now; free disk space is checked before a copy starts. After
+deleting a model folder on a host, **Refresh** turns its cell into **✗** and recipes that use it there
+refuse to start with a clear message instead of failing halfway.
 
 ## Typical flow
 

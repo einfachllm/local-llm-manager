@@ -1,3 +1,5 @@
+import os
+
 import test_hosts
 from conftest import recipe_body
 
@@ -164,3 +166,54 @@ def test_adopt_moves_recipes_onto_one_entry(setup, tmp_path):
     assert a2["weights_id"] == w["id"] and a2["volumes"].splitlines()[0] == "{weights}:/model:ro"
     assert client.get(f"/api/recipes/{b['id']}").json()["volumes"] == "{weights}:/model"
     assert [m["model"] for m in client.get("/api/models").json()["models"]] == ["Qwen/Qwen3-8B"]
+
+
+def test_one_model_is_one_row_whatever_the_case(client, tmp_path):
+    """`UNIQUE(name)` is case-sensitive, so `qwen3.8` used to land next to `Qwen3.8` - and the tab
+    sorts NOCASE, which puts the two rows of one model right beside each other."""
+    local = str(client.get("/api/hosts").json()[0]["id"])
+    w = weight(client, "Qwen3.8-27B", **{local: str(tmp_path / "Qwen3.8-27B")})
+
+    for name in ("qwen3.8-27b", "  QWEN3.8-27B  ", "Qwen3.8-27B"):
+        r = client.post("/api/weights", json={"name": name, "locations": {}})
+        assert r.status_code == 409, (name, r.text)
+        assert "already exist" in r.text
+
+    other = weight(client, "Nemotron", **{local: str(tmp_path / "nemotron")})
+    r = client.put(f"/api/weights/{other['id']}", json={"name": "qwen3.8-27B", "locations": {}})
+    assert r.status_code == 409 and "already exist" in r.text
+    assert client.put(f"/api/weights/{w['id']}", json={"name": "Qwen3.8-27B", "locations": {}}).status_code == 200
+
+
+def test_one_folder_on_a_host_is_one_row(client, tmp_path):
+    """Two rows for one folder mean two downloads and two copies of the same weights."""
+    local = str(client.get("/api/hosts").json()[0]["id"])
+    folder = tmp_path / "Qwen3.8-27B-NVFP4"
+    w = weight(client, "Qwen3.8-27B-NVFP4", **{local: str(folder)})
+
+    r = client.post("/api/weights", json={"name": "nvfp4-again", "locations": {local: f"{folder}/"}})
+    assert r.status_code == 409 and "already registered" in r.text and "Qwen3.8-27B-NVFP4" in r.text
+
+    # Stored without the spelling that differs, so `{weights}` mounts identically everywhere.
+    assert w["locations"][local] == str(folder)
+    r = client.put(f"/api/weights/{w['id']}/hosts/{local}", json={"path": f"  {folder}//  "})
+    assert r.status_code == 200 and r.json()["path"] == str(folder)
+    # The folder that holds several models is something else: still allowed (see the example recipes).
+    assert client.post("/api/weights", json={"name": "models", "locations": {local: str(tmp_path)}}).status_code == 201
+
+
+def test_a_symlinked_shard_does_not_double_the_weights_size(tmp_path):
+    """A Hugging Face download may keep its shards in `tensors/` and link them at the top. `du` counts
+    such a file once; `os.stat` follows the link, so the Weights tab showed a 96 GB model as 204 GB."""
+    from local_llm_manager import executor
+
+    folder = tmp_path / "models" / "Qwen3.8-Flash-Next"
+    (folder / "tensors").mkdir(parents=True)
+    (folder / "config.json").write_text("{}")
+    shard = folder / "tensors" / "model-00001-of-00001.safetensors"
+    shard.touch()
+    os.truncate(shard, 500 * 1000 * 1000)  # sparse: 0.5 GB of st_size, nothing written
+    (folder / "model-00001-of-00001.safetensors").symlink_to("tensors/model-00001-of-00001.safetensors")
+
+    assert executor._size_gb(str(folder)) == 0.5
+    assert [f["size_gb"] for f in executor.scan_weight_dirs([str(tmp_path / "models")])] == [0.5]

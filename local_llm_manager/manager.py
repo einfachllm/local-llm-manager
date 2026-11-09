@@ -13,7 +13,7 @@ from typing import Any, AsyncIterator, Optional
 
 import httpx
 
-from .db import Database
+from .db import Database, norm_weight_path
 from .docker import Docker, split_image
 from .executor import (RUNNING_STATES, transport_of, ActionError, LocalExecutor, RemoteExecutor, agent_payload_recipe,
                        resolve_model_target)
@@ -820,7 +820,8 @@ def _norm_name(name: str) -> str:
 
 
 def _norm_path(path: str) -> str:
-    return path.strip().rstrip("/")
+    """The way db.py stores a weights path, so `~/models/x` and `~/models/x/` are one folder."""
+    return norm_weight_path(path)
 
 
 def _created(image: dict) -> datetime:

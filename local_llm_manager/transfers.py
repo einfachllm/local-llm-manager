@@ -19,7 +19,7 @@ from typing import Any, Optional
 import httpx
 
 from . import config
-from .shares import TICKET_HEADER, HashCache, sha256_file
+from .shares import TICKET_HEADER, HashCache, folder_bytes, sha256_file
 
 IMAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}$")
 REPO_RE = re.compile(r"^[A-Za-z0-9][\w.-]{0,95}/[A-Za-z0-9][\w.-]{0,95}$")
@@ -55,14 +55,8 @@ def _now() -> str:
 
 
 def _size_gb(path: Path) -> float:
-    total = 0
-    for root, _, files in os.walk(path):
-        for f in files:
-            try:
-                total += os.path.getsize(os.path.join(root, f))
-            except OSError:
-                pass
-    return round(total / 1e9, 1)
+    """GB of a downloaded folder: every file once, so symlinked shards are not counted twice."""
+    return round(folder_bytes(path) / 1e9, 1)
 
 
 def download_argv(repo: str, target: str) -> list[str]:
@@ -233,6 +227,8 @@ class Copy:
             # Enough room? (files already here with the right size are not counted)
             def present(f: dict[str, Any]) -> bool:
                 d = self.target if f["path"] == "." else self.target / f["path"]
+                if f.get("link") is not None:
+                    return d.is_symlink() and os.readlink(d) == f["link"]
                 return d.exists() and d.stat().st_size == f["size"]
             needed = sum(f["size"] for f in files if not present(f))
             free = shutil.disk_usage(root).free
@@ -272,6 +268,16 @@ class Copy:
 
     async def _file(self, c: httpx.AsyncClient, f: dict[str, Any], dest: Path) -> bool:
         """Copy one file; False when it was already here."""
+        if f.get("link") is not None:
+            # A link of the source folder: recreated as a link, its bytes come with the file it points
+            # at. Copying the content instead would put every such shard on the target twice.
+            if dest.is_symlink() and os.readlink(dest) == f["link"]:
+                return False
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists() or dest.is_symlink():
+                dest.unlink()  # an earlier copy made a real file of it, or the link points elsewhere
+            os.symlink(f["link"], dest)
+            return True
         if dest.exists() and dest.stat().st_size == f["size"]:
             have = self.tasks.cache.get(dest) or await asyncio.to_thread(sha256_file, dest)
             if have == f["sha256"]:

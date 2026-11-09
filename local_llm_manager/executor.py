@@ -22,7 +22,7 @@ import httpx
 from . import __version__, config, logstats, servermetrics, system
 from .docker import Docker, try_drop_caches_locally
 from .processes import ProcessError, ProcessRunner
-from .shares import HashCache, Shares
+from .shares import HashCache, Shares, folder_bytes
 from .transfers import Tasks
 from .recipes import (GgufChoiceError, resolve_gguf, build_process_argv, build_run_argv, format_command, format_process_command, process_env,
                       secret_names)
@@ -121,17 +121,11 @@ def _contract_home(path: str) -> str:
 
 
 def _size_gb(path: str) -> Optional[float]:
-    """Total size in GB of a file or directory (summed over its contents), or None when unreadable."""
+    """Total size in GB of a file or directory, or None when unreadable. Every file of a folder counts
+    once, so a model whose shards are symlinked inside it is not shown at twice its size."""
     try:
         if os.path.isdir(path):
-            total = 0
-            for dirpath, _, files in os.walk(path):
-                for f in files:
-                    try:
-                        total += os.stat(os.path.join(dirpath, f)).st_size
-                    except OSError:
-                        pass
-            return round(total / 1e9, 1)
+            return round(folder_bytes(path) / 1e9, 1)
         return round(os.path.getsize(path) / 1e9, 1)
     except OSError:
         return None
@@ -158,13 +152,7 @@ def scan_weight_dirs(dirs: list[str]) -> list[dict[str, Any]]:
             dirnames[:] = sorted(n for n in dirnames if not n.startswith("."))
             weights = [f for f in filenames if f.lower().endswith(_WEIGHT_FILE_EXTS)]
             if dirpath != root and ("config.json" in filenames or any(not f.endswith(".gguf") for f in weights)):
-                size = 0
-                for sub, _, files in os.walk(dirpath):
-                    for f in files:
-                        try:
-                            size += os.stat(os.path.join(sub, f)).st_size
-                        except OSError:
-                            pass
+                size = folder_bytes(dirpath)
                 if dirpath not in seen:
                     seen.add(dirpath)
                     found.append({"path": _contract_home(dirpath), "name": os.path.basename(dirpath),

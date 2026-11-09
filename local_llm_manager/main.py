@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from . import __version__, config, system
-from .db import Database, normalize_tags
+from .db import Database, WeightExists, normalize_tags
 from .docker import Docker
 from .importer import ScriptImportError, import_script
 from .recipefile import RecipeFileError, compact_recipe, dump_recipe_file, parse_recipe_file, recipe_from_file
@@ -769,6 +769,8 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     async def create_weight(body: WeightIn):
         try:
             wid = db.create_weight(body.name, body.source, weight_locations(body))
+        except WeightExists as e:
+            raise HTTPException(409, str(e))
         except sqlite3.IntegrityError:
             raise HTTPException(409, f"Weights named '{body.name}' already exist")
         return db.get_weight(wid)
@@ -778,6 +780,8 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         get_weight_or_404(weight_id)
         try:
             db.update_weight(weight_id, body.name, body.source, weight_locations(body))
+        except WeightExists as e:
+            raise HTTPException(409, str(e))
         except sqlite3.IntegrityError:
             raise HTTPException(409, f"Weights named '{body.name}' already exist")
         return db.get_weight(weight_id)
@@ -792,6 +796,8 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         """Put recipes that mount their model folder directly onto a registered weights entry."""
         try:
             return manager.adopt_weights(body.recipe_ids, body.name)
+        except WeightExists as e:
+            raise HTTPException(409, str(e))
         except ActionError as e:
             raise HTTPException(e.status_code, e.message)
 
@@ -803,7 +809,10 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         path = body.path.strip()
         if ":" in path or "\n" in path:
             raise HTTPException(422, "a path may not contain ':' or line breaks (it becomes a docker volume)")
-        db.set_weight_location(weight_id, host_id, path)
+        try:
+            db.set_weight_location(weight_id, host_id, path)
+        except WeightExists as e:
+            raise HTTPException(409, str(e))
         return await manager.check_weight(weight_id, host_id)
 
     @app.get("/api/weights/{weight_id}/hosts/{host_id}")
