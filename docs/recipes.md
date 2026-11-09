@@ -89,16 +89,24 @@ Two formats are accepted:
 
 The current examples:
 
-| File | What it is |
-|---|---|
-| [`qwen38-27b.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-27b.yaml) | Qwen3.8 27B served by vLLM - a small compact recipe with registered weights. |
-| [`qwen38-flash-next-fp4.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-fp4.yaml) | Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121): b12x image, tuned flags, caches, tool calling. Compact form. |
-| [`qwen38-flash-next-tensorfold.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-tensorfold.yaml) | The same Flash-Next weights on TensorFold's Zig engine in MiaAI-Lab's starter image: 262k window, 5 streams, fp8 KV, MTP drafts, image and video in. |
-| [`nemotron-3.5-super-vl.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/nemotron-3.5-super-vl.yaml) | Nemotron-3.5-Super-VL with a draft model for speculative decoding; both models sit in one registered folder. |
-| [`hermes-agent-docker.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/hermes-agent-docker.yaml) | A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU. |
-| [`embeddinggemma-2-llamacpp.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/embeddinggemma-2-llamacpp.yaml) | EmbeddingGemma 2 (GGUF) as an OpenAI-compatible `/v1/embeddings` server via llama.cpp. |
-| [`sglang-flint.sh`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/sglang-flint.sh) | RecursiveSI/flint served natively by SGLang's `sglang serve` CLI, port 30000. |
-| [`sglang-flint-docker.sh`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/sglang-flint-docker.sh) | The same model in the official `lmsysorg/sglang` Docker image (`python3 -m sglang.launch_server`). |
+| File | Engine | What it is |
+|---|---|---|
+| [`qwen38-mtp.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-mtp.yaml) | vLLM | Qwen3.8-27B-NVFP4 with the model's own MTP drafts - the small compact recipe, and the one a fresh install starts with. |
+| [`qwen38-dflash.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-dflash.yaml) | vLLM | Qwen3.8-27B-NVFP4 with the DFlash2 drafter: speculative decoding, model and drafter from one registered folder. |
+| [`qwen38-dflash-docker.sh`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-dflash-docker.sh) | vLLM | The same recipe as a **starter script**: a plain `docker run`, and the fields the manager reads out of it. |
+| [`qwen38-sglang.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-sglang.yaml) | SGLang | The same model and drafter on SGLang's official image, **same port** - **Switch to** swaps the engine. |
+| [`qwen38-tensorfold.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-tensorfold.yaml) | TensorFold | The same model and drafter served natively (no Docker) by TensorFold's CUDA engine on a DGX Spark. |
+| [`qwen38-flash-next-fp4.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-fp4.yaml) | vLLM | Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121): b12x image, tuned flags, caches, tool calling. |
+| [`qwen38-flash-next-tensorfold.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-tensorfold.yaml) | TensorFold | The same Flash-Next weights on TensorFold's Zig engine in MiaAI-Lab's starter image: 262k window, 5 streams, fp8 KV, MTP drafts, image and video in. |
+| [`nemotron-3.5-super-vl.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/nemotron-3.5-super-vl.yaml) | vLLM | Nemotron-3.5-Super-VL with a draft model for speculative decoding; both models sit in one registered folder. |
+| [`hermes-agent-docker.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/hermes-agent-docker.yaml) | - | A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU. |
+
+The four Qwen3.8-27B recipes (`qwen38-mtp`, `qwen38-dflash`, `qwen38-sglang`, `qwen38-tensorfold`) are the
+same model on four engines: they share port **8101** and the served name `qwen3.8`, so one endpoint
+`http://<host>:8101/v1` keeps working while you switch (`qwen38-dflash-docker.sh` is the second one again,
+as a starter script). The three with a drafter mount one registered folder - the folder holding model and
+drafter - which is how the two stay together on every host. The two `qwen38-flash-next-*` recipes are one
+model on two engines as well: same weights entry, different image and port.
 
 ## Before you start
 

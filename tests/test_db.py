@@ -51,7 +51,7 @@ def test_seed_examples_adds_the_qwen38_example(tmp_path):
     db = Database(tmp_path / "m.db")
     seed_examples(db)
     recipes = db.list_recipes()
-    assert [r["name"] for r in recipes] == ["qwen3.8"]
+    assert [r["name"] for r in recipes] == ["qwen3.8-mtp"]
     assert recipes[0]["framework"] == "vllm"
     assert recipes[0]["host_id"] == db.local_host_id()
     # The example points at a registered weights entry, created without a path on a fresh install.

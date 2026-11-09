@@ -1,11 +1,16 @@
 # Compact recipe file (Local LLM Manager): paste into Recipes -> Import.
+# Qwen3.8-Flash-Next-FP4 served by the b12x vLLM build on one NVIDIA DGX Spark (GB10, SM121):
+# FP4 MoE kernels, MTP speculative decoding, 512k context through YaRN, tool calling and
+# multimodal prompts. Registers its Hugging Face caches under ~/.cache so a restart does not
+# recompile. The model is one registered Weights entry (weights:) - its per-host path fills
+# {weights}, so the same file runs on every Spark that has the folder.
 name: qwen38-flash-next-fp4
-description: 'Starter: nvidia/Qwen3.8-Flash-Next-FP4-Local on NVIDIA DGX Spark (GB10,
-  SM121)'
+description: Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121) - b12x vLLM with MTP
 framework: vllm
 image: eugr/spark-vllm-b12x:latest
 command: serve {model} --host 0.0.0.0 --port {port}
-docker_args: --network host --ipc host --shm-size 16g --ulimit memlock=-1 --ulimit
+docker_args: >-
+  --network host --ipc host --shm-size 16g --ulimit memlock=-1 --ulimit
   stack=67108864 --security-opt seccomp=unconfined --security-opt apparmor=unconfined
   --entrypoint vllm
 args: |-
@@ -34,6 +39,8 @@ args: |-
   --compilation-config '{"pass_config":{"fuse_act_quant":true}}'
   --enable-auto-tool-choice
   --tool-call-parser qwen3_coder
+  --limit-mm-per-prompt '{"image":4,"video":1}'
+  --allowed-local-media-path /model
   --reasoning-parser qwen3
   --speculative-config '{"method":"mtp","num_speculative_tokens":4}'
 env: |-
@@ -71,4 +78,4 @@ host_port: 8081
 container_port: 8081
 weights: Qwen3.8-Flash-Next-FP4-Local
 container_name: qwen38-flash-next
-color: red
+color: blue
