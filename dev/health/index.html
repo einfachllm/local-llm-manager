@@ -681,7 +681,7 @@ is measured as a share of the machine's total, and the KV-cache rule only fires 
 <td><strong>Host unreachable</strong> - an agent does not answer</td>
 <td>–</td>
 <td>always</td>
-<td>2 min</td>
+<td>1 min</td>
 </tr>
 <tr>
 <td><strong>Memory almost full</strong></td>
@@ -716,7 +716,8 @@ is measured as a share of the machine's total, and the KV-cache rule only fires 
 </tbody>
 </table>
 <p>A condition has to hold for the time in the last column before it becomes a finding, and it has to be
-gone for a minute before the finding clears. So a reading that sits on a threshold does not flap on and
+gone for a minute before the finding clears. "Host unreachable" holds for the same minute a cleared
+finding takes, so a failed start on a host that goes offline hands over without a gap. So a reading that sits on a threshold does not flap on and
 off, and the activity log gets one entry when a finding appears, one when it gets worse (warning →
 critical) and one when it is resolved.</p>
 <p>For example, 121 GB on a DGX Spark: a warning under about 9.7 GB free, critical under about 3.6 GB.

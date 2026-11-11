@@ -868,7 +868,7 @@ or rerun the installer).</p>
 <tr>
 <td><code>DGXM_DB</code></td>
 <td><code>./data/manager.db</code></td>
-<td>SQLite database (recipes, hosts, events). Readable by its owner only.</td>
+<td>SQLite database (recipes, hosts, events), relative to the working directory. Readable by its owner only.</td>
 </tr>
 <tr>
 <td><code>DGXM_PROC_DIR</code></td>
@@ -914,6 +914,10 @@ or rerun the installer).</p>
 </tr>
 </tbody>
 </table>
+<p>Schedules follow the hub's IANA zone, resolved from <code>TZ</code>, the <code>/etc/localtime</code> symlink or
+<code>/etc/timezone</code> (fixed-offset fallback, correct for UTC). DST transitions are handled: a repeated
+autumn wall time fires once for daily/weekly schedules (hourly ones keep their rhythm), and a
+non-existent spring time (e.g. 02:30) runs at the transition (03:00).</p>
 <h2 id="secrets-passed-to-recipes-no-dgxm_-prefix">Secrets passed to recipes (no <code>DGXM_</code> prefix)<a class="headerlink" href="#secrets-passed-to-recipes-no-dgxm_-prefix" title="Permanent link">&para;</a></h2>
 <p>A recipe's environment lists secret <strong>names</strong> only (one per line, e.g. <code>HF_TOKEN</code>, <code>TELEGRAM_BOT_TOKEN</code>,
 <code>EINFACHLLM_API_KEY</code>). At start the manager looks each name up in <strong>its own environment</strong> - which comes

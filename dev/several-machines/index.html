@@ -806,7 +806,7 @@ shows what matters at a glance:</p>
 <ul>
 <li><strong>online / offline</strong>, operating system and CPU architecture (e.g. <code>Linux · aarch64</code>);</li>
 <li>a <strong>memory bar</strong> (used / total GB), <strong>GPU load</strong> and <strong>GPU and CPU temperature</strong> (the CPU value turns yellow from 85 °C, red
-  from 95 °C);</li>
+  from 90 °C - the health-finding thresholds);</li>
 <li>what <strong>runs there</strong>: models (🧠, with their port) and agents (🤖) with a live status dot, plus the number
   of stopped recipes (hover for their names).</li>
 </ul>
@@ -927,7 +927,10 @@ own devices, and the hub-to-agent traffic is encrypted.</p>
    <code>tailscale serve --bg 8090</code> on the hub and open <code>https://&lt;hub-name&gt;.&lt;tailnet&gt;.ts.net</code>.</li>
 </ol>
 <p><code>tailscale</code> is resolved to the machine's Tailscale IPv4 address at start-up. If Tailscale is not up yet,
-the service fails and systemd or launchd retries it.</p>
+the service fails and systemd or launchd retries it. A Docker Compose hub needs the Tailscale override
+so the container can resolve <code>tailscale</code>:
+<code>docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d</code> (mounts the host's
+Tailscale binary and daemon socket; both paths must exist on the host).</p>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
 <p>Keep <code>DGXM_PASSWORD</code> set anyway: your phone's browser visits other sites too.</p>

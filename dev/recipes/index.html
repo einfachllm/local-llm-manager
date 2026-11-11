@@ -772,8 +772,8 @@ check, so a recipe only writes down what differs from it.</p>
 </table>
 <p>vLLM, SGLang, llama.cpp and MLX all serve an OpenAI-compatible API at <code>http://&lt;host&gt;:&lt;port&gt;/v1</code>, so your
 apps don't care which engine runs behind the endpoint. Live stats (tokens/s, requests, KV cache) come from
-the server's <code>/metrics</code>: on by default in vLLM and TensorFold, add <code>--enable-metrics</code> for SGLang and
-<code>--metrics</code> for llama.cpp.</p>
+the server's <code>/metrics</code>: on by default in vLLM and TensorFold, and the SGLang and llama.cpp presets turn
+them on (<code>--enable-metrics</code> / <code>--metrics</code>) - keep the flag when you edit the arguments.</p>
 <h2 id="add-a-recipe-paste-yaml-or-a-shell-script">Add a recipe: paste YAML or a shell script<a class="headerlink" href="#add-a-recipe-paste-yaml-or-a-shell-script" title="Permanent link">&para;</a></h2>
 <p>There is no form to fill in. Click <strong>＋ Add recipe</strong> (shortcut <code>i</code>) and paste one of:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">YAML recipe</label><label for="__tabbed_1_2">Shell script / docker run</label></div>
@@ -914,15 +914,20 @@ model on two engines as well: same weights entry, different image and port.</p>
 <li><strong>Ports:</strong> the port in <code>host_port:</code> / <code>port:</code> / <code>--port</code> becomes the recipe's port. Keep it the <strong>same across models</strong> you want to switch between, and give each <code>--served-model-name</code> a stable short name - then <strong>Switch to</strong> changes the model and your agents keep the same endpoint <code>http://&lt;host&gt;:&lt;port&gt;/v1</code>.</li>
 <li><strong>Secrets:</strong> files list only bare names (e.g. <code>HF_TOKEN</code>); put the values in the manager's <code>.env</code> (see <a href="../configuration/">Configuration</a>).</li>
 <li><strong>vLLM images:</strong> the preset command starts with <code>vllm serve</code>. For <code>vllm/vllm-openai</code> (whose entrypoint already runs <code>vllm serve</code>), the manager drops the duplicate; images with a plain <code>vllm</code> entrypoint keep <code>serve</code>. The preview shows the actual command.</li>
+<li><strong>Logs:</strong> Docker recipes get <code>--log-opt max-size=50m --log-opt max-file=3</code> by default, so container
+  logs stay bounded; set your own <code>--log-opt</code> in <em>Extra Docker flags</em> to override. A native process
+  keeps the previous run's log as <code>&lt;name&gt;.log.1</code> in <code>DGXM_PROC_DIR</code>.</li>
 <li>Recipes are a starting point: the flags are tuned for the machine they ran on. Check <code>--gpu-memory-utilization</code>, <code>--max-model-len</code> and <code>--max-num-seqs</code> against your GPU's memory.</li>
 </ul>
 <h2 id="recipe-list-filters-and-pinned-recipes">Recipe list, filters and pinned recipes<a class="headerlink" href="#recipe-list-filters-and-pinned-recipes" title="Permanent link">&para;</a></h2>
 <p>The recipe list shows larger cards for quicker scanning. Use the top toolbar to:</p>
 <ul>
-<li><strong>Search</strong> across name, model, host, image and tag.</li>
+<li><strong>Search</strong> across name, model, description, host, image, container name, framework and tag.</li>
 <li><strong>Filter by engine</strong> (vLLM, SGLang, llama.cpp, MLX, TensorFold, Custom – derived automatically from your recipes).</li>
 <li><strong>Filter by kind</strong> (Models or Agents), by host and by tag.</li>
-<li><strong>Sort</strong> by name, status or port.</li>
+<li><strong>Group</strong> by host, by engine (Docker and native recipes of one engine together), by host → engine,
+  or by each recipe's first tag.</li>
+<li><strong>Sort</strong> by name, status, port or last-edited (<em>Edited</em>).</li>
 </ul>
 <p>Pinned recipes (★) appear in a dedicated “Pinned (always on top)” section at the top of the list. Blur and theme toggles live in the left sidebar.</p>
 <p>More of your own? Drop new <code>.yaml</code> / <code>.json</code> files in <code>examples/recipes</code> and add a row to its table - or export one from the editor with <strong>Recipe file…</strong>.</p>

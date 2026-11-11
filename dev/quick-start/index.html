@@ -723,7 +723,9 @@ cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 <p>Set <code>DGXM_PASSWORD</code> in <code>.env</code> (at least 12 characters, e.g. from <code>openssl rand -base64 18</code>), then:</p>
 <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 </code></pre></div>
-<p>Add <code>--build</code> to build the image yourself.</p>
+<p>Add <code>--build</code> to build the image yourself. The base file runs on any host; on NVIDIA hosts add
+<code>-f docker-compose.nvidia.yml</code> for GPU readings in the Hosts graph, and for Tailscale mode
+<code>-f docker-compose.tailscale.yml</code> (mounts the host's Tailscale binary and socket).</p>
 </div>
 </div>
 </div>
@@ -744,7 +746,10 @@ and restart the service.</p>
 <span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Qwen/Qwen3-8B</span><span class="w">     </span><span class="c1"># a Hugging Face id, or  weights: &lt;name in the Weights tab&gt;</span>
 <span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8101</span>
 </code></pre></div>
-<p>Scripts are checked for risky calls first; nothing in them is executed.
+<p>Scripts are checked for risky calls first - the check itself executes nothing. The import then runs
+the script with bash in a restricted mode that only records the <code>docker run</code> / server command;
+nothing is started. This is not a sandbox - see
+<a href="https://github.com/einfachllm/local-llm-manager/blob/main/SECURITY.md">SECURITY.md</a>.
 <img alt="Add a recipe dialog" src="../screenshots/add-recipe-dark.png" /></p>
 </li>
 <li>
