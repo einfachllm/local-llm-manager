@@ -55,7 +55,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: python -m pytest -q --cov=local_llm_manager --cov-report=xml --cov-report=term
       - name: Tests
-        if: !(matrix.os == 'ubuntu-latest' && matrix.python == '3.12')
+        if: matrix.os != 'ubuntu-latest' || matrix.python != '3.12'
         run: python -m pytest -q
       - name: Coverage report
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
