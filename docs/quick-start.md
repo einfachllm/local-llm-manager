@@ -56,7 +56,9 @@ This page sets up the manager on one machine and starts a first model. For more 
     docker compose up -d
     ```
 
-    Add `--build` to build the image yourself.
+    Add `--build` to build the image yourself. The base file runs on any host; on NVIDIA hosts add
+    `-f docker-compose.nvidia.yml` for GPU readings in the Hosts graph, and for Tailscale mode
+    `-f docker-compose.tailscale.yml` (mounts the host's Tailscale binary and socket).
 
 ## 2. Log in
 
@@ -80,7 +82,10 @@ and restart the service.
     port: 8101
     ```
 
-    Scripts are checked for risky calls first; nothing in them is executed.
+    Scripts are checked for risky calls first - the check itself executes nothing. The import then runs
+    the script with bash in a restricted mode that only records the `docker run` / server command;
+    nothing is started. This is not a sandbox - see
+    [SECURITY.md](https://github.com/einfachllm/local-llm-manager/blob/main/SECURITY.md).
     ![Add a recipe dialog](screenshots/add-recipe-dark.png)
 
 3. **Import**, check the fields and the command preview, then **Save**.

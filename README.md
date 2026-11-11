@@ -41,6 +41,7 @@ silicon, or any Linux box - from any browser on your network:
   switch models, and show whether their secrets are set and whether a stray second copy is running.
 - **Live status, logs and stats:** loading/ready/failed, tokens/s with a throughput sparkline, running
   requests, KV cache usage - and an estimate of how long a start typically takes (measured trigger → ready).
+  Container logs stay bounded by default (50 MB × 3).
 - **Schedules:** start, stop or switch models at set times, with a timeline of what will run when.
 - **Images:** see which Docker images your recipes use, whether each host has them, pull them on several
   hosts at once, and switch recipes to a newer local tag (e.g. a fresh vLLM nightly) with one click.
@@ -53,8 +54,9 @@ silicon, or any Linux box - from any browser on your network:
   ⭐ pinned recipes (shown in a dedicated “Pinned” section at the top), collapsible groups, larger recipe
   cards, and keyboard shortcuts (`?` shows them). Blur and theme toggles live in the left sidebar.
 - **Recipe toolbar:** filter recipes by engine (vLLM, SGLang, llama.cpp, MLX, TensorFold, Custom –
-  derived automatically from your recipes), by model/agent kind, by host, by tag, and sort by name,
-  status, or port. Search across name, model, host, image and tag.
+  derived automatically from your recipes), by model/agent kind, by host, by tag; group by host,
+  engine, host → engine or tag; and sort by name, status, port or last-edited. Search across name,
+  model, description, host, image, container name, framework and tag.
 
 Model weights and Docker images must be on the machine that runs them. The manager can pull images and
 download / copy weights for you (Images and Weights tabs), or you put them there yourself.
@@ -106,8 +108,8 @@ More examples:
 |---|---|
 | ![Light theme, models as tiles](docs/screenshots/recipes-light.png) | ![Schedules](docs/screenshots/schedules-dark.png) |
 
-The screenshots show a demo setup: a hub `spark-01` and an agent `spark-02`. The top-bar **🙈 Blur** toggle
-replaces host names and IPs with aliases such as `host-3f2a` - handy for screenshots and screen shares.
+The screenshots show a demo setup: a hub `spark-01` and an agent `spark-02`. The **🙈 Blur** toggle in the
+left sidebar replaces host names and IPs with aliases such as `host-3f2a` - handy for screenshots and screen shares.
 
 ## Quick start
 
@@ -135,6 +137,11 @@ cd local-llm-manager
 `cp .env.example .env`, set `DGXM_PASSWORD` (at least 12 characters, e.g. `openssl rand -base64 18`),
 then `docker compose up -d`. This uses the image
 `ghcr.io/einfachllm/local-llm-manager:latest` (amd64 + arm64); add `--build` to build it yourself.
+The base file runs on any host. On NVIDIA hosts, add the override for GPU readings in the Hosts graph:
+`docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d` (models get their GPUs via
+their own `--gpus` flag, not through this reservation). For Tailscale mode, use
+`docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d` - it mounts the host's
+Tailscale binary and daemon socket (both paths must exist on the host).
 
 Then open `http://<machine>:8090` and log in as `admin` with that password. To change it, edit the env file
 (at least 12 characters, no well-known passwords) and restart the service.
@@ -146,14 +153,16 @@ models keep running while the manager restarts.
 
 ```bash
 cd local-llm-manager
-git pull                  # or a release: git fetch --tags && git checkout v0.2.0
+git pull                  # or a release: git fetch --tags && git checkout v0.3.0
 ./install.sh              # Linux; on macOS: ./install-macos.sh
 ```
 
 With Docker Compose: `docker compose pull && docker compose up -d`.
 
 If the service does not start after an upgrade, check its log: newer versions refuse weak passwords
-(under 12 characters) and agent tokens under 32 characters.
+(under 12 characters) and agent tokens under 32 characters. On macOS the service then stays stopped
+instead of restarting in a loop (a `data/.config-fault` marker holds launchd back); fix `.env` and
+rerun `./install-macos.sh`.
 
 Upgrade the hub and all agents to the same version. Read the [CHANGELOG](CHANGELOG.md) before
 upgrading, and copy `data/manager.db` first if you want to be able to go back.
@@ -228,9 +237,11 @@ own devices. It also encrypts the hub ↔ agent traffic, which is otherwise plai
    For HTTPS, run `tailscale serve --bg 8090` on the hub and open `https://<hub-name>.<tailnet>.ts.net`.
 
 `tailscale` is resolved to the machine's address (`tailscale ip -4`) at start-up; if Tailscale is not up
-yet, the service fails and systemd / launchd retry. Keep `DGXM_PASSWORD` set anyway: your phone's browser
-visits other sites too. Recipes created before this setting existed may contain `--host 0.0.0.0` in their
-command; change it to `--host {bind_host}` for native-process and `--network host` recipes.
+yet, the service fails and systemd / launchd retry. A Docker Compose hub needs the Tailscale override
+for that: `docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d`. Keep
+`DGXM_PASSWORD` set anyway: your phone's browser visits other sites too. Recipes created before this
+setting existed may contain `--host 0.0.0.0` in their command; change it to `--host {bind_host}` for
+native-process and `--network host` recipes.
 
 ## Recipes in short
 
@@ -300,11 +311,19 @@ Actions: start, stop, restart, switch to a model, stop all models, stop all and 
 **All schedule times are in the hub's time zone**, not your browser's. The Schedules tab shows which
 one it is, e.g. `CET (UTC+01:00)`. With `install.sh` / `install-macos.sh` that is the machine's system
 time zone; the Docker Compose file mounts the host's `/etc/localtime` for the same result (without it, a
-container runs in UTC). Change it with `sudo timedatectl set-timezone Europe/Berlin` on Linux, then
-restart the manager.
+container runs in UTC). For DST-correct schedules the zone must also be resolvable by name: on hosts
+where `/etc/localtime` is not a symlink, set `TZ` in the Compose file (see its comments) or uncomment
+the `/etc/timezone` mount (Debian/Ubuntu). Change the zone with `sudo timedatectl set-timezone Europe/Berlin`
+on Linux, then restart the manager.
 
 If the hub was off when a repeating schedule was due, that run is skipped; a missed one-time schedule
 still runs if it is less than 10 minutes late.
+
+DST transitions are handled: when the clock goes back, a repeated time (e.g. 02:30 twice) fires once
+for daily or weekly schedules - an hourly schedule keeps its rhythm and runs in both occurrences. When
+the clock springs forward, a schedule at a non-existent time (02:30) runs at the transition (03:00).
+The hub resolves its zone by name from `TZ`, the `/etc/localtime` symlink or `/etc/timezone`; if none
+resolves it falls back to a fixed offset, which is correct for UTC but cannot see transitions.
 
 ## Security
 

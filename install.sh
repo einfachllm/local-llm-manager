@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Install Local LLM Manager as a systemd service running as the current user.
-# The user must be able to run docker without sudo (member of the "docker" group).
+# For Docker recipes, the user must be able to run docker without sudo (member of the "docker" group);
+# native-only setups (e.g. TensorFold, llama.cpp) work without Docker.
 set -euo pipefail
 cd "$(dirname "$0")"
 APP_DIR="$(pwd)"
@@ -8,12 +9,26 @@ APP_DIR="$(pwd)"
 ENV_FILE="${APP_DIR}/.env"
 LEGACY_ENV_FILE="${HOME}/.config/local-llm-manager.env"
 
-if ! docker info >/dev/null 2>&1; then
-  echo "Cannot talk to docker as ${USER}. Run: sudo usermod -aG docker ${USER}  (then log in again)" >&2
-  exit 1
+# Docker is only needed for Docker recipes - warn, don't refuse the install.
+DOCKER_BIN="${DGXM_DOCKER:-docker}"
+if ! "$DOCKER_BIN" info >/dev/null 2>&1; then
+  echo "Note: cannot talk to ${DOCKER_BIN} as ${USER} - Docker recipes will not start on this machine." >&2
+  echo "For Docker recipes: sudo usermod -aG docker ${USER} (then log in again), or set DGXM_DOCKER (e.g. podman)." >&2
 fi
 
-python3 -m venv .venv
+# Python 3.10+ is required (the code uses 3.10 syntax). PYTHON overrides the interpreter.
+PYTHON="${PYTHON:-python3}"
+if ! "$PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+  echo "Python 3.10+ is required, but ${PYTHON} is $("$PYTHON" --version 2>&1 || echo 'not usable')." >&2
+  echo "Install a newer Python and rerun, e.g.: PYTHON=python3.12 ./install.sh" >&2
+  exit 1
+fi
+# An existing venv from an older Python would keep its old interpreter - recreate it.
+if [ -x .venv/bin/python ] && ! .venv/bin/python -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+  echo "The existing .venv uses Python < 3.10 - recreating it." >&2
+  rm -rf .venv
+fi
+"$PYTHON" -m venv .venv
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q -r requirements.txt
 

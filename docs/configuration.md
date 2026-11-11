@@ -57,6 +57,11 @@ Values marked *agent* matter only with `DGXM_MODE=agent`, *hub* only in the defa
 | `DGXM_ONCE_GRACE_SECONDS` | `600` | Grace period for one-shot schedules ("start once at 06:00") that were missed while the manager was down; older misses are skipped. |
 | `DGXM_METRICS` | *(off)* | `1`/`true`/`yes` serves the manager's own metrics at `GET /metrics` in Prometheus format (uptime, request and action counts, stored recipes/hosts - no recipe or host data). `GET /healthz` is always available and needs no login. |
 
+Schedules follow the hub's IANA zone, resolved from `TZ`, the `/etc/localtime` symlink or
+`/etc/timezone` (fixed-offset fallback, correct for UTC). DST transitions are handled: a repeated
+autumn wall time fires once for daily/weekly schedules (hourly ones keep their rhythm), and a
+non-existent spring time (e.g. 02:30) runs at the transition (03:00).
+
 ## Secrets passed to recipes (no `DGXM_` prefix)
 
 A recipe's environment lists secret **names** only (one per line, e.g. `HF_TOKEN`, `TELEGRAM_BOT_TOKEN`,

@@ -12,7 +12,7 @@ is measured as a share of the machine's total, and the KV-cache rule only fires 
 
 | Rule | Warning | Critical | Must hold for |
 |---|---|---|---|
-| **Host unreachable** - an agent does not answer | – | always | 2 min |
+| **Host unreachable** - an agent does not answer | – | always | 1 min |
 | **Memory almost full** | under 8 % of the total free | under 3 % free | 1 min |
 | **GPU running hot** - the hottest GPU of the host | from 85 °C | from 90 °C | 3 min |
 | **KV cache almost full** - and requests are waiting | from 85 % | – | 5 min |
@@ -20,7 +20,8 @@ is measured as a share of the machine's total, and the KV-cache rule only fires 
 | **Start takes unusually long** - compared with the recipe's own earlier starts | over 2× the median (and at least 2 min more), from 3 measured starts on | – | at once |
 
 A condition has to hold for the time in the last column before it becomes a finding, and it has to be
-gone for a minute before the finding clears. So a reading that sits on a threshold does not flap on and
+gone for a minute before the finding clears. "Host unreachable" holds for the same minute a cleared
+finding takes, so a failed start on a host that goes offline hands over without a gap. So a reading that sits on a threshold does not flap on and
 off, and the activity log gets one entry when a finding appears, one when it gets worse (warning →
 critical) and one when it is resolved.
 

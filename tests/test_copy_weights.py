@@ -1,11 +1,12 @@
 import asyncio
+import errno
 import os
 import time
 
 import httpx
 import pytest
 import test_hosts
-from conftest import FakeDocker
+from conftest import FakeDocker, recipe_body
 from fastapi.testclient import TestClient
 from test_transfers import wait
 
@@ -13,7 +14,8 @@ from local_llm_manager.agent import create_agent_app
 from local_llm_manager.executor import LocalExecutor
 from local_llm_manager.processes import ProcessRunner
 
-from local_llm_manager import config
+from local_llm_manager import config, transfers
+from local_llm_manager.db import Database
 from local_llm_manager.manager import Manager
 
 setup = test_hosts.setup  # the hub + one agent ("mac") fixture
@@ -143,7 +145,7 @@ def test_distribution_is_a_snowball(tmp_path):
         wid = db.create_weight("w", "", {hosts[0]: "/w"})
         pairs = []
 
-        async def fake_copy(weight_id, src, item, hub_url):
+        async def fake_copy(weight_id, src, item, hub_url, job=None):
             pairs.append((src, item["host_id"]))
             await asyncio.sleep(0.05)
             item["state"] = "ok"
@@ -488,3 +490,167 @@ def test_agent_share_endpoint_links_as_files(setup, tmp_path):
         entries = agent.app.state.executor.shares.shares[r.json()["id"]]["files"]
         assert any("link" in f for f in entries) == expect_link, body
     assert agent.post("/agent/v1/shares", json={"path": str(tmp_path / "gone")}, headers=auth).status_code == 404
+
+
+def test_share_ttl_is_six_hours_and_expires(tmp_path):
+    """The documented share lifetime: six hours; an expired share refuses its ticket (DOC-23)."""
+    from fastapi import HTTPException
+
+    from local_llm_manager.shares import SHARE_TTL, HashCache, Shares
+    assert SHARE_TTL == 6 * 3600
+    src = tmp_path / "m"
+    src.mkdir()
+    (src / "a.txt").write_text("x")
+
+    async def main():
+        shares = Shares(HashCache(None))
+        expired = shares.create(str(src), ttl=-1)  # created already expired
+        with pytest.raises(HTTPException) as e:
+            shares.get(expired["id"], expired["ticket"])
+        assert e.value.status_code == 403
+        fresh = shares.create(str(src))
+        assert shares.get(fresh["id"], fresh["ticket"])["id"] == fresh["id"]
+        assert fresh["expires"] - time.time() == pytest.approx(SHARE_TTL, abs=5)
+
+    asyncio.run(main())
+
+
+def test_known_bad_checksum_counts_double(setup, monkeypatch, tmp_path):
+    """A target file with the right size but a known-bad cached hash gets replaced: the space check
+    asks for old + new (2x), not for nothing (FLEET-07)."""
+    client, agent, _, _, mac = setup
+    client.app.state.manager.transfer_poll = 0.02
+    monkeypatch.setattr(config, "MODEL_DIRS", [str(tmp_path / "models")])
+    monkeypatch.setattr(config, "PUBLIC_URL", "http://hub.local:8090")
+    agent.state.executor.transfers.transport = httpx.ASGITransport(app=client.app)
+    src = tmp_path / "src" / "Qwen3-8B"
+    src.mkdir(parents=True)
+    data = os.urandom(3_000_000)
+    (src / "model.safetensors").write_bytes(data)
+    (src / "config.json").write_text("{}")
+    local = client.get("/api/hosts").json()[0]["id"]
+    wid = weights(client, **{str(local): str(src)})
+    dest = tmp_path / "models" / "Qwen3-8B"
+    dest.mkdir(parents=True)
+    (dest / "model.safetensors").write_bytes(bytes(len(data)))  # right size, wrong content
+    agent.state.executor.transfers.cache.put(dest / "model.safetensors", "0" * 64)  # known-bad hash
+
+    from collections import namedtuple
+    usage = namedtuple("usage", "total used free")
+    # Free covers the simple need (one 3 MB file + reserve) but not the replacement (2 x 3 MB).
+    monkeypatch.setattr(transfers.shutil, "disk_usage", lambda _: usage(10**12, 10**12, 2 * 10**9 + 4_000_000))
+    items = wait(client, client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac["id"]]}).json()["id"])
+    assert items[mac["id"]]["state"] == "failed", items
+    assert "Not enough disk space" in items[mac["id"]]["message"]
+
+
+def test_disk_full_while_writing_is_reported_clearly(hub, monkeypatch):
+    """ENOSPC during the copy becomes a clear 'Disk full' message, not a bare errno (FLEET-07)."""
+    client, local, mac, src, dest = hub
+    wid = weights(client, **{str(local): str(src)})
+
+    def enospc(fh, h, chunk):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(transfers, "_write_hash", enospc)
+    items = wait(client, client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac]}).json()["id"])
+    assert items[mac]["state"] == "failed", items
+    assert "Disk full" in items[mac]["message"]
+
+
+def test_copy_refuses_a_folder_a_running_model_mounts(hub):
+    """A running model on the target mounts the folder: the copy is refused (409 message on the
+    item), nothing is replaced - and after stopping the model the copy goes through."""
+    client, local, mac, src, dest = hub
+    dest.mkdir(parents=True)
+    (dest / "model.safetensors").write_bytes(b"old weights")
+    wid = weights(client, **{str(local): str(src)})
+    # A model on the target mounts the very folder the copy would write into (its own volume).
+    r = client.post("/api/recipes", json=recipe_body(host_id=mac, model="/model",
+                                                     volumes=f"{dest}:/model:ro", health_path="")).json()
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+
+    items = wait(client, client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac]}).json()["id"])
+    assert items[mac]["state"] == "failed", items
+    assert "Stop the model using this folder first" in items[mac]["message"]
+    assert (dest / "model.safetensors").read_bytes() == b"old weights"
+
+    assert client.post(f"/api/recipes/{r['id']}/stop").status_code == 200
+    items = wait(client, client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac]}).json()["id"])
+    assert items[mac]["state"] == "ok", items
+    assert (dest / "model.safetensors").read_bytes() == (src / "model.safetensors").read_bytes()
+
+
+# ---- jobs survive a hub restart (FLEET-08) --------------------------------------------------------
+
+
+def test_snowball_continues_after_hub_restart(tmp_path):
+    """The hub restarts mid-snowball: the new manager continues from the persisted sources and
+    finished hosts, and the remaining targets still get their copy."""
+    async def main():
+        db_path = tmp_path / "hub.db"
+        db = Database(db_path)
+        m1 = Manager(db, None, None, None)
+        hosts = [db.local_host_id()] + [db.create_host(f"s{i}", f"http://s{i}:8090", "t" * 40) for i in range(3)]
+        src = tmp_path / "w"
+        src.mkdir()
+        wid = db.create_weight("w", "", {hosts[0]: str(src)})
+        gate = asyncio.Event()
+        calls = []
+
+        async def fake_copy(weight_id, src_id, item, hub_url, job=None):
+            calls.append((src_id, item["host_id"]))
+            if item["host_id"] == hosts[1] and len(calls) == 1:
+                await gate.wait()  # the first copy is still running when the hub "restarts"
+            item["state"] = "ok"
+
+        m1._copy_one = fake_copy
+        job = m1.start_copy_job(wid, hosts[1:])
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if job["items"][0]["state"] == "running" and job["spec"].get("sources"):
+                break
+        assert job["spec"]["sources"] == [hosts[0]]
+
+        db2 = Database(db_path)  # the "restarted" hub: a new manager on the same database
+        m2 = Manager(db2, None, None, None)
+        m2._copy_one = fake_copy
+        m2.resume_jobs()
+        gate.set()
+        resumed = m2.jobs[job["id"]]
+        for _ in range(500):
+            await asyncio.sleep(0.01)
+            if resumed["done"]:
+                break
+        return resumed, calls, hosts
+
+    resumed, calls, hosts = asyncio.run(main())
+    assert resumed["done"] and all(i["state"] == "ok" for i in resumed["items"]), resumed
+    assert {dst for _, dst in calls} == set(hosts[1:])  # every target was served, snowball continued
+
+
+def test_a_failing_whole_marks_items_failed(tmp_path):
+    """When the weights vanish mid-copy, the job ends with a clear failed message on its items -
+    no hanging job, no unretrieved task exception (CORE-15)."""
+    async def main():
+        db = Database(tmp_path / "m.db")
+        m = Manager(db, FakeDocker(), ProcessRunner(tmp_path / "p"))
+        hid = db.local_host_id()
+        wid = db.create_weight("w", "", {hid: str(tmp_path)})
+        original = m._distribute
+
+        async def vanish(job, weight_id, items, sources, hub_url):
+            db.delete_weight(weight_id)  # e.g. the user deleted the entry while the copy ran
+            await original(job, weight_id, items, sources, hub_url)
+
+        m._distribute = vanish
+        job = m.start_copy_job(wid, [hid])
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if job["done"]:
+                break
+        return job
+
+    job = asyncio.run(main())
+    assert job["done"] and job["items"][0]["state"] == "failed"
+    assert "TypeError" in job["items"][0]["message"]  # the vanished weight, named instead of hanging

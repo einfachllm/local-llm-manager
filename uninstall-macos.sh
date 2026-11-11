@@ -6,6 +6,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 APP_DIR="$(pwd)"
+
+if [ -n "${SUDO_USER:-}" ]; then
+  echo "Run this as your normal user, not with sudo." >&2
+  exit 1
+fi
+
 LABEL="com.local-llm-manager"
 PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
 OLD_PLIST="${HOME}/Library/LaunchAgents/com.dgxspark-manager.plist"

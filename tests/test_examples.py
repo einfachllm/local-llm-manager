@@ -149,6 +149,42 @@ def test_starter_scripts_in_the_folder_keep_every_important_line():
         assert dropped == [], f"{f.name} has lines the import would skip: {dropped}"
 
 
+def test_yaml_examples_are_saveable_through_the_api():
+    """The imported drafts must pass the API's own validation, not just the file parser."""
+    from local_llm_manager.main import RecipeIn
+
+    for name, recipe in recipes().items():
+        RecipeIn(**{k: v for k, v in recipe.items() if k != "_warnings"})
+
+
+def test_starter_scripts_really_import_into_valid_recipes():
+    """Beyond the static check: run every published .sh (both example folders) through the restricted
+    import and validate the draft against the API model. Only benign warnings are allowed: the manager
+    drops -d itself, and the Hermes gateway has no model argument. The undefined $ARGS in the Hermes
+    vLLM starter must expand to nothing, not leak into the recipe."""
+    import asyncio
+
+    from local_llm_manager.importer import import_script
+    from local_llm_manager.main import RecipeIn
+
+    folders = (EXAMPLES, ROOT / "examples" / "hermes-agent")
+    scripts = sorted(p for folder in folders for p in folder.glob("*.sh"))
+    assert scripts, "no starter scripts found"
+    for path in scripts:
+        result = asyncio.run(import_script(path.read_text()))
+        recipe = result["recipe"]
+        RecipeIn(**recipe)  # the draft must be saveable through the API
+        assert recipe["host_port"] > 0, path.name
+        assert "$ARGS" not in (recipe.get("args") or ""), f"{path.name}: unexpanded variable in args"
+        unexpected = [w for w in result["warnings"]
+                      if not w.startswith("Removed ")
+                      and not (path.name == "docker-recipe.example.sh"
+                               and w.startswith("Could not tell which argument is the model"))]
+        assert unexpected == [], f"{path.name}: {unexpected}"
+        assert not any("stopped before starting" in w for w in result["warnings"]), \
+            f"{path.name}: preflight checks blocked the import"
+
+
 @pytest.mark.parametrize("name", ["qwen38-dflash.yaml", "qwen38-sglang.yaml", "qwen38-tensorfold.yaml"])
 def test_a_drafter_travels_with_its_model_instead_of_a_machines_home(name):
     """Model and drafter come from one registered entry, so no example may name a user's home directory.

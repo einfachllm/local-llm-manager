@@ -146,3 +146,111 @@ def test_one_shot_fallback_without_hub_offset(app_js, browser_tz, hub_label):
     assert out["rendered"] == expected
     assert out["resubmitted"] == out["rendered"]        # naive value passes through unchanged
     assert out["naiveRendered"] == "2026-11-12T06:00"
+
+
+# ---- UI-03: blur must cover host names, IPv4 and IPv6 everywhere ------------------------------
+
+
+def blur_helpers(app_js: str) -> str:
+    """aliasHash .. blurText, contiguous in app.js; state is stubbed by the caller."""
+    start = app_js.index("function aliasHash(")
+    end = app_js.index("function memPct(")
+    return app_js[start:end]
+
+
+BLUR_STATE = "const state = { blur: true, hosts: [{ name: 'spark-01', info: { hostname: 'spark-01.local' } }] };\n"
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js not available")
+def test_mask_addr_covers_ipv6(app_js):
+    out = run_node(BLUR_STATE + blur_helpers(app_js) + """
+console.log(JSON.stringify({
+  v6: maskAddr("fe80::1"), v6full: maskAddr("2001:db8:0:1:1:1:1:1"),
+  mapped: maskAddr("::ffff:192.168.1.1"), v4: maskAddr("192.168.1.5"),
+  host: maskAddr("spark-01"), loopback: maskAddr("::1"), localhost: maskAddr("localhost"),
+}));
+""")
+    for key in ("v6", "v6full", "mapped", "v4"):
+        assert out[key].startswith("ip-"), f"{key}: {out[key]}"
+    assert out["host"].startswith("host-")
+    assert out["loopback"] == "::1" and out["localhost"] == "localhost"
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js not available")
+def test_blur_text_masks_ips_but_not_clock_times(app_js):
+    out = run_node(BLUR_STATE + blur_helpers(app_js) + """
+console.log(JSON.stringify({
+  mixed: blurText("connect to 2001:db8::1 and 10.0.0.1 now"),
+  clock: blurText("at 12:34:56 done"),
+  iso: blurText("since 2026-11-12T06:00:00+01:00"),
+  mac: blurText("peer aa:bb:cc:dd:ee:ff"),
+  named: blurHostText("Host spark-01 is not reachable", "http://spark-01:8090"),
+  off: (state.blur = false, blurText("10.0.0.1 and spark-01")),
+}));
+""")
+    assert "2001:db8::1" not in out["mixed"] and "10.0.0.1" not in out["mixed"]
+    assert out["mixed"].count("ip-") == 2
+    assert out["clock"] == "at 12:34:56 done"
+    assert out["iso"] == "since 2026-11-12T06:00:00+01:00"
+    assert "aa:bb:cc:dd:ee:ff" not in out["mac"]
+    assert "spark-01" not in out["named"] and "host-" in out["named"]
+    assert out["off"] == "10.0.0.1 and spark-01"
+
+
+def test_blur_covers_logs_activity_findings_and_dialogs(app_js):
+    """UI-03: the screen-share blur must reach every place that shows host names or IPs."""
+    assert "esc(blurHostText(l))" in app_js                      # log dialog lines
+    assert "esc(blurHostText(e.message))" in app_js              # activity messages
+    assert "esc(blurHostText(e.target" in app_js                 # activity targets
+    assert "blurHostText(findingTitle(f))" in app_js             # finding chips
+    assert "blurHostText(f.message)" in app_js                   # finding details
+    assert "renderJoinRequests();" in app_js.split('$("#btn-blur").addEventListener')[1][:800]  # toggle re-renders joins
+    # confirms about hosts mask the name (functional copy-prompts stay real by design)
+    assert "Stop all models on ${maskAddr(h.name)}?" in app_js
+    assert "Delete recipe “${recipeTitle(r)}”?" in app_js
+
+
+# ---- Welle 2: UI-05/06/07/09/10/11/12/13/14/15/17/18/20/21 guards ------------------------------
+
+
+def test_wave2_ui_guards(app_js):
+    # UI-06: every dialog submit goes through the double-click guard
+    assert app_js.count("oneSubmit(") >= 7  # helper + 6 forms
+    # UI-05: schedule times and the timeline axis render in the hub's zone
+    assert "function fmtHub(" in app_js and "hubHour" in app_js and "Axis in hub time" in app_js
+    # UI-07: stale poll answers are discarded
+    assert "recipesSeq" in app_js and "hostsSeq" in app_js
+    # UI-09: the log stream reconnects instead of dying on the first error
+    assert "reconnecting…" in app_js and "logRetries" in app_js
+    # UI-10: the 1 s tick updates only the elapsed nodes; buttons don't swallow shortcuts
+    assert "tickStartElapsed()" in app_js and "/^(input|textarea|select)$/i" in app_js
+    # UI-11: the hub version is shown
+    assert '$("#hub-version").textContent' in app_js
+    # UI-12: an empty error body still yields a message
+    assert "|| res.statusText || `HTTP ${res.status}`" in app_js
+    # UI-14: connection-lost badge
+    assert "pollFailed()" in app_js and 'id="conn-state"' in INDEX_HTML.read_text()
+    # UI-15: client maps stay bounded
+    assert "sparkHist.delete(id)" in app_js and "closedJobs.size > 20" in app_js
+    # UI-17: activity asks the server for the source filter and refreshes while visible
+    assert "&source=health" in app_js and 'state.tab === "activity") loadEvents()' in app_js
+    # UI-18: one job poll loop, paused in hidden tabs
+    assert "jobsPolling" in app_js
+    # UI-20: dirty dialogs ask before discarding; docker container port is required
+    assert "Discard unsaved changes?" in app_js and "container_port.required = !native" in app_js
+    # UI-21: muted findings keep their cause visible
+    assert "hf-box ${f.severity}${f.muted" in app_js
+
+
+def test_wave2_static_assets():
+    # UI-21 CSP: no inline script left, theme boot moved to a file; UI-13: manifest + icons exist
+    html = INDEX_HTML.read_text()
+    assert 'http-equiv="Content-Security-Policy"' in html
+    assert '<script src="/static/theme.js"></script>' in html
+    assert "<script>" not in html and "onclick=" not in html
+    assert 'rel="manifest"' in html and 'aria-live="polite"' in html
+    assert (STATIC / "theme.js").exists() and (STATIC / "manifest.webmanifest").exists()
+    assert (STATIC / "icon-192.png").exists() and (STATIC / "icon-512.png").exists()
+    import json
+    manifest = json.loads((STATIC / "manifest.webmanifest").read_text())
+    assert manifest["start_url"] == "/" and len(manifest["icons"]) == 2

@@ -169,10 +169,53 @@ def uses_weights(recipe: dict[str, Any]) -> bool:
 
 
 def fill_weights(recipe: dict[str, Any], path: Optional[str]) -> dict[str, Any]:
-    """A copy of the recipe with {weights} replaced by this host's path (left as is when there is none)."""
+    """A copy of the recipe with {weights} replaced by this host's path (left as is when there is none).
+    In command/args the path is shell-quoted: those fields are split into words later, so a path with
+    spaces must stay a single token. model/volumes/env take the raw path - model is quoted by substitute,
+    volumes/env are used line by line (quoting them would put literal quotes into the docker -v/-e value)."""
     if not path or not uses_weights(recipe):
         return recipe
-    return {**recipe, **{f: (recipe.get(f) or "").replace(WEIGHTS, path) for f in WEIGHT_FIELDS}}
+    out = {**recipe}
+    for f in WEIGHT_FIELDS:
+        value = recipe.get(f) or ""
+        if WEIGHTS in value:
+            out[f] = value.replace(WEIGHTS, shlex.quote(path) if f in ("command", "args") else path)
+    return out
+
+
+# Placeholders the manager substitutes in command/args. Anything else shaped like {name} is a typo that
+# would otherwise be passed to the engine literally, so it is rejected before starting.
+PLACEHOLDERS = ("model", "port", "host_port", "name", "bind_host", "weights")
+_PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}")
+
+
+def unknown_placeholders(recipe: dict[str, Any]) -> list[str]:
+    """Sorted unknown {name} placeholders in command/args. JSON arguments such as
+    --speculative-config '{"method":…}' do not match: the pattern needs a bare word between the braces,
+    and a quote/colon right after the opening brace is not a word character."""
+    found: set[str] = set()
+    for f in ("command", "args"):
+        for m in _PLACEHOLDER_RE.finditer(recipe.get(f) or ""):
+            name = m.group(0)[1:-1]
+            if name not in PLACEHOLDERS:
+                found.add(name)
+    return sorted(found)
+
+
+class UnknownPlaceholderError(ValueError):
+    """command/args name a placeholder the manager does not substitute (raised before starting)."""
+
+    def __init__(self, names: list[str]):
+        self.names = names
+        super().__init__("Unknown placeholder(s) in command/args: " + ", ".join("{" + n + "}" for n in names)
+                         + ". Allowed: " + ", ".join("{" + p + "}" for p in PLACEHOLDERS))
+
+
+def check_placeholders(recipe: dict[str, Any]) -> None:
+    """Raise UnknownPlaceholderError when command/args use a placeholder outside PLACEHOLDERS."""
+    names = unknown_placeholders(recipe)
+    if names:
+        raise UnknownPlaceholderError(names)
 
 
 def model_mount(model: str, volumes: str) -> Optional[tuple[int, str]]:
@@ -301,6 +344,9 @@ def build_run_argv(recipe: dict[str, Any]) -> list[str]:
     if recipe.get("gpus"):
         argv += ["--gpus", recipe["gpus"]]
     docker_args = split_args(recipe.get("docker_args", ""))
+    # Bound container log growth by default; a recipe that sets its own --log-opt keeps full control.
+    if not any(a == "--log-opt" or a.startswith("--log-opt=") for a in docker_args):
+        argv += ["--log-opt", "max-size=50m", "--log-opt", "max-file=3"]
     if not uses_host_network(docker_args):
         bind = f"{config.PUBLISH_IP}:" if config.PUBLISH_IP else ""
         argv += ["-p", f"{bind}{recipe['host_port']}:{recipe['container_port']}"]

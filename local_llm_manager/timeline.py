@@ -9,7 +9,7 @@ from typing import Any, Iterable, Optional
 
 from croniter import croniter
 
-from .scheduler import parse_time
+from .scheduler import _elapsed, is_second_instance, parse_time
 
 MAX_EVENTS_PER_SCHEDULE = 500
 GLOBAL_ACTIONS = ("stop_all", "free_memory")
@@ -18,12 +18,27 @@ GLOBAL_ACTIONS = ("stop_all", "free_memory")
 def fire_times(schedule: dict, start: datetime, end: datetime) -> list[datetime]:
     if schedule.get("cron"):
         it = croniter(schedule["cron"], start)
-        times = []
+        times: list[datetime] = []
+        prev = start
+        pending: Optional[datetime] = None
         while len(times) < MAX_EVENTS_PER_SCHEDULE:
-            t = it.get_next(datetime)
+            t = pending if pending is not None else it.get_next(datetime)
+            pending = None
             if t > end:
                 break
+            if is_second_instance(t):
+                # The scheduler's rhythm rule: a repeated DST wall time is skipped only when
+                # it would fire sooner than the schedule's own interval (a daily 02:30 twice);
+                # an hourly cron's second 02:00 is a regular slot and stays in the plan.
+                following = it.get_next(datetime)
+                if _elapsed(t, prev) < _elapsed(following, t):
+                    t = following
+                    if t > end:
+                        break
+                else:
+                    pending = following
             times.append(t)
+            prev = t
         return times
     if schedule.get("next_run"):
         t = parse_time(schedule["next_run"])
@@ -39,6 +54,7 @@ def build_timeline(schedules: Iterable[dict], recipes: Iterable[dict], running_i
     recipes = {r["id"]: r for r in recipes}
     hosts = hosts or {}
     host_of = lambda rid: recipes[rid].get("host_id")
+    kind_of = lambda rid: recipes[rid].get("kind") or "model"
     events = []
     for s in schedules:
         if not s["enabled"]:
@@ -46,8 +62,12 @@ def build_timeline(schedules: Iterable[dict], recipes: Iterable[dict], running_i
         if s["recipe_id"] is not None and s["recipe_id"] not in recipes:
             continue
         for t in fire_times(s, start, end):
-            events.append({"time": t, "schedule_id": s["id"], "schedule": s["name"],
-                           "action": s["action"], "recipe_id": s["recipe_id"], "host_id": s.get("host_id")})
+            e = {"time": t, "schedule_id": s["id"], "schedule": s["name"],
+                 "action": s["action"], "recipe_id": s["recipe_id"], "host_id": s.get("host_id")}
+            # The manager refuses to switch to an agent (409): plan it as an error, not a run.
+            if s["action"] == "switch" and s["recipe_id"] is not None and kind_of(s["recipe_id"]) == "agent":
+                e["error"] = f"{recipes[s['recipe_id']]['name']} is an agent: start it instead of switching to it"
+            events.append(e)
     events.sort(key=lambda e: (e["time"], e["schedule_id"]))
 
     blocks: dict[int, list[dict]] = {rid: [] for rid in recipes}
@@ -69,13 +89,16 @@ def build_timeline(schedules: Iterable[dict], recipes: Iterable[dict], running_i
 
     for e in events:
         rid, action, t = e["recipe_id"], e["action"], e["time"]
+        if e.get("error"):
+            continue  # a refused action (switch to an agent) changes nothing
         if action in ("start", "restart"):
             open_(rid, t, e)
         elif action == "stop":
             close(rid, t, e)
         elif action == "switch":
+            # The manager keeps agents running on the host (keep_agents): only models are stopped.
             for other in list(open_blocks):
-                if other != rid and host_of(other) == host_of(rid):
+                if other != rid and host_of(other) == host_of(rid) and kind_of(other) != "agent":
                     close(other, t, e)
             open_(rid, t, e)
         elif action in GLOBAL_ACTIONS:

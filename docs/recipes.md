@@ -114,16 +114,21 @@ model on two engines as well: same weights entry, different image and port.
 - **Ports:** the port in `host_port:` / `port:` / `--port` becomes the recipe's port. Keep it the **same across models** you want to switch between, and give each `--served-model-name` a stable short name - then **Switch to** changes the model and your agents keep the same endpoint `http://<host>:<port>/v1`.
 - **Secrets:** files list only bare names (e.g. `HF_TOKEN`); put the values in the manager's `.env` (see [Configuration](configuration.md)).
 - **vLLM images:** the preset command starts with `vllm serve`. For `vllm/vllm-openai` (whose entrypoint already runs `vllm serve`), the manager drops the duplicate; images with a plain `vllm` entrypoint keep `serve`. The preview shows the actual command.
+- **Logs:** Docker recipes get `--log-opt max-size=50m --log-opt max-file=3` by default, so container
+  logs stay bounded; set your own `--log-opt` in *Extra Docker flags* to override. A native process
+  keeps the previous run's log as `<name>.log.1` in `DGXM_PROC_DIR`.
 - Recipes are a starting point: the flags are tuned for the machine they ran on. Check `--gpu-memory-utilization`, `--max-model-len` and `--max-num-seqs` against your GPU's memory.
 
 ## Recipe list, filters and pinned recipes
 
 The recipe list shows larger cards for quicker scanning. Use the top toolbar to:
 
-- **Search** across name, model, host, image and tag.
+- **Search** across name, model, description, host, image, container name, framework and tag.
 - **Filter by engine** (vLLM, SGLang, llama.cpp, MLX, TensorFold, Custom – derived automatically from your recipes).
 - **Filter by kind** (Models or Agents), by host and by tag.
-- **Sort** by name, status or port.
+- **Group** by host, by engine (Docker and native recipes of one engine together), by host → engine,
+  or by each recipe's first tag.
+- **Sort** by name, status, port or last-edited (*Edited*).
 
 Pinned recipes (★) appear in a dedicated “Pinned (always on top)” section at the top of the list. Blur and theme toggles live in the left sidebar.
 

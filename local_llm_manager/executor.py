@@ -24,8 +24,8 @@ from .docker import Docker, try_drop_caches_locally
 from .processes import ProcessError, ProcessRunner
 from .shares import HashCache, Shares, folder_bytes
 from .transfers import Tasks
-from .recipes import (GgufChoiceError, resolve_gguf, build_process_argv, build_run_argv, format_command, format_process_command, process_env,
-                      secret_names)
+from .recipes import (GgufChoiceError, UnknownPlaceholderError, resolve_gguf, build_process_argv, build_run_argv,
+                      check_placeholders, format_command, format_process_command, process_env, secret_names)
 
 # Matches a Hugging Face repo id: exactly one "/" with no path-like characters on either side.
 _HF_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -354,6 +354,10 @@ class LocalExecutor:
     async def start(self, recipe: dict) -> str:
         """Start a recipe that is not running. Returns a message (first line) + the command used."""
         name = recipe["container_name"]
+        try:
+            check_placeholders(recipe)  # also covers direct agent calls, without a hub in front
+        except UnknownPlaceholderError as e:
+            raise ActionError(str(e), 422)
         # The Manager already refused ports of running recipes; anything still listening is foreign.
         if await asyncio.to_thread(port_in_use, recipe["host_port"]):
             raise ActionError(f"Port {recipe['host_port']} on {socket.gethostname()} is already in use by a program "

@@ -70,6 +70,32 @@ def test_join_reject_validation_and_limit(client):
     assert client.post("/api/join", json=body(name="one-more", token="e" * 40)).status_code == 429
 
 
+def test_join_requests_expire_after_an_hour_and_a_week(client):
+    """The documented lifetimes: pending requests die after an hour without news from the agent,
+    rejected ones are kept (and block) for a week (DOC-23)."""
+    from datetime import datetime, timedelta
+    client.post("/api/join", json=body())
+    client.post("/api/join", json=body(name="old", token="b" * 40))
+    reqs = {r["name"]: r for r in client.get("/api/join-requests").json()}
+    now = datetime.now().astimezone()
+
+    def age(request_id, **delta):
+        client.app.state.db._execute("UPDATE join_requests SET last_seen = ? WHERE id = ?",
+                                     ((now - timedelta(**delta)).isoformat(timespec="seconds"), request_id))
+
+    age(reqs["old"]["id"], hours=2)  # pending, silent for two hours
+    names = [r["name"] for r in client.get("/api/join-requests").json()]
+    assert "spark3" in names and "old" not in names
+
+    client.post(f"/api/join-requests/{reqs['spark3']['id']}/reject")
+    age(reqs["spark3"]["id"], days=6)  # rejected six days ago: still blocked
+    assert client.post("/api/join", json=body()).json() == {"state": "rejected"}
+    assert any(r["name"] == "spark3" for r in client.get("/api/join-requests").json())
+    age(reqs["spark3"]["id"], days=8)  # rejected eight days ago: forgotten, may ask again
+    assert not any(r["name"] == "spark3" for r in client.get("/api/join-requests").json())
+    assert client.post("/api/join", json=body()).json()["state"] == "pending"
+
+
 def test_joiner_follows_the_hub(client, monkeypatch):
     monkeypatch.setattr(config, "AGENT_URL", "http://spark9:8090")
     monkeypatch.setattr(config, "AGENT_NAME", "spark9")

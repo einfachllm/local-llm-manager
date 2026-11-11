@@ -5,7 +5,8 @@
 name: hermes-agent-docker
 description: Hermes Agent gateway (Docker), no model or GPU
 framework: custom
-image: nousresearch/hermes-agent
+# Hermes changes fast, so this deliberately tracks :latest - pin a tag for reproducibility.
+image: nousresearch/hermes-agent:latest
 command: gateway run
 docker_args: --add-host=host.docker.internal:host-gateway
 env: |-

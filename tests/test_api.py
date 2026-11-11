@@ -107,9 +107,11 @@ def test_start_stop_restart(client, fake_docker):
     # Can't delete while running.
     assert client.delete(f"/api/recipes/{r['id']}").status_code == 409
 
-    # Edit + restart re-creates the container with the new args.
+    # Runtime fields are locked while the model runs (LEAD-07): stop, edit, start.
+    assert client.put(f"/api/recipes/{r['id']}", json=recipe_body(args="--max-model-len 1024")).status_code == 409
+    assert client.post(f"/api/recipes/{r['id']}/stop").status_code == 200
     client.put(f"/api/recipes/{r['id']}", json=recipe_body(args="--max-model-len 1024"))
-    assert client.post(f"/api/recipes/{r['id']}/restart").status_code == 200
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
     last_run = [c for c in fake_docker.calls if c[0] == "docker"][-1]
     assert last_run[-2:] == ["--max-model-len", "1024"]
     assert ["rm", "test-vllm"] in fake_docker.calls

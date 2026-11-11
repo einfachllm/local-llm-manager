@@ -41,7 +41,8 @@ class FakeDocker:
         return CommandResult(0, "abc123def456\n", "")
 
     async def list_images(self):
-        return [dict(i) for i in self.images]
+        # Like Docker.list_images, every entry carries a digests list (repo@sha256:... references).
+        return [{"digests": [], **dict(i)} for i in self.images]
 
     async def list_containers(self):
         if self.fail_list_containers:

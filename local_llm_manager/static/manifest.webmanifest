@@ -1,0 +1,14 @@
+{
+  "name": "Local LLM Manager",
+  "short_name": "LLM Manager",
+  "description": "Run, schedule and monitor local LLM serving recipes on your own machines.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d1424",
+  "theme_color": "#0d1424",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

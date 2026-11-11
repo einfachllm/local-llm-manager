@@ -26,7 +26,7 @@ jobs:
       - name: Ruff
         run: ruff check --output-format=github .
       - name: ShellCheck
-        run: shellcheck --severity=warning install.sh install-macos.sh run.sh
+        run: shellcheck --severity=warning install.sh install-macos.sh uninstall.sh uninstall-macos.sh run.sh
 
   test:
     name: Tests (Python ${{ matrix.python }}, ${{ matrix.os }})
@@ -51,7 +51,33 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install bash
       - run: pip install -r requirements-dev.txt
-      - run: python -m pytest -q
+      - name: Tests with coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: python -m pytest -q --cov=local_llm_manager --cov-report=xml --cov-report=term
+      - name: Tests
+        if: !(matrix.os == 'ubuntu-latest' && matrix.python == '3.12')
+        run: python -m pytest -q
+      - name: Coverage report
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage.xml
+
+  image:
+    name: Build Docker image (no push)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      # Catches Dockerfile breakage in PRs; publishing happens only in the release / Docker latest workflows.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   package:
     name: Build Python package

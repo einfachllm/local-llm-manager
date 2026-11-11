@@ -49,7 +49,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **pip installs seed and store data properly:** the wheel ships the seed example inside the package
   (`DGXM_SEED` works without the repository), and the default database path is `./data/manager.db`
   relative to the working directory as documented — not inside site-packages.
-
+- **The Linux installer no longer requires Docker:** `install.sh` only warns when `docker info` fails
+  (native-only setups work without Docker) and checks `${DGXM_DOCKER:-docker}`, so Podman users are not
+  blocked. Both `install.sh` and `run.sh` now refuse Python < 3.10 with a clear message instead of
+  failing later in the code; an existing venv on an older Python is recreated.
+- **macOS stops on configuration errors instead of looping:** launchd's `KeepAlive` restarted the manager
+  every few seconds when it refused a weak password or short token (exit 78). A generated wrapper now
+  leaves a `data/.config-fault` marker on exit 78, and `KeepAlive`'s `PathState` holds the job stopped
+  while the marker exists - fix `.env` and rerun `./install-macos.sh`. The installer also stops the
+  running agent before rebuilding the venv, verifies the start via `/healthz` (like the Linux installer)
+  and prints the log on failure; `uninstall-macos.sh` refuses to run under sudo.
+- **The Flash-Next example respects Tailscale mode:** `qwen38-flash-next-fp4.yaml` hardcoded
+  `--host 0.0.0.0` with `--network host`, so `DGXM_PUBLISH_IP=tailscale` did not limit its model port.
+  It now uses `--host {bind_host}` like the other host-network example.
+- **The Docker image builds on a tested Python:** the base image was `python:3.15-slim`, outside the CI
+  matrix (3.10-3.13); it is now `python:3.13-slim`, with a comment to bump base and matrix together.
+- **The Docker image reports its health:** a `HEALTHCHECK` against `/healthz` (30 s interval, 5 s timeout,
+  3 retries) lets `docker ps` and Compose show a sick manager. SECURITY.md now also spells out that the
+  Compose container runs as root - with the mounted Docker socket that is root on the host anyway.
+- **Pre-release tags no longer move the published docs:** `docs.yml` deployed every `v*` tag as `stable`,
+  so an RC like `v0.3.0-rc.1` would have replaced the release docs. Tags with a suffix now skip the
+  stable deploy, matching the release workflow's image tags.
 - **TensorFold live stats:** recipe cards and the Ports & endpoints table showed "waiting…" for TensorFold
   because its `/metrics` uses `tensorfold:` names. Tokens/s in and out, running / waiting requests, KV cache
   and prefix-cache hits are now read from them; generated tokens of requests still running are counted
@@ -115,6 +135,32 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rows, and `tests/test_examples.py` keeps folder and both tables in step - every file listed exactly once in
   each, every example importing without a warning, no server flag or mount set twice, the family sharing one
   port and served name, and no example naming a user's home directory.
+- **Compose runs on any host; NVIDIA and Tailscale are overrides:** the base `docker-compose.yml` no
+  longer reserves NVIDIA devices or mounts Tailscale paths (both broke hosts without them). Use
+  `docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d` for GPU readings in the
+  Hosts graph, and `-f docker-compose.tailscale.yml` for Tailscale mode; README and docs explain both.
+- **The Hermes example tracks `:latest` explicitly:** `nousresearch/hermes-agent:latest` with a comment
+  to pin a tag for reproducibility (Hermes changes fast).
+- **Example tests import for real:** every published starter script - `examples/recipes` and
+  `examples/hermes-agent` - is now run through the restricted import in the tests and validated against
+  the API model (`RecipeIn`), including the undefined-`$ARGS` Hermes starter; YAML drafts are validated
+  too. Only benign warnings are allowed.
+- **Documentation catches up with the UI:** the CPU temperature threshold in Several machines is 90 °C
+  (not 95 °C), the Quick start no longer claims imported scripts are never executed (the check executes
+  nothing; the import runs them restricted), the toolbar docs list the *Edited* sort, the group options
+  (host / engine / host → engine / tag) and the full search fields, and the Blur toggle is documented in
+  the left sidebar where it lives.
+- **CI checks more of what ships:** ShellCheck covers the uninstallers too; pull requests build the
+  Docker image without pushing it; the test run reports coverage (uploaded as an artifact, no
+  threshold); and the release workflow smoke-tests the image before publishing, like the manual
+  Docker-latest workflow already did.
+- **Bounded container logs and one GB everywhere:** Docker recipes get `--log-opt max-size=50m
+  --log-opt max-file=3` by default (a recipe's own `--log-opt` wins), and host memory readings are
+  decimal GB (1e9) like the Weights tab, so "GB" means one thing everywhere.
+- **Schedules see DST transitions:** the hub resolves its IANA zone (`TZ`, then the `/etc/localtime`
+  symlink, then `/etc/timezone`; fixed-offset fallback for UTC). A repeated autumn wall time fires once
+  for daily/weekly schedules (an hourly schedule keeps its rhythm), and a non-existent spring time like
+  02:30 runs at the transition (03:00). Documented in the README and the configuration reference.
 
 ### Removed
 - **Rows/tiles leftovers:** the layout toggle was removed earlier, but its dead rendering code, CSS and

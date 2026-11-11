@@ -1,5 +1,6 @@
 """FastAPI application: REST API + static web UI."""
 
+import asyncio
 import base64
 import ipaddress
 import logging
@@ -22,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from . import __version__, config, system
-from .db import Database, WeightExists, normalize_tags
+from .db import Database, WeightExists, canon_weight_path, normalize_tags
 from .docker import Docker
 from .importer import ScriptImportError, import_script
 from .recipefile import RecipeFileError, compact_recipe, dump_recipe_file, parse_recipe_file, recipe_from_file
@@ -35,8 +36,9 @@ from .health import RULES as HEALTH_RULES, HealthMonitor
 from .executor import transport_of
 from .joining import join_code
 from .shares import add_share_routes
-from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, build_run_argv, fill_weights, format_command,
-                      annotate_copies, format_process_command, quick_recipe, slug, split_args, synced_copy,
+from .recipes import (CARD_COLORS, FRAMEWORKS, KINDS, RUNTIMES, GgufChoiceError, UnknownPlaceholderError,
+                      annotate_copies, build_run_argv, check_placeholders, fill_weights, format_command,
+                      format_process_command, quick_recipe, resolve_gguf, slug, split_args, synced_copy,
                       uses_host_network)
 from .scheduler import ACTIONS, Scheduler, compute_next_run, local_now, parse_time, validate_cron
 from .timeline import build_timeline
@@ -476,6 +478,7 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         if run_scheduler:
             scheduler.start()
             health.start()
+            manager.resume_jobs()  # unfinished jobs from before the restart: follow them again
         yield
         await health.stop()
         await scheduler.stop()
@@ -879,16 +882,30 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             raise HTTPException(409, "Stop the model before renaming its container")
         if running and old["host_id"] != data["host_id"]:
             raise HTTPException(409, "Stop the model before moving it to another host")
+        if running:
+            # The running container/process keeps the settings it was started with: changing them
+            # here would silently diverge from what runs. Metadata stays editable.
+            for field in ("host_port", "container_port", "command", "args", "image", "env", "volumes",
+                          "docker_args", "gpus", "model", "weights_id", "framework", "runtime"):
+                if old.get(field) != data.get(field):
+                    raise HTTPException(409, f"Stop the model before changing {field} "
+                                             "(the running container keeps the old settings)")
         db.update_recipe(recipe_id, data)
         return db.get_recipe(recipe_id)
 
     @app.delete("/api/recipes/{recipe_id}", status_code=204)
     async def delete_recipe(recipe_id: int):
-        get_recipe_or_404(recipe_id)
+        r = get_recipe_or_404(recipe_id)
         status = await manager.recipe_status(recipe_id)
         if status["status"] in ("ready", "loading", "starting"):
             raise HTTPException(409, "Stop the model before deleting its recipe")
         db.delete_recipe(recipe_id)
+        # The on-disk state (logs, exit code, stop marker) is keyed by container name: remove it so
+        # a recipe created under the same name later does not inherit an old crash. Only when no
+        # other recipe uses the name (UNIQUE makes that impossible today - the guard is defensive).
+        # Local files only: a remote host keeps its own state until its own manager cleans it up.
+        if not any(x["container_name"] == r["container_name"] for x in db.list_recipes()):
+            manager.local.procs.cleanup_state(r["container_name"])
         return Response(status_code=204)
 
     @app.post("/api/recipes/{recipe_id}/duplicate", status_code=201)
@@ -1056,7 +1073,7 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         elif body.path:
             path = body.path
             weight = next((w for w in db.list_weights()
-                           if w["locations"].get(host_id, "").rstrip("/") == path.rstrip("/")), None)
+                           if canon_weight_path(w["locations"].get(host_id, "")) == canon_weight_path(path)), None)
         folder = path.rstrip("/").rsplit("/", 1)[-1]
         default_name = (weight["name"] if weight else re.sub(r"\.gguf$", "", folder, flags=re.I) if path
                         else body.model.rstrip("/").rsplit("/", 1)[-1])
@@ -1091,6 +1108,11 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             raise HTTPException(422, "; ".join(err["msg"] for err in e.errors()))
 
         preview = fill_weights(data, path or None)
+        try:
+            check_placeholders(preview)
+            preview = await asyncio.to_thread(resolve_gguf, preview)
+        except (UnknownPlaceholderError, GgufChoiceError) as e:
+            raise HTTPException(422, str(e))
         command = (format_process_command(preview) if data["runtime"] == "process"
                    else format_command(build_run_argv(preview)))
         if path and not weight:
@@ -1122,6 +1144,12 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         # {weights} as it would be filled on the recipe's host (still shown as {weights} when unset there).
         host_id = body.host_id or db.local_host_id()
         recipe = fill_weights(recipe, db.weight_path(body.weights_id, host_id))
+        # The preview shows what a start would run - including its refusals (CORE-06, UI-08).
+        try:
+            check_placeholders(recipe)
+            recipe = await asyncio.to_thread(resolve_gguf, recipe)
+        except (UnknownPlaceholderError, GgufChoiceError) as e:
+            raise HTTPException(422, str(e))
         if body.runtime == "process":
             return {"command": format_process_command(recipe)}
         return {"command": format_command(build_run_argv(recipe))}
@@ -1316,8 +1344,9 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     # ---- activity ------------------------------------------------------
 
     @app.get("/api/events")
-    async def events(limit: int = 200):
-        return db.list_events(max(1, min(limit, 2000)))
+    async def events(limit: int = 200, source: Optional[str] = None):
+        """The activity log, optionally filtered by source (e.g. ?source=health for the Health filter)."""
+        return db.list_events(max(1, min(limit, 2000)), source)
 
     @app.delete("/api/events", status_code=204)
     async def clear_events():

@@ -120,6 +120,14 @@ CREATE TABLE IF NOT EXISTS start_times (
     source     TEXT NOT NULL DEFAULT '',
     ts         TEXT NOT NULL
 );
+
+-- Background jobs (pull / download / copy / restart) as JSON, so a hub restart can pick up
+-- unfinished ones: the agents keep their transfers running, the hub follows them again.
+CREATE TABLE IF NOT EXISTS jobs (
+    id       TEXT PRIMARY KEY,
+    json     TEXT NOT NULL,
+    updated  TEXT NOT NULL
+);
 """
 
 # Stored in SQLite's user_version pragma so a future migration pass can tell which databases
@@ -188,6 +196,17 @@ def norm_weight_path(path: str) -> str:
     return re.sub(r"/{2,}", "/", (path or "").strip()).rstrip("/")
 
 
+def canon_weight_path(path: str) -> str:
+    """How weights paths are compared: expanduser + normpath, so `~/models/x`, `/home/u/models/x`,
+    `~/models/./x` and `~/models/x/` are one folder. Stored paths keep their `~` (portable between
+    hosts with other user names). Rest limitations: expanduser resolves against THIS machine's home,
+    so a remote host whose user has another name cannot be matched `~` vs absolute here; and case is
+    kept because Linux filesystems are case-sensitive (a case-insensitive macOS filesystem would
+    need a per-host casefold)."""
+    p = (path or "").strip()
+    return os.path.normpath(os.path.expanduser(p)) if p else ""
+
+
 # NOT NULL columns with a schema default; a missing or None input value would
 # otherwise be inserted as NULL and violate the constraint (create_recipe and
 # update_recipe always write the full RECIPE_FIELDS list).
@@ -250,9 +269,10 @@ class Database:
                                    "ON weights(name COLLATE NOCASE)")
             except sqlite3.IntegrityError:
                 pass
-            # Paths were stored as typed: `~/models/x/` and `~/models/x` are one folder.
-            self._conn.execute("UPDATE weight_locations SET path = RTRIM(TRIM(path), '/') "
-                               "WHERE LENGTH(path) > 1 AND path <> RTRIM(TRIM(path), '/')")
+            # Paths were stored as typed: `~/models/x/` and `~/models/x` are one folder, and so are
+            # `~/models//x` and `~/models/x` (one REPLACE pass collapses doubled slashes).
+            self._conn.execute("UPDATE weight_locations SET path = RTRIM(TRIM(REPLACE(path, '//', '/')), '/') "
+                               "WHERE LENGTH(path) > 1 AND path <> RTRIM(TRIM(REPLACE(path, '//', '/')), '/')")
             if not self._conn.execute("SELECT 1 FROM hosts WHERE url = ''").fetchone():
                 self._conn.execute("INSERT INTO hosts (name, url, token, created_at) VALUES (?, '', '', ?)",
                                    (socket.gethostname().split(".")[0] or "local", now_iso()))
@@ -313,6 +333,7 @@ class Database:
         self._execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
         # Copies of a deleted original become originals of their own.
         self._execute("UPDATE recipes SET copy_of = NULL WHERE copy_of = ?", (recipe_id,))
+        self.clear_pending_start(recipe_id)  # a start measurement of the deleted recipe is moot
 
     def set_copy_of(self, recipe_id: int, original_id: Optional[int]) -> None:
         self._execute("UPDATE recipes SET copy_of = ? WHERE id = ?", (original_id, recipe_id))
@@ -486,14 +507,14 @@ class Database:
 
     def _require_free_paths(self, locations: dict[int, str], skip_id: Optional[int] = None) -> None:
         """No second row pointing at a folder that another entry already has on that host."""
-        taken = {(l["host_id"], norm_weight_path(l["path"])): l["weight_id"]
+        taken = {(l["host_id"], canon_weight_path(l["path"])): l["weight_id"]
                  for l in self._query("SELECT weight_id, host_id, path FROM weight_locations")
-                 if l["weight_id"] != skip_id and norm_weight_path(l["path"])}
+                 if l["weight_id"] != skip_id and canon_weight_path(l["path"])}
         if not taken:
             return
         names = {w["id"]: w["name"] for w in self._query("SELECT id, name FROM weights")}
         for host_id, path in locations.items():
-            key = (host_id, norm_weight_path(path))
+            key = (host_id, canon_weight_path(path))
             if key[1] and key in taken:
                 raise WeightExists(f"'{key[1]}' is already registered on this host as "
                                    f"'{names.get(taken[key], '?')}': one folder is one row - pick that "
@@ -538,6 +559,21 @@ class Database:
     def delete_weight(self, weight_id: int) -> None:
         self._execute("DELETE FROM weights WHERE id = ?", (weight_id,))
 
+    # ---- background jobs ----------------------------------------------
+
+    def save_job(self, job: dict) -> None:
+        """Persist a job (created, on item state transitions, finished) - not on progress ticks."""
+        self._execute(
+            "INSERT INTO jobs (id, json, updated) VALUES (?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET json = excluded.json, updated = excluded.updated",
+            (job["id"], json.dumps(job), now_iso()))
+
+    def load_jobs(self) -> list[dict]:
+        return [json.loads(r["json"]) for r in self._query("SELECT json FROM jobs ORDER BY updated")]
+
+    def delete_job(self, job_id: str) -> None:
+        self._execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+
     # ---- events --------------------------------------------------------
 
     def add_event(self, source: str, action: str, ok: bool, message: str = "",
@@ -547,7 +583,9 @@ class Database:
             (now_iso(), source, action, recipe_id, target, int(ok), message),
         )
 
-    def list_events(self, limit: int = 200) -> list[dict]:
+    def list_events(self, limit: int = 200, source: Optional[str] = None) -> list[dict]:
+        if source:
+            return self._query("SELECT * FROM events WHERE source = ? ORDER BY id DESC LIMIT ?", (source, limit))
         return self._query("SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,))
 
     def clear_events(self) -> None:

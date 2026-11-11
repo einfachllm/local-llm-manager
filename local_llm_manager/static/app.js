@@ -20,7 +20,7 @@ async function api(path, opts = {}) {
   let data = text;
   try { data = JSON.parse(text); } catch { /* plain text */ }
   if (!res.ok) {
-    let msg = data?.detail ?? data ?? res.statusText;
+    let msg = (data?.detail ?? data) || res.statusText || `HTTP ${res.status}`;  // empty body → still a message
     if (Array.isArray(msg)) msg = msg.map((e) => `${(e.loc || []).slice(1).join(".")}: ${e.msg}`).join("\n");
     throw Object.assign(new Error(msg), { status: res.status });
   }
@@ -35,10 +35,30 @@ function toast(msg, kind = "") {
   setTimeout(() => el.remove(), kind === "bad" ? 9000 : 4500);
 }
 
+// One submit at a time per form: a double click must not create two schedules or two transfer jobs.
+// The button stays disabled until the async handler settles (success closes the dialog, errors show
+// inside it); the label is restored either way.
+function oneSubmit(form, handler) {
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const btn = ev.submitter || form.querySelector('[type="submit"]');
+    if (btn?.disabled) return;
+    if (btn) btn.disabled = true;
+    try { await handler(ev); } finally { if (btn) btn.disabled = false; }
+  });
+}
+
 function fmtTime(iso) {
   if (!iso) return "–";
   const d = new Date(iso);
-  return isNaN(d) ? iso : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return isNaN(d) ? iso : fmtHub(d, { dateStyle: "medium", timeStyle: "short" });
+}
+// Times are shown in the hub's zone (README: "all schedule times are in the hub's time zone"); the
+// offset comes from /api/meta. Without a parseable offset, fall back to the browser's zone.
+function fmtHub(d, opts) {
+  const off = hubOffsetMinutes();
+  if (off == null) return d.toLocaleString(undefined, opts);
+  return new Date(d.getTime() + off * 60000).toLocaleString(undefined, { ...opts, timeZone: "UTC" });
 }
 
 /* ---------------- tabs ---------------- */
@@ -72,7 +92,22 @@ $("#nav-scrim").addEventListener("click", closeNav);
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeNav(); });
 window.addEventListener("resize", () => { if (window.innerWidth > 900) closeNav(); });
 
-$$("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
+// Dialogs with unsaved edits ask before discarding them (Esc, × and Cancel). Programmatic closes
+// after a successful save are not guarded. "dirty" is set by user input only, cleared on close.
+$$("dialog form").forEach((form) => {
+  form.addEventListener("input", () => { form.dataset.dirty = "1"; });
+});
+$$("dialog").forEach((dlg) => {
+  dlg.addEventListener("close", () => { const f = dlg.querySelector("form"); if (f) delete f.dataset.dirty; });
+  dlg.addEventListener("cancel", (ev) => {  // Esc
+    if (dlg.querySelector("form")?.dataset.dirty && !confirm("Discard unsaved changes?")) ev.preventDefault();
+  });
+});
+$$("[data-close]").forEach((b) => b.addEventListener("click", () => {
+  const dlg = b.closest("dialog");
+  if (dlg.querySelector("form")?.dataset.dirty && !confirm("Discard unsaved changes?")) return;
+  dlg.close();
+}));
 
 /* ---------------- hosts ---------------- */
 
@@ -98,7 +133,9 @@ function maskAddr(name) {
   if (!s) return "–";
   if (!state.blur) return s;
   if (s === "localhost" || s === "127.0.0.1" || s === "::1") return s;
-  return `${/^(?:\d{1,3}\.){3}\d{1,3}$/.test(s) ? "ip" : "host"}-${aliasHash(s.toLowerCase())}`;
+  // IPv4, IPv6 (incl. IPv4-mapped ::ffff:a.b.c.d) and MAC-like hex tokens all become "ip-…".
+  const isIP = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(s) || (s.includes(":") && /^[0-9a-fA-F:.]+$/.test(s));
+  return `${isIP ? "ip" : "host"}-${aliasHash(s.toLowerCase())}`;
 }
 function maskUrl(url) {
   if (!url) return "–";
@@ -136,11 +173,18 @@ function blurHostNames(str) {
   for (const n of names) str = str.split(n).join(maskAddr(n));
   return str;
 }
-// Mask bare IPv4 addresses inside free text (e.g. activity log messages).
+// Mask bare IP addresses (IPv4 and IPv6) inside free text (e.g. activity log messages).
 function blurText(s) {
   const str = String(s ?? "");
   if (!state.blur) return str;
-  return str.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, (m) => maskAddr(m));
+  return str
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, (m) => maskAddr(m))
+    .replace(/(?:[0-9a-fA-F]{0,4}:){2,}[0-9a-fA-F]{0,4}(?:\.\d{1,3}){0,3}/g, (m) => {
+      // A hex-colon token is only masked when it looks like an address: "::" compression, four or
+      // more groups, or letters in three groups (MAC-like). Clock times such as 12:34:56 stay.
+      const groups = m.split(":").length;
+      return m.includes("::") || groups >= 4 || (groups === 3 && /[a-fA-F]/.test(m)) ? maskAddr(m) : m;
+    });
 }
 function memPct(m) { return m.total_gb ? (m.used_gb / m.total_gb) * 100 : 0; }
 // CPU temperature (°C) from a host's readings; null when the machine reports none (e.g. macOS, older agents).
@@ -193,10 +237,15 @@ function endpointHost(hostId) {
   return location.hostname;
 }
 
+let hostsSeq = 0;
 async function loadHosts() {
+  const seq = ++hostsSeq;
   try {
-    [state.hosts, state.joins] = await Promise.all([api("/api/hosts"), api("/api/join-requests").catch(() => state.joins ?? [])]);
-  } catch { return; }
+    const [hosts, joins] = await Promise.all([api("/api/hosts"), api("/api/join-requests").catch(() => state.joins ?? [])]);
+    if (seq !== hostsSeq) return;  // stale answer: a newer load won
+    state.hosts = hosts; state.joins = joins;
+    pollOk();
+  } catch { pollFailed(); return; }
   renderHostsStrip();
   renderHostOptions();
   renderJoinRequests();
@@ -231,7 +280,7 @@ $("#join-requests").addEventListener("click", async (ev) => {
   const r = state.joins.find((x) => x.id === id);
   try {
     if (b.dataset.joinAct === "approve") {
-      if (!confirm(`Add “${r.name}” (${r.url})?\n\nOnly if the machine shows the code ${r.code}.`)) return;
+      if (!confirm(`Add “${maskAddr(r.name)}” (${maskUrl(r.url)})?\n\nOnly if the machine shows the code ${r.code}.`)) return;
       let res;
       try {
         res = await api(`/api/join-requests/${id}/approve`, { method: "POST", body: {} });
@@ -241,9 +290,9 @@ $("#join-requests").addEventListener("click", async (ev) => {
         if (!name) return;
         res = await api(`/api/join-requests/${id}/approve`, { method: "POST", body: { name } });
       }
-      toast(`${res.name} added${res.online ? "" : " – not reachable yet at its address"}`, res.online ? "ok" : "bad");
+      toast(`${maskAddr(res.name)} added${res.online ? "" : " – not reachable yet at its address"}`, res.online ? "ok" : "bad");
     } else {
-      if (!confirm(`Reject “${r.name}” (code ${r.code})? It is blocked for a week.`)) return;
+      if (!confirm(`Reject “${maskAddr(r.name)}” (code ${r.code})? It is blocked for a week.`)) return;
       await api(`/api/join-requests/${id}/reject`, { method: "POST" });
     }
     loadHosts();
@@ -255,7 +304,7 @@ function healthBadge(h) {
   if (!live.length) return "";
   const crit = live.some((f) => f.severity === "critical");
   const lines = live.map((f) => `${SEV_ICON[f.severity]} ${f.title}: ${f.message}`).join("\n");
-  return `<span class="host-badge${crit ? " crit" : ""}" title="${esc(blurText(lines))}">${crit ? "✖" : "⚠"} ${live.length}</span>`;
+  return `<span class="host-badge${crit ? " crit" : ""}" title="${esc(blurHostText(lines))}">${crit ? "✖" : "⚠"} ${live.length}</span>`;
 }
 
 function renderHostsStrip() {
@@ -302,6 +351,9 @@ $("#btn-blur").addEventListener("click", () => {
   if (state.tab === "activity") loadEvents();
   if (state.tab === "images") renderImages();
   if (state.tab === "models") renderWeights();
+  renderJoinRequests();
+  renderJobs();
+  if ($("#dlg-logs").open) renderLogs();
 });
 renderBlurToggle();
 
@@ -369,7 +421,7 @@ function topoNode(h, role) {
     const busy = state.busy.get(r.id);
     const running = RUNNING.includes(r.status);
     const why = r.status === "failed" ? (r.findings || []).find((f) => !f.muted)?.message ?? "" : "";
-    const logs = `<button type="button" class="btn small ghost" data-tact="logs" ${r.container ? "" : "disabled title=\"No container log yet\""}>Logs</button>`;
+    const logs = `<button type="button" class="btn small ghost" data-tact="logs" ${r.container ? "" : "disabled title=\"No logs yet (never started / host offline)\""}>Logs</button>`;
     const acts = busy ? `<span class="topo-busy">${esc(busy)}</span>`
       : r.status === "failed" ? `<button type="button" class="btn small go" data-tact="start">Retry</button>${logs}`
       : running ? `${agent ? "" : `<button type="button" class="btn small ghost" data-tact="copy" title="Copy endpoint">Copy</button>`}
@@ -487,7 +539,7 @@ $("#topology").addEventListener("click", async (ev) => {
     const act = ract.dataset.tact;
     if (act === "start") {
       const res = await runAction(id, `/api/recipes/${id}/start`, null, await startBusyLabel(r));
-      if (res instanceof Error && /memory/i.test(res.message) && confirm(`${res.message}\n\nStart anyway?`)) {
+      if (res instanceof Error && /memory/i.test(res.message) && confirm(`${blurHostText(res.message)}\n\nStart anyway?`)) {
         await runAction(id, `/api/recipes/${id}/start?force=true`, null, "Starting…");
       }
     } else if (act === "stop") {
@@ -506,9 +558,9 @@ $("#topology").addEventListener("click", async (ev) => {
     if (hact.disabled) return;
     const act = hact.dataset.hact;
     if (act === "stop-all") {
-      if (confirm(`Stop all models on ${h.name}?`)) await runAction(`host-${h.id}`, `/api/system/stop-all?host_id=${h.id}`, null, "Stopping all…");
+      if (confirm(`Stop all models on ${maskAddr(h.name)}?`)) await runAction(`host-${h.id}`, `/api/system/stop-all?host_id=${h.id}`, null, "Stopping all…");
     } else if (act === "free") {
-      if (confirm(`Stop all models on ${h.name} and drop its page cache?`)) await runAction(`host-${h.id}`, `/api/system/free-memory?host_id=${h.id}`, null, "Freeing memory…");
+      if (confirm(`Stop all models on ${maskAddr(h.name)} and drop its page cache?`)) await runAction(`host-${h.id}`, `/api/system/free-memory?host_id=${h.id}`, null, "Freeing memory…");
     } else if (act === "recheck") {
       state.busy.set(`host-${h.id}`, "Checking…");
       renderTopology();
@@ -516,7 +568,7 @@ $("#topology").addEventListener("click", async (ev) => {
       state.busy.delete(`host-${h.id}`);
       renderTopology();
       const now = hostById(h.id);
-      toast(now?.online ? `${now.name} is online` : `${h.name} is still not reachable`, now?.online ? "ok" : "bad");
+      toast(now?.online ? `${maskAddr(now.name)} is online` : `${maskAddr(h.name)} is still not reachable`, now?.online ? "ok" : "bad");
     }
     return;
   }
@@ -563,9 +615,9 @@ $("#hosts").addEventListener("click", async (ev) => {
   const h = hostById(btn.closest("tr").dataset.id);
   const act = btn.dataset.act;
   if (act === "stop-all") {
-    if (confirm(`Stop all models on ${h.name}?`)) await runAction(`host-${h.id}`, `/api/system/stop-all?host_id=${h.id}`);
+    if (confirm(`Stop all models on ${maskAddr(h.name)}?`)) await runAction(`host-${h.id}`, `/api/system/stop-all?host_id=${h.id}`);
   } else if (act === "free") {
-    if (confirm(`Stop all models on ${h.name} and drop its page cache?`)) await runAction(`host-${h.id}`, `/api/system/free-memory?host_id=${h.id}`);
+    if (confirm(`Stop all models on ${maskAddr(h.name)} and drop its page cache?`)) await runAction(`host-${h.id}`, `/api/system/free-memory?host_id=${h.id}`);
   } else if (act === "edit") {
     openHostEditor(h);
     return;
@@ -577,7 +629,7 @@ $("#hosts").addEventListener("click", async (ev) => {
 });
 
 async function removeHost(h) {
-  if (!confirm(`Remove host ${h.name} from this dashboard? (Nothing is changed on the machine.)`)) return;
+  if (!confirm(`Remove host ${maskAddr(h.name)} from this dashboard? (Nothing is changed on the machine.)`)) return;
   try {
     await api(`/api/hosts/${h.id}`, { method: "DELETE" });
     $("#dlg-host").close();
@@ -597,7 +649,7 @@ function openHostEditor(h) {
   editingHost = h;
   hostForm.reset();
   $("#host-error").textContent = "";
-  $("#host-title").textContent = h ? `Edit host – ${h.name}` : "Add host";
+  $("#host-title").textContent = h ? `Edit host – ${maskAddr(h.name)}` : "Add host";
   hostForm.elements.name.value = h?.name ?? "";
   hostForm.elements.url.value = h?.url ?? "";
   const local = h?.is_local;
@@ -611,7 +663,7 @@ function openHostEditor(h) {
 $("#btn-new-host").addEventListener("click", () => openHostEditor(null));
 $("#btn-delete-host").addEventListener("click", () => { if (editingHost) removeHost(editingHost); });
 
-hostForm.addEventListener("submit", async (ev) => {
+oneSubmit(hostForm, async (ev) => {
   ev.preventDefault();
   const body = { name: hostForm.elements.name.value, url: hostForm.elements.url.value, token: hostForm.elements.token.value };
   try {
@@ -619,7 +671,7 @@ hostForm.addEventListener("submit", async (ev) => {
       ? await api(`/api/hosts/${editingHost.id}`, { method: "PUT", body })
       : await api("/api/hosts", { method: "POST", body });
     $("#dlg-host").close();
-    toast(h.online ? `${h.name} is online` : `Saved, but ${h.name} is not reachable: ${h.error}`, h.online ? "ok" : "bad");
+    toast(h.online ? `${maskAddr(h.name)} is online` : `Saved, but ${maskAddr(h.name)} is not reachable: ${blurHostText(h.error)}`, h.online ? "ok" : "bad");
     await loadHosts();
     loadRecipes();
   } catch (e) {
@@ -629,15 +681,33 @@ hostForm.addEventListener("submit", async (ev) => {
 
 /* ---------------- recipes ---------------- */
 
+// UI-14: a small topbar badge when the hub stops answering (repeated poll failures), gone on recovery.
+let pollFails = 0;
+function pollOk() { pollFails = 0; $("#conn-state").classList.add("hidden"); }
+function pollFailed() {
+  if (++pollFails >= 2) {
+    const el = $("#conn-state");
+    el.classList.remove("hidden");
+    el.title = "The hub is not answering — check the network and the hub service.";
+  }
+}
+
+let recipesSeq = 0;
 async function loadRecipes() {
+  const seq = ++recipesSeq;
   try {
-    state.recipes = await api("/api/recipes");
+    const data = await api("/api/recipes");
+    if (seq !== recipesSeq) return;  // a newer load already answered: don't overwrite with stale data
+    state.recipes = data;
+    pollOk();
     recordMetrics(state.recipes);
     if (watchStarts(state.recipes)) await loadStartTimes();  // a boot just finished
     renderRecipes();
     if (state.hosts.length) renderHostsStrip();  // its health badges count the recipes' findings
     if (state.tab === "hosts") { renderTopology(); renderPorts(); }
   } catch (e) {
+    if (seq !== recipesSeq) return;
+    pollFailed();
     $("#recipes").innerHTML = `<div class="empty">Failed to load recipes: ${esc(e.message)}</div>`;
   }
 }
@@ -667,6 +737,14 @@ function watchStarts(recipes) {
     if (!booting && startWatch.has(r.id)) { startWatch.delete(r.id); finished = true; }
   }
   return finished;
+}
+// Update only the ⏳ nodes of booting cards (the 1 s tick); the full render stays with the 5 s poll.
+function tickStartElapsed() {
+  for (const [id, ts] of startWatch) {
+    for (const el of document.querySelectorAll(`.card[data-id="${id}"] .start-live`)) {
+      el.textContent = `⏳ ${fmtDur((Date.now() - ts) / 1000)}`;
+    }
+  }
 }
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
 function fmtDur(s) {
@@ -773,6 +851,8 @@ const sparkHist = new Map();
 const SPARK_MAX = 40;   // ~3–4 min at the 5 s poll
 function recordMetrics(recipes) {
   const now = Date.now();
+  const ids = new Set(recipes.map((r) => r.id));
+  for (const id of sparkHist.keys()) if (!ids.has(id)) sparkHist.delete(id);  // deleted recipes don't pile up
   for (const r of recipes) {
     const v = r.metrics?.gen_tps;
     if (!RUNNING.includes(r.status) || v == null) continue;
@@ -915,15 +995,18 @@ function findingTitle(f) {
 function findingChips(list, short = false) {
   return (list || []).map((f) => `<button type="button" class="hf ${f.severity}${f.muted ? " muted" : ""}"
       data-act="${f.muted ? "unmute" : "finding"}" data-key="${esc(f.key)}"
-      title="${esc(blurText(findingTitle(f)))}">${f.muted ? "🔕" : SEV_ICON[f.severity]} ${esc(short && f.recipe_id ? `${f.label} · ${f.target}` : f.label)}</button>`).join("");
+      title="${esc(blurHostText(findingTitle(f)))}">${f.muted ? "🔕" : SEV_ICON[f.severity]} ${esc(blurHostText(short && f.recipe_id ? `${f.label} · ${f.target}` : f.label))}</button>`).join("");
 }
-// What happened, why, what helps - under the card, for findings that are not muted.
+// What happened, why, what helps - under the card. Muted findings stay visible but dimmed: muting
+// hides the nag, not the cause (a failed card must still say why it failed).
 function findingDetails(list) {
-  return liveFindings(list).map((f) => `<div class="hf-box ${f.severity}">
-      <b>${SEV_ICON[f.severity]} ${esc(f.title)}</b> – ${esc(blurText(f.message))}
-      ${f.detail ? `<code class="hf-detail">${esc(blurText(f.detail))}</code>` : ""}
+  return (list || []).map((f) => `<div class="hf-box ${f.severity}${f.muted ? " muted" : ""}">
+      <b>${f.muted ? "🔕" : SEV_ICON[f.severity]} ${esc(f.title)}</b> – ${esc(blurHostText(f.message))}
+      ${f.detail ? `<code class="hf-detail">${esc(blurHostText(f.detail))}</code>` : ""}
       <div class="hf-why">${esc(f.hint)}</div>
-      <div class="hf-act"><button type="button" class="btn small ghost" data-act="mute" data-key="${esc(f.key)}" title="Hide this finding for 24 hours (it stays listed, dimmed)">Mute 24 h</button></div>
+      <div class="hf-act">${f.muted
+        ? `<button type="button" class="btn small ghost" data-act="unmute" data-key="${esc(f.key)}" title="Show this finding again">Unmute</button>`
+        : `<button type="button" class="btn small ghost" data-act="mute" data-key="${esc(f.key)}" title="Hide this finding for 24 hours (it stays listed, dimmed)">Mute 24 h</button>`}</div>
     </div>`).join("");
 }
 // Host findings plus those of the recipes on that host.
@@ -1298,7 +1381,7 @@ async function handleRecipeCardsClick(ev) {
   const act = btn.dataset.act;
   if (act === "start") {
     const res = await runAction(id, `/api/recipes/${id}/start`, null, await startBusyLabel(r));
-    if (res instanceof Error && /memory/i.test(res.message) && confirm(`${res.message}\n\nStart anyway?`)) {
+    if (res instanceof Error && /memory/i.test(res.message) && confirm(`${blurHostText(res.message)}\n\nStart anyway?`)) {
       await runAction(id, `/api/recipes/${id}/start?force=true`, null, "Starting…");
     }
   } else if (act === "stop") {
@@ -1306,7 +1389,7 @@ async function handleRecipeCardsClick(ev) {
   } else if (act === "restart") {
     await runAction(id, `/api/recipes/${id}/restart`, null, "Restarting…");
   } else if (act === "switch") {
-    if (confirm(`Stop all other models, free memory and start “${r.name}”?`)) {
+    if (confirm(`Stop all other models, free memory and start “${recipeTitle(r)}”?`)) {
       const label = await startBusyLabel(r);
       await runAction(id, `/api/recipes/${id}/switch`, null, label === "Pulling image…" ? label : "Switching…");
     }
@@ -1333,7 +1416,7 @@ async function handleRecipeCardsClick(ev) {
   } else if (act === "sync") {
     await syncCopies(r.id);
   } else if (act === "unlink") {
-    if (!confirm(`Unlink “${r.name}” from its original? It keeps its settings, and syncing no longer changes it.`)) return;
+    if (!confirm(`Unlink “${recipeTitle(r)}” from its original? It keeps its settings, and syncing no longer changes it.`)) return;
     try { await api(`/api/recipes/${id}/unlink`, { method: "POST" }); await loadRecipes(); } catch (e) { toast(e.message, "bad"); }
   } else if (act === "pin") {
     try {
@@ -1341,7 +1424,7 @@ async function handleRecipeCardsClick(ev) {
       await loadRecipes();
     } catch (e) { toast(e.message, "bad"); }
   } else if (act === "delete") {
-    if (!confirm(`Delete recipe “${r.name}”? Schedules using it are deleted too.`)) return;
+    if (!confirm(`Delete recipe “${recipeTitle(r)}”? Schedules using it are deleted too.`)) return;
     try {
       await api(`/api/recipes/${id}`, { method: "DELETE" });
       toast("Recipe deleted", "ok");
@@ -1397,6 +1480,7 @@ function renderFrameworkOptions(runtime, keep) {
 function syncRuntime() {
   const native = recipeForm.elements.runtime.value === "process";
   $$(".docker-only", recipeForm).forEach((el) => el.classList.toggle("hidden", native));
+  recipeForm.elements.container_port.required = !native;  // docker needs it; native mirrors host_port
   $("#name-label").textContent = native ? "Process name" : "Container name";
   $("#port-label").textContent = native ? "Port" : "Host port";
   $("#model-hint").textContent = native ? "HF id or local path (~ allowed)" : "HF id or path inside the container";
@@ -1425,7 +1509,7 @@ function setKind(kind, adjust) {
   f.health_path.placeholder = agent ? "none: running = process/container is up" : "/health";
   $("#port-label").textContent = agent ? "Port (placeholder if it listens on none)" : f.runtime.value === "process" ? "Port" : "Host port";
   const noun = agent ? "agent" : "recipe";
-  $("#recipe-title").textContent = editingRecipe ? `Edit ${noun} – ${editingRecipe.name}` : `New ${noun}`;
+  $("#recipe-title").textContent = editingRecipe ? `Edit ${noun} – ${recipeTitle(editingRecipe)}` : `New ${noun}`;
 }
 
 $("#kind-seg").addEventListener("click", (ev) => {
@@ -1764,7 +1848,7 @@ $("#btn-export-apply").addEventListener("click", async () => {
   }
 });
 
-recipeForm.addEventListener("submit", async (ev) => {
+oneSubmit(recipeForm, async (ev) => {
   ev.preventDefault();
   const body = recipeFromForm();
   try {
@@ -1777,7 +1861,7 @@ recipeForm.addEventListener("submit", async (ev) => {
     $("#dlg-recipe").close();
     toast("Recipe saved", "ok");
     const copies = editingRecipe ? state.recipes.filter((x) => x.copy_of === editingRecipe.id) : [];
-    if (copies.length && confirm(`“${saved.name}” has ${copies.length} cop${copies.length === 1 ? "y" : "ies"} on other hosts. Update ${copies.length === 1 ? "it" : "them"} too?`)) {
+    if (copies.length && confirm(`“${recipeTitle(saved)}” has ${copies.length} cop${copies.length === 1 ? "y" : "ies"} on other hosts. Update ${copies.length === 1 ? "it" : "them"} too?`)) {
       await syncCopies(saved.id);
     }
     const wasRunning = editingRecipe && ["ready", "loading", "starting"].includes(editingRecipe.status);
@@ -2103,7 +2187,7 @@ async function afterWeightsChange() {
   renderRecipes();
 }
 
-$("#form-weight").addEventListener("submit", async (ev) => {
+oneSubmit($("#form-weight"), async (ev) => {
   ev.preventDefault();
   const form = ev.target;
   const locations = Object.fromEntries($$("#weight-paths input").map((i) => [i.dataset.host, i.value.trim()]).filter(([, v]) => v));
@@ -2314,7 +2398,7 @@ const JOB_DONE = { restart: "started", pull: "pulled", download: "done", copy: "
 function jobItemState(j, i) {
   if (i.state === "failed") return "failed";
   if (i.state === "waiting") return "waiting";
-  if (i.state === "running") return j.kind === "restart" ? "restarting…" : esc(blurText(i.progress || "running…")).slice(0, 60);
+  if (i.state === "running") return j.kind === "restart" ? "restarting…" : esc(blurHostText(i.progress || "running…").slice(0, 60));
   if (i.message === "already there") return "already there";
   const size = (i.progress || "").match(/([\d.]+) GB(?!.*GB)/)?.[1];
   return `${JOB_DONE[j.kind] ?? "done"}${(j.kind === "download" || j.kind === "copy") && size ? ` · ${size} GB` : ""}`;
@@ -2388,7 +2472,7 @@ function updateTransferWarning() {
 $("#transfer-hosts").addEventListener("change", updateTransferWarning);
 $("#form-transfer").elements.once.addEventListener("change", updateTransferWarning);
 
-$("#form-transfer").addEventListener("submit", async (ev) => {
+oneSubmit($("#form-transfer"), async (ev) => {
   ev.preventDefault();
   const f = ev.target.elements;
   const host_ids = $$("#transfer-hosts input:checked").map((i) => Number(i.value));
@@ -2421,35 +2505,41 @@ function renderJobs() {
         <span>${i.name ? `${esc(recipeTitle({ ...i, copy_of: 1 }))}${multiHost() ? ` <span class="muted">⌂ ${esc(maskAddr(hostName(i.host_id)))}</span>` : ""}`
           : `⌂ ${esc(maskAddr(hostName(i.host_id)))}`}</span>
         <span class="muted">${jobItemState(j, i)}</span>
-        ${i.state === "failed" ? `<span class="job-msg bad">${esc(blurText(i.message))}</span>` : ""}</div>`).join("")}
+        ${i.state === "failed" ? `<span class="job-msg bad">${esc(blurHostText(i.message))}</span>` : ""}</div>`).join("")}
     </div>`;
   }).join("");
 }
 
+let jobsPolling = false;
 async function pollJobs() {
   clearTimeout(jobTimer);
+  if (jobsPolling) return;  // one loop at a time: showJob/resumeJobs must not stack a second one
   const open = [...jobs.values()].filter((j) => !j.done);
   if (!open.length) return;
-  for (const j of open) {
-    try {
-      const fresh = await api(`/api/jobs/${j.id}`);
-      jobs.set(j.id, fresh);
-      if (fresh.done) {
-        const failed = fresh.items.filter((i) => i.state === "failed").length;
-        toast(`${fresh.title}: ${failed ? `${failed} failed` : `all ${JOB_DONE[fresh.kind] ?? "done"}`}`, failed ? "bad" : "ok");
-        afterJob(fresh);
-        closedJobs.add(fresh.id);
-        // Successful jobs close themselves; failed ones stay until closed, so the reason can be read.
-        if (!failed) setTimeout(() => { jobs.delete(fresh.id); renderJobs(); }, 30000);
+  jobsPolling = true;
+  try {
+    for (const j of open) {
+      try {
+        const fresh = await api(`/api/jobs/${j.id}`);
+        jobs.set(j.id, fresh);
+        if (fresh.done) {
+          const failed = fresh.items.filter((i) => i.state === "failed").length;
+          toast(`${fresh.title}: ${failed ? `${failed} failed` : `all ${JOB_DONE[fresh.kind] ?? "done"}`}`, failed ? "bad" : "ok");
+          afterJob(fresh);
+          closedJobs.add(fresh.id);
+          if (closedJobs.size > 20) closedJobs.delete(closedJobs.values().next().value);  // bounded
+          // Successful jobs close themselves; failed ones stay until closed, so the reason can be read.
+          if (!failed) setTimeout(() => { jobs.delete(fresh.id); renderJobs(); }, 30000);
+        }
+      } catch (e) {
+        // 404: the manager restarted and the job is gone. Anything else (network down while the computer
+        // slept, hub busy) is temporary: keep the job and ask again.
+        if (e.status === 404) jobs.delete(j.id);
       }
-    } catch (e) {
-      // 404: the manager restarted and the job is gone. Anything else (network down while the computer
-      // slept, hub busy) is temporary: keep the job and ask again.
-      if (e.status === 404) jobs.delete(j.id);
     }
-  }
-  renderJobs();
-  jobTimer = setTimeout(pollJobs, 1500);
+    renderJobs();
+  } finally { jobsPolling = false; }
+  if (!document.hidden) jobTimer = setTimeout(pollJobs, 1500);  // hidden tab: resume via visibilitychange
 }
 
 $("#jobs").addEventListener("click", (ev) => {
@@ -2485,7 +2575,7 @@ let copyFrom = null;
 
 async function openCopyTo(r) {
   copyFrom = r.copy_of ? state.recipes.find((x) => x.id === r.copy_of) || r : r;
-  $("#copy-title").textContent = `Copy “${copyFrom.name}” to other hosts`;
+  $("#copy-title").textContent = `Copy “${recipeTitle(copyFrom)}” to other hosts`;
   $("#copy-error").textContent = "";
   const hosts = state.hosts.filter((h) => h.id !== copyFrom.host_id);
   const box = $("#copy-hosts");
@@ -2517,7 +2607,7 @@ async function openCopyTo(r) {
   }
 }
 
-$("#form-copy").addEventListener("submit", async (ev) => {
+oneSubmit($("#form-copy"), async (ev) => {
   ev.preventDefault();
   const ids = $$("#copy-hosts input:checked").map((i) => Number(i.value));
   if (!ids.length) { $("#copy-error").textContent = "Pick at least one host."; return; }
@@ -2573,7 +2663,8 @@ function renderLogs() {
   const lines = filter ? logLines.filter((l) => l.toLowerCase().includes(filter)) : logLines;
   $("#logs").innerHTML = lines.map((l) => {
     const c = logClass(l);
-    return c ? `<span class="${c}">${esc(l)}</span>` : esc(l);
+    const text = esc(blurHostText(l));  // engine logs carry host names and IPs too
+    return c ? `<span class="${c}">${text}</span>` : text;
   }).join("\n");
   if ($("#logs-follow").checked) $("#logs").scrollTop = $("#logs").scrollHeight;
 }
@@ -2585,36 +2676,62 @@ function scheduleLogRender() {
   requestAnimationFrame(() => { renderPending = false; renderLogs(); });
 }
 
+let logRetries = 0, logRetryTimer = null, logRecipeId = null;
 function openLogs(r) {
   closeLogStream();
   logLines = [];
-  $("#logs-title").textContent = `Logs – ${r.name}`;
+  $("#logs-title").textContent = `Logs – ${recipeTitle(r)}`;
   $("#logs").textContent = "";
   $("#logs-state").textContent = "connecting";
   $("#logs-state").className = "pill loading";
   $("#dlg-logs").showModal();
   $("#dlg-logs").dataset.name = r.container_name;
-  logSource = new EventSource(`/api/recipes/${r.id}/logs/stream?tail=1000`);
-  logSource.onopen = () => { $("#logs-state").textContent = "live"; $("#logs-state").className = "pill ready"; };
+  $("#dlg-logs").dataset.runtime = r.runtime || "docker";
+  logRetries = 0;
+  connectLogStream(r.id);
+}
+
+function connectLogStream(id) {
+  logRecipeId = id;
+  logSource = new EventSource(`/api/recipes/${id}/logs/stream?tail=1000`);
+  logSource.onopen = () => {
+    logRetries = 0;
+    $("#logs-state").textContent = "live"; $("#logs-state").className = "pill ready";
+  };
   logSource.onmessage = (e) => {
     logLines.push(e.data);
     if (logLines.length > MAX_LOG_LINES) logLines.splice(0, logLines.length - MAX_LOG_LINES);
     scheduleLogRender();
   };
   logSource.addEventListener("end", () => {
-    $("#logs-state").textContent = "container stopped";
+    $("#logs-state").textContent = $("#dlg-logs").dataset.runtime === "process" ? "process stopped" : "container stopped";
     $("#logs-state").className = "pill";
     closeLogStream();
   });
   logSource.onerror = () => {
     if (!logSource) return;
-    $("#logs-state").textContent = "disconnected";
-    $("#logs-state").className = "pill failed";
-    closeLogStream();
+    logSource.close(); logSource = null;
+    // A network blip should not end the live logs: retry a few times with backoff (the stream
+    // re-sends its tail, so start the buffer fresh). After that, say so instead of failing silently.
+    if (logRetries < 3) {
+      logRetries++;
+      $("#logs-state").textContent = `reconnecting… (${logRetries}/3)`;
+      $("#logs-state").className = "pill loading";
+      logRetryTimer = setTimeout(() => {
+        if (!$("#dlg-logs").open) return;
+        logLines = [];
+        connectLogStream(logRecipeId);
+      }, 1000 * logRetries);
+    } else {
+      $("#logs-state").textContent = "disconnected";
+      $("#logs-state").className = "pill failed";
+      $("#logs-state").title = "Connection lost — check the hub and your login, then reopen the logs.";
+    }
   };
 }
 
 function closeLogStream() {
+  clearTimeout(logRetryTimer);
   if (logSource) { logSource.close(); logSource = null; }
 }
 
@@ -2838,7 +2955,7 @@ $("#btn-new-schedule").addEventListener("click", () => {
 $("#sel-action").addEventListener("change", syncScheduleForm);
 $("#sel-when").addEventListener("change", syncScheduleForm);
 
-scheduleForm.addEventListener("submit", async (ev) => {
+oneSubmit(scheduleForm, async (ev) => {
   ev.preventDefault();
   const f = scheduleForm.elements;
   const body = {
@@ -2905,8 +3022,8 @@ $("#tl-range").addEventListener("click", (ev) => {
   loadTimeline();
 });
 
-function fmtClock(d) { return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); }
-function fmtDayClock(d) { return d.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
+function fmtClock(d) { return fmtHub(d, { hour: "2-digit", minute: "2-digit", hour12: false }); }
+function fmtDayClock(d) { return fmtHub(d, { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }); }
 
 function renderTimeline() {
   const el = $("#timeline");
@@ -2926,14 +3043,17 @@ function renderTimeline() {
   const height = top + tl.lanes.length * laneH + 6;
   const x = (t) => labelW + ((t - t0) / (t1 - t0)) * plotW;
 
-  // Ticks: smallest step leaving >= 64px between labels.
+  // Ticks: smallest step leaving >= 64px between labels. Aligned to the hub's wall clock, so the
+  // axis matches the schedule times (which are hub time too).
   const step = [1, 2, 3, 6, 12, 24].find((h) => (h * HOUR / (t1 - t0)) * plotW >= 64) ?? 24;
+  const off = hubOffsetMinutes();
+  const hubHour = (t) => off == null ? new Date(t).getHours() : new Date(t + off * 60000).getUTCHours();
   const first = new Date(t0);
-  first.setMinutes(0, 0, 0);
+  if (off == null) first.setMinutes(0, 0, 0);
+  else { const w = new Date(t0 + off * 60000); w.setUTCMinutes(0, 0, 0); first.setTime(w.getTime() - off * 60000); }
   const ticks = [];
   for (let t = first.getTime(); t <= t1; t += HOUR) {
-    const d = new Date(t);
-    if (t >= t0 && d.getHours() % step === 0) ticks.push(d);
+    if (t >= t0 && hubHour(t) % step === 0) ticks.push(new Date(t));
   }
 
   const parts = [];
@@ -2948,9 +3068,9 @@ function renderTimeline() {
   // grid + axis labels
   for (const d of ticks) {
     const tx = x(d.getTime());
-    const midnight = d.getHours() === 0;
+    const midnight = hubHour(d.getTime()) === 0;
     parts.push(`<line class="tl-grid ${midnight ? "day" : ""}" x1="${tx}" x2="${tx}" y1="${axisH - 6}" y2="${height - 6}"/>`);
-    const label = midnight || step >= 24 ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "numeric" }) : fmtClock(d);
+    const label = midnight || step >= 24 ? fmtHub(d, { weekday: "short", day: "numeric", month: "numeric" }) : fmtClock(d);
     if (tx + label.length * 6.5 < width) parts.push(`<text class="tl-axis ${midnight ? "day" : ""}" x="${tx + 4}" y="${axisH - 12}">${esc(label)}</text>`);
   }
   // global events (stop all / free memory)
@@ -3002,7 +3122,8 @@ function renderTimeline() {
   parts.push(`<text class="tl-now" x="${labelW + 2}" y="${height - 1}">now</text>`);
 
   el.innerHTML = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img"
-    aria-label="Planned model runs over the next ${tlHours} hours">${parts.join("")}</svg>`;
+    aria-label="Planned model runs over the next ${tlHours} hours, in the hub's time zone">${parts.join("")}</svg>
+    <div class="hint tl-tz">Axis in hub time${state.meta.timezone ? `: ${esc(state.meta.timezone)}` : ""}</div>`;
 }
 
 const tip = $("#tl-tip");
@@ -3039,7 +3160,10 @@ async function loadEvents() {
   const limit = Number($("#events-limit").value) || 100;
   try { localStorage.setItem("llm.eventsLimit", String(limit)); } catch { /* storage unavailable */ }
   try {
-    const all = await api(`/api/events?limit=${limit}`);
+    // Server-side source filter when the hub knows it (older hubs ignore the param); the client
+    // filter stays as a fallback, so "Health" never shows an empty page on a mixed-version fleet.
+    const src = state.eventsFilter === "health" ? "&source=health" : "";
+    const all = await api(`/api/events?limit=${limit}${src}`);
     const events = all.filter((e) => !state.eventsFilter || (state.eventsFilter === "health") === (e.source === "health"));
     const mark = (e) => e.source !== "health" ? `<span class="${e.ok ? "ok" : "bad"}">${e.ok ? "✓" : "✗"}</span>`
       : e.action === "resolved" ? `<span class="hf ok">✓</span>` : `<span class="hf ${esc(e.action)}">${SEV_ICON[e.action] ?? "⚠"}</span>`;
@@ -3048,8 +3172,8 @@ async function loadEvents() {
         <td style="white-space:nowrap">${esc(fmtTime(e.ts))}</td>
         <td>${esc(e.source)}</td>
         <td>${esc(e.action)}</td>
-        <td>${esc(blurText(e.target || ""))}</td>
-        <td class="msg">${mark(e)} ${esc(blurText(e.message))}</td>
+        <td>${esc(blurHostText(e.target || ""))}</td>
+        <td class="msg">${mark(e)} ${esc(blurHostText(e.message))}</td>
       </tr>`).join("") : `<tr><td colspan="5" class="empty">Nothing yet.</td></tr>`;
   } catch (e) { toast(e.message, "bad"); }
 }
@@ -3235,7 +3359,7 @@ $("#images").addEventListener("click", async (ev) => {
   if (!confirm(`Switch ${targets.length} recipe${targets.length === 1 ? "" : "s"} on ${maskAddr(hostName(hostId))} (${names}) to\n${newRef}?\n\nA running model keeps the old image until you restart it.`)) return;
   try {
     for (const r of targets) await api(`/api/recipes/${r.id}`, { method: "PUT", body: recipeBodyFrom(r, { image: newRef }) });
-    toast(targets.length === 1 ? `"${targets[0].name}" now uses ${newRef}` : `${targets.length} recipes now use ${newRef}`, "ok");
+    toast(targets.length === 1 ? `"${recipeTitle(targets[0])}" now uses ${newRef}` : `${targets.length} recipes now use ${newRef}`, "ok");
   } catch (e) {
     toast(e.message, "bad");
   }
@@ -3251,7 +3375,7 @@ const CARD_KEYS = { s: "start", x: "stop", r: "restart", l: "logs", e: "edit" };
 document.addEventListener("keydown", (ev) => {
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
   const t = ev.target;
-  if (t instanceof HTMLElement && (t.isContentEditable || /^(input|textarea|select|button)$/i.test(t.tagName))) return;
+  if (t instanceof HTMLElement && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
   if (document.querySelector("dialog[open]")) return;
   const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
   const card = document.activeElement instanceof Element ? document.activeElement.closest(".card") : null;
@@ -3279,6 +3403,7 @@ document.addEventListener("keydown", (ev) => {
 
 async function boot() {
   state.meta = await api("/api/meta");
+  $("#hub-version").textContent = state.meta.version ? `v${state.meta.version}` : "";
   $("#hub-tz").textContent = state.meta.timezone ? `: ${state.meta.timezone}` : "";
   $("#sel-runtime").innerHTML = Object.entries(state.meta.runtimes)
     .map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
@@ -3292,12 +3417,13 @@ async function boot() {
   await loadStartTimes();
   await loadRecipes();
   resumeJobs();
-  setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); resumeJobs(); } }, 5000);
+  setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); resumeJobs(); if (state.tab === "activity") loadEvents(); } }, 5000);
   // Back from sleep or another tab: catch up at once (also restarts the job poll after network errors).
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { resumeJobs(); pollJobs(); } });
   window.addEventListener("online", () => { resumeJobs(); pollJobs(); });
-  // Keep the ⏳ elapsed counter ticking between the 5 s polls.
-  setInterval(() => { if (!document.hidden && startWatch.size) renderRecipes(); }, 1000);
+  // Keep the ⏳ elapsed counter ticking between the 5 s polls — targeted, so card focus and hover
+  // survive (a full re-render every second dropped them).
+  setInterval(() => { if (!document.hidden && startWatch.size) tickStartElapsed(); }, 1000);
   setInterval(() => { if (!document.hidden && state.tab === "schedules") loadSchedules(); }, 15000);
 }
 

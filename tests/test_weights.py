@@ -1,7 +1,10 @@
 import os
+from pathlib import Path
 
 import test_hosts
 from conftest import recipe_body
+
+from local_llm_manager import config
 
 setup = test_hosts.setup  # the hub + one agent ("mac") fixture
 
@@ -200,6 +203,36 @@ def test_one_folder_on_a_host_is_one_row(client, tmp_path):
     assert r.status_code == 200 and r.json()["path"] == str(folder)
     # The folder that holds several models is something else: still allowed (see the example recipes).
     assert client.post("/api/weights", json={"name": "models", "locations": {local: str(tmp_path)}}).status_code == 201
+
+
+def test_one_folder_is_one_row_across_spellings(client):
+    """~/models/x and /home/u/models/x are one folder: the duplicate check compares canonically
+    (expanduser + normpath), not just the stored spelling."""
+    local = str(client.get("/api/hosts").json()[0]["id"])
+    weight(client, "Canonical", **{local: "~/models/canon-x"})
+    for spell in (str(Path.home() / "models" / "canon-x"), "~/models/./canon-x",
+                  "~/models/sub/../canon-x", "~/models/canon-x/"):
+        r = client.post("/api/weights", json={"name": "other", "locations": {local: spell}})
+        assert r.status_code == 409, (spell, r.text)
+        assert "already registered" in r.text
+    assert client.post("/api/weights", json={"name": "other",
+                                             "locations": {local: "~/models/canon-y"}}).status_code == 201
+
+
+def test_discover_matches_canonical_paths(setup, tmp_path, monkeypatch):
+    """A registered absolute path and the scan's ~/... spelling are one folder: the found model is
+    not offered as 'unregistered' news."""
+    client, _, _, _, mac = setup
+    local = client.get("/api/hosts").json()[0]["id"]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    models = tmp_path / "models"
+    (models / "Canon").mkdir(parents=True)
+    (models / "Canon" / "config.json").write_text("{}")
+    monkeypatch.setattr(config, "MODEL_DIRS", [str(models)])  # hub and agent run in this process
+    weight(client, name="Canon", **{str(local): str(models / "Canon")})  # absolute spelling
+
+    d = client.get("/api/weights/discover").json()
+    assert all(f["name"] != "Canon" for f in d["unregistered"]), d["unregistered"]
 
 
 def test_a_symlinked_shard_does_not_double_the_weights_size(tmp_path):
