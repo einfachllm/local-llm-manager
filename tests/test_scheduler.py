@@ -8,6 +8,8 @@ assumption about the hub's time zone and none about DST.
 
 import builtins
 import io
+import os
+import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -27,11 +29,24 @@ BERLIN = ZoneInfo("Europe/Berlin")
 
 
 @pytest.fixture(autouse=True)
-def _berlin_hub(monkeypatch):
+def _berlin_hub():
     """Pin the hub zone so next_run's hub-zone normalization (TIME-03) and the DST wall-clock
     assertions are deterministic on any CI machine. Tests that probe zone resolution manage TZ
-    themselves."""
-    monkeypatch.setenv("TZ", "Europe/Berlin")
+    themselves. `time.tzset()` is what makes `datetime.astimezone()` (and thus the code under test)
+    follow the variable - CI runs in UTC, where without it the process zone and the pinned TZ differ."""
+    old = os.environ.get("TZ")
+    os.environ["TZ"] = "Europe/Berlin"
+    if hasattr(time, "tzset"):
+        time.tzset()
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old
+        if hasattr(time, "tzset"):
+            time.tzset()
 
 
 def future_instant(hours=2):
