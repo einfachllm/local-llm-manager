@@ -3,7 +3,7 @@ import asyncio
 from conftest import recipe_body
 
 from local_llm_manager import config, executor as executor_mod
-from local_llm_manager.executor import check_model_target, resolve_model_target
+from local_llm_manager.executor import check_model_target, resolve_model_target, scan_weight_dirs
 
 VOLS = "/home/einfachllm/models/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB:/model:ro\n/home/einfachllm/models:/models:ro"
 
@@ -136,3 +136,53 @@ def test_models_overview_excludes_agents_and_blank(client):
     client.post("/api/recipes", json=recipe_body(name="Model", model="org/m", host_port=8103))
     data = client.get("/api/models").json()
     assert [m["model"] for m in data["models"]] == ["org/m"]
+
+
+def _model_dir(path):
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "config.json").write_text("{}")
+    (path / "model.safetensors").write_bytes(b"x" * 2048)
+
+
+def test_scan_finds_symlinked_model_folder(tmp_path):
+    real = tmp_path / "store" / "Big-Model"
+    _model_dir(real)
+    models = tmp_path / "models"
+    models.mkdir()
+    (models / "Big-Model").symlink_to(real)
+    found = scan_weight_dirs([str(models)])
+    dirs = [f for f in found if f["kind"] == "dir"]
+    assert len(dirs) == 1
+    assert dirs[0]["name"] == "Big-Model"
+    assert dirs[0]["path"].endswith("models/Big-Model")  # reported at the link, not the target
+    assert dirs[0]["size_gb"] == round(2048 / 1e9, 1)
+
+
+def test_scan_symlink_and_its_target_are_one_entry(tmp_path):
+    models = tmp_path / "models"
+    _model_dir(models / "Real-Model")
+    (models / "Link-Model").symlink_to(models / "Real-Model")
+    found = scan_weight_dirs([str(models)])
+    assert len([f for f in found if f["kind"] == "dir"]) == 1
+
+
+def test_scan_two_symlinks_to_one_target_are_one_entry(tmp_path):
+    real = tmp_path / "store" / "M"
+    _model_dir(real)
+    models = tmp_path / "models"
+    models.mkdir()
+    (models / "a").symlink_to(real)
+    (models / "b").symlink_to(real)
+    found = scan_weight_dirs([str(models)])
+    assert len([f for f in found if f["kind"] == "dir"]) == 1
+
+
+def test_scan_ignores_symlink_to_non_model_dir(tmp_path):
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "README.md").write_text("not a model")
+    models = tmp_path / "models"
+    models.mkdir()
+    (models / "not-a-model").symlink_to(other)
+    found = scan_weight_dirs([str(models)])
+    assert [f for f in found if f["kind"] == "dir"] == []

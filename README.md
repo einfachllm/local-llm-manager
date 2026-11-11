@@ -250,8 +250,8 @@ command; change it to `--host {bind_host}` for native-process and `--network hos
 - **Moving recipes:** change a recipe's **Host** to run it elsewhere (with `{weights}` the model folder
   follows), **⇉** to copy it to several hosts, or **Recipe file…** → paste into **＋ Add recipe** to take it
   to another manager. See [Recipes](https://einfachllm.github.io/local-llm-manager/recipes/#move-recipes-between-machines-and-managers).
-- Live stats come from the server's `/metrics` endpoint: on by default in vLLM, add `--enable-metrics`
-  for SGLang and `--metrics` for llama.cpp.
+- Live stats come from the server's `/metrics` endpoint: on by default in vLLM and TensorFold; the
+  SGLang and llama.cpp presets turn them on (`--enable-metrics` / `--metrics`).
 - Starting is refused if the port is already in use on that machine.
 
 ### Models and agents
@@ -291,7 +291,6 @@ The full guide - the table, downloading from Hugging Face and copying between ho
 [Weights](https://einfachllm.github.io/local-llm-manager/weights/) page.
 
 Not to be confused with **agent mode** ([Several machines](#several-machines)), which is how the manager itself runs on a second machine.
-"Models as: Rows / Tiles" in the filter rail switches models between wide rows (default) and cards.
 
 ## Schedules and time zone
 
@@ -335,7 +334,7 @@ service after changes (`sudo systemctl restart local-llm-manager`, or rerun the 
 | `DGXM_MODE` | `hub` | `agent`: no dashboard, controlled by a hub |
 | `DGXM_AGENT_TOKEN` | | Token the hub must send (required in agent mode) |
 | `DGXM_METRICS` | *(off)* | `1`: serve the manager's own metrics at `/metrics` (Prometheus format) |
-| `DGXM_DB` | `./data/manager.db` | SQLite database |
+| `DGXM_DB` | `./data/manager.db` | SQLite database (relative to the working directory) |
 | `DGXM_STOP_TIMEOUT` | `30` | Seconds to wait on stop before killing |
 | `DGXM_SEED` | `1` | Add the qwen3.8 example recipe to an empty database |
 | `HF_TOKEN`, … | | Passed to recipes that list the bare name in their environment |

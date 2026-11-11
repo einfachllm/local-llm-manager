@@ -96,9 +96,10 @@ as described in section 5 of the license.
 1. Move the `## [Unreleased]` entries in `CHANGELOG.md` to a new `## [X.Y.Z] - YYYY-MM-DD` section.
 2. Set `__version__ = "X.Y.Z"` in `local_llm_manager/__init__.py`; merge this into `main`.
 3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. After tagging: run the *Docker latest* workflow on `main` by hand (*Actions → Docker latest →
+   Run workflow*) so `:latest` — and with it Compose users (`docker compose pull`) — get the release.
 
 The [release workflow](.github/workflows/release.yml) checks that the tag matches `__version__`, runs
 the tests, publishes `ghcr.io/einfachllm/local-llm-manager:X.Y.Z` and `:X.Y`, and creates a
 GitHub Release with the wheel, the sdist and the changelog section. Tags like `vX.Y.Z-rc.1` become
-pre-releases and do not move `:X.Y`. To update `:latest`, run the *Docker latest* workflow on `main`
-by hand (*Actions → Docker latest → Run workflow*).
+pre-releases and do not move `:X.Y`.

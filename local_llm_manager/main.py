@@ -308,10 +308,14 @@ class HostIn(BaseModel):
 
 
 SEED_EXAMPLE = Path(__file__).resolve().parent.parent / "examples/recipes/qwen38-mtp.yaml"
+# A pip install ships no examples/ folder: the same file travels inside the package (package-data in
+# pyproject.toml). tests/test_packaging.py keeps the two copies byte-identical.
+SEED_FALLBACK = Path(__file__).resolve().parent / "seed" / "qwen38-mtp.yaml"
 
 
 def seed_examples(db: Database) -> None:
-    """On a fresh database, add the qwen3.8-mtp example recipe from examples/recipes.
+    """On a fresh database, add the qwen3.8-mtp example recipe: from examples/recipes in a checkout,
+    from the packaged copy in local_llm_manager/seed in a pip install.
 
     The example names a registered weights entry. On a fresh install that entry does not exist yet,
     so create it without a path: the Weights tab can then find the folder or download it, and the
@@ -320,8 +324,15 @@ def seed_examples(db: Database) -> None:
     if db.list_recipes():
         return
     try:
-        data = parse_recipe_file(SEED_EXAMPLE.read_text())
-    except (OSError, RecipeFileError):
+        text = SEED_EXAMPLE.read_text()
+    except OSError:
+        try:
+            text = SEED_FALLBACK.read_text()
+        except OSError:
+            return
+    try:
+        data = parse_recipe_file(text)
+    except RecipeFileError:
         return
     if data is None:
         return

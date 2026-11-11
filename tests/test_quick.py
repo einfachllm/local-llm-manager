@@ -1,6 +1,13 @@
 from conftest import recipe_body
 
-from local_llm_manager.recipes import set_flag
+from local_llm_manager.recipes import FRAMEWORKS, set_flag
+
+
+def test_engine_presets_enable_metrics():
+    # The dashboard reads live stats from /metrics; these engines only expose it when asked to.
+    assert "--enable-metrics" in FRAMEWORKS["sglang"]["args"].splitlines()
+    assert "--metrics" in FRAMEWORKS["llamacpp"]["args"].splitlines()
+    assert "--metrics" in FRAMEWORKS["llamacpp-native"]["args"].splitlines()
 
 BASE_VOLS = "~/models/Old-Model:/model:ro\n/data/hf:/root/.cache/huggingface"
 BASE_ARGS = "--served-model-name old\n--max-model-len 524288\n--tool-call-parser qwen3_coder\n--enable-prefix-caching"

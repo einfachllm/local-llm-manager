@@ -645,10 +645,10 @@ async function loadRecipes() {
 /* ---------------- recipe list: filter, sort, group ---------------- */
 
 const VIEW_KEY = "dgxm.recipeView";
-const view = { search: "", tags: [], sort: "name", group: "", host: "", kind: "", layout: "rows", collapsed: {} };
+const view = { search: "", tags: [], sort: "name", group: "", host: "", kind: "", collapsed: {} };
 try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || "{}")); } catch { /* storage unavailable */ }
 if (typeof view.group === "boolean") view.group = view.group ? "tag" : "";  // older saved views
-view.layout = "tiles";  // the rows/tiles toggle was removed from the UI – always tiles
+delete view.layout;  // the rows/tiles toggle was removed; drop it from older saved views too
 const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* ignore */ } };
 
 const RUNNING = ["ready", "loading", "starting"];
@@ -985,29 +985,6 @@ function cardHtml(r) {
     r.container ? [r.runtime === "process" ? "Process" : "Container",
       `<span title="${esc(r.container_name)}">${esc(r.container.status)}</span>`] : null,
   ].filter(Boolean);
-  if (view.layout !== "tiles") {
-    // Row layout: the same facts as the tile, side by side; agents keep their own row style.
-    return `
-      <article class="card model-row is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
-        <div class="row-icon" aria-hidden="true">🧠</div>
-        <div class="row-main">
-          <div class="row-title">
-            <span class="card-title">${esc(recipeTitle(r))}</span>
-            ${engineBadge(r)}
-            ${multiHost() && !groupedByHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
-            <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin: back to normal sort" : "Pin: always keep this recipe on top"}">${r.pinned ? "★" : "☆"}</button>
-          </div>
-          <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}${findingChips(r.findings)}
-            ${r.tags?.length ? r.tags.map((t) =>
-              `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("") : ""}</div>
-          ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
-          <dl class="row-facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
-          ${metricsHtml(r)}
-          ${findingDetails(r.findings)}
-        </div>
-        <div class="actions">${actions}</div>
-      </article>`;
-  }
   return `
       <article class="card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
         <div class="card-head">
@@ -1099,7 +1076,7 @@ function kindsHtml(items, hostId = "") {
   return (agents.length ? `<section class="kind-section agents">${kindHeadHtml("agent", agents)}
       <div class="agent-list">${agents.map(agentCardHtml).join("")}</div></section>` : "")
     + (models.length ? `<section class="kind-section models">${kindHeadHtml("model", models)}
-      <div class="${view.layout === "tiles" ? "grid" : "row-list"}">${models.map(cardHtml).join("")}</div></section>` : "");
+      <div class="grid">${models.map(cardHtml).join("")}</div></section>` : "");
 }
 
 function renderRecipes() {
@@ -1174,7 +1151,7 @@ function plainCardsHtml(items) {
   const agents = items.filter((r) => kindOf(r) === "agent");
   const models = items.filter((r) => kindOf(r) === "model");
   return (agents.length ? `<div class="agent-list">${agents.map(agentCardHtml).join("")}</div>` : "")
-    + (models.length ? `<div class="${view.layout === "tiles" ? "grid" : "row-list"}">${models.map(cardHtml).join("")}</div>` : "");
+    + (models.length ? `<div class="grid">${models.map(cardHtml).join("")}</div>` : "");
 }
 function groupSection(g, key, body, level = 3) {
   const collapsed = !!view.collapsed[`${view.group}:${key}`];
@@ -1280,9 +1257,12 @@ async function startBusyLabel(r) {
   }
 }
 
+// Every RecipeIn field except pinned (set separately below): a PUT replaces the whole recipe, so a
+// field missing here would be reset to its default - e.g. weights_id to null, breaking {weights}.
+// Kept in sync with RecipeIn by tests/test_ui.py.
 const RECIPE_BODY_FIELDS = ["name", "description", "host_id", "runtime", "framework", "image", "model",
   "container_name", "host_port", "container_port", "command", "args", "env", "volumes", "docker_args",
-  "gpus", "health_path", "est_memory_gb", "tags", "color", "kind"];
+  "gpus", "health_path", "est_memory_gb", "tags", "color", "kind", "weights_id"];
 function recipeBodyFrom(r, overrides = {}) {
   const body = { pinned: !!r.pinned };
   for (const f of RECIPE_BODY_FIELDS) body[f] = r[f];
@@ -2782,10 +2762,34 @@ function syncScheduleForm() {
   $$(".when", scheduleForm).forEach((el) => el.classList.toggle("hidden", el.dataset.when !== when));
 }
 
+/* One-shot schedule times are the hub's wall clock (scheduler.parse_time reads naive times in the
+ * hub's zone). The editor therefore renders and sends them in that zone, not the browser's: the
+ * offset comes from meta.timezone, e.g. "CET (UTC+01:00)". Without a parseable offset it falls back
+ * to the browser's local time, as before. Roundtrip is guarded by tests/test_ui.py. */
+function hubOffsetMinutes() {
+  const m = /UTC([+-]\d{2}):(\d{2})/.exec(state.meta?.timezone || "");
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
 function toLocalInput(iso) {
-  const d = iso ? new Date(iso) : new Date(Date.now() + 3600e3);
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const off = hubOffsetMinutes();
+  // A stored naive time already is hub wall time; only aware instants need shifting.
+  const naive = iso && !/(?:[+-]\d{2}:?\d{2}|Z)$/.test(iso);
+  const d = iso ? new Date(iso) : new Date(Date.now() + 3600e3);
+  if (off == null || naive) {
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  const w = new Date(d.getTime() + off * 60000);  // hub wall clock = instant + offset, read as UTC
+  return `${w.getUTCFullYear()}-${pad(w.getUTCMonth() + 1)}-${pad(w.getUTCDate())}T${pad(w.getUTCHours())}:${pad(w.getUTCMinutes())}`;
+}
+// Send the picked wall time with the hub's offset, so the hub keeps the intended instant even when
+// the browser is in another zone; a value that already carries an offset (or no known hub offset)
+// goes through unchanged.
+function runAtFromInput(value) {
+  const off = hubOffsetMinutes();
+  if (off == null || !value || /(?:[+-]\d{2}:?\d{2}|Z)$/.test(value)) return value;
+  const abs = Math.abs(off);
+  return `${value}${off < 0 ? "-" : "+"}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
 }
 
 function openScheduleEditor(s) {
@@ -2855,7 +2859,7 @@ scheduleForm.addEventListener("submit", async (ev) => {
   } else if (when === "cron") {
     body.cron = $("#in-cron").value;
   } else {
-    body.run_at = $("#in-once").value;
+    body.run_at = runAtFromInput($("#in-once").value);
   }
   try {
     if (editingSchedule) await api(`/api/schedules/${editingSchedule.id}`, { method: "PUT", body });

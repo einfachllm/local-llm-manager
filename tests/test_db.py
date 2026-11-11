@@ -63,6 +63,33 @@ def test_seed_examples_adds_the_qwen38_example(tmp_path):
     assert len(db.list_recipes()) == 1
 
 
+def test_db_path_default_is_cwd_relative(monkeypatch, tmp_path):
+    """Without DGXM_DB the database lives in data/ below the working directory; DGXM_DB overrides."""
+    import importlib
+    import os
+    from pathlib import Path
+
+    from local_llm_manager import config
+
+    original = os.environ.get("DGXM_DB")
+    monkeypatch.delenv("DGXM_DB", raising=False)
+    try:
+        importlib.reload(config)
+        assert config.DB_PATH == Path("data/manager.db")
+        assert not config.DB_PATH.is_absolute()
+        assert config.PROC_DIR == Path("data/processes")
+        monkeypatch.setenv("DGXM_DB", str(tmp_path / "custom" / "x.db"))
+        importlib.reload(config)
+        assert config.DB_PATH == tmp_path / "custom" / "x.db"
+        assert config.PROC_DIR == tmp_path / "custom" / "processes"
+    finally:
+        if original is None:
+            os.environ.pop("DGXM_DB", None)
+        else:
+            os.environ["DGXM_DB"] = original
+        importlib.reload(config)
+
+
 def test_schema_version_is_recorded(tmp_path):
     db = Database(tmp_path / "m.db")
     assert db._conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 1

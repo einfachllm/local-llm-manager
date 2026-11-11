@@ -457,6 +457,8 @@ class Manager:
         """Stop every other model on the same host, free memory there, then start this one.
 
         Agents on the host keep running: they use a model rather than compete with it for memory.
+        If any stop fails, the others are still stopped, but this one is not started: the error
+        carries the full balance of what stopped and what did not.
         """
         async def run(recipe: dict) -> str:
             if recipe.get("kind") == "agent":
@@ -652,6 +654,19 @@ class Manager:
                     item["state"], item["message"] = "failed", "No working source left"
                 break
 
+    async def _links_as_files(self, ex) -> bool:
+        """Whether a copy target needs symlinks served as ordinary files: agents from before 0.3.0
+        cannot recreate links and do not advertise `copy_links` in their info. A local target is this
+        (current) code; when the info cannot be read, be conservative and send files (every target
+        understands those)."""
+        if isinstance(ex, LocalExecutor):
+            return False
+        try:
+            info = await ex.info()  # RemoteExecutor.info has a short connect/read timeout
+        except ActionError:
+            return True
+        return not info.get("copy_links", False)
+
     async def _copy_one(self, weight_id: int, src: int, item: dict[str, Any], hub_url: str) -> None:
         w = self.db.get_weight(weight_id)
         path = w["locations"][src]
@@ -659,15 +674,16 @@ class Manager:
         prefix = f"from {src_name}: "
         item["state"], item["progress"] = "running", f"{prefix}starting"
         url = self.db.get_host(src)["url"] or hub_url
+        ex = self.executor_for(item["host_id"])
+        links_as_files = await self._links_as_files(ex)
         try:
             if not url:
                 raise ActionError("The hub's own address is unknown: open the dashboard by the hub's network "
                                   "name or IP (not localhost), or set DGXM_PUBLIC_URL", 409)
-            share = await self.executor_for(src).create_share(path)
+            share = await self.executor_for(src).create_share(path, links_as_files=links_as_files)
         except ActionError:
             item["source_failed"] = True
             raise
-        ex = self.executor_for(item["host_id"])
         name = path.rstrip("/").rsplit("/", 1)[-1]
         task = await ex.start_transfer("copy", url, name, {"id": share["id"], "ticket": share["ticket"]})
         task = await self._follow(ex, task, item, prefix)
@@ -791,16 +807,34 @@ class Manager:
 
     async def _stop_all(self, source: str, except_id: Optional[int] = None, host_id: Optional[int] = None,
                         keep_agents: bool = False) -> str:
+        """Stop the running recipes; a failed stop does not abandon the others. When any stop failed,
+        raises with the full balance (stopped / could not stop + reasons) so callers like switch do not
+        start on top of models that are still running."""
         recipes = [r for r in self.db.list_recipes() if (host_id is None or r["host_id"] == host_id)
                    and not (keep_agents and r.get("kind") == "agent")]
         statuses = await self._statuses(recipes)
-        stopped = []
+        offline = next((statuses[r["id"]] for r in recipes if statuses[r["id"]]["status"] == "offline"), None)
+        if offline:
+            # Cannot tell what is running (e.g. the Docker daemon is down): report it instead of
+            # claiming "no other models running" and letting a switch start on top of them.
+            raise ActionError(offline.get("error") or f"Host {self._host_name(host_id)} is offline", 502)
+        stopped, failed = [], []
         for recipe in recipes:
             if recipe["id"] != except_id and statuses[recipe["id"]]["status"] in RUNNING_STATES:
-                await self._stop(recipe, source)
-                stopped.append(recipe["name"])
+                try:
+                    await self._stop(recipe, source)
+                    stopped.append(recipe["name"])
+                except ActionError as e:
+                    failed.append(f"{recipe['name']}: {e.message}")
         where = f" on {self._host_name(host_id)}" if host_id is not None else ""
-        return f"Stopped {', '.join(stopped)}" if stopped else f"No other models running{where}"
+        parts = ([f"Stopped {', '.join(stopped)}"] if stopped else []) + \
+                ([f"could not stop: {'; '.join(failed)}"] if failed else [])
+        if not parts:
+            return f"No other models running{where}"
+        msg = "; ".join(parts)
+        if failed:
+            raise ActionError(f"{msg}{where}", 502)
+        return msg
 
     async def _drop_caches(self, source: str, host_id: int) -> str:
         name = self._host_name(host_id)

@@ -78,11 +78,13 @@ class Docker:
         return await run(argv, timeout=1800)
 
     async def list_containers(self) -> dict[str, dict]:
-        """All containers keyed by name: {state, status, id, image}."""
+        """All containers keyed by name: {state, status, id, image}. A failed `docker ps` (daemon down,
+        socket gone) raises instead of looking like "no containers": callers must not read that as
+        "everything stopped"."""
         res = await run([self.binary, "ps", "-a", "--no-trunc", "--format", "{{json .}}"], timeout=15)
-        containers: dict[str, dict] = {}
         if not res.ok:
-            return containers
+            raise RuntimeError(res.error or "docker ps failed")
+        containers: dict[str, dict] = {}
         for line in res.stdout.splitlines():
             try:
                 c = json.loads(line)

@@ -11,6 +11,7 @@ from test_transfers import wait
 
 from local_llm_manager.agent import create_agent_app
 from local_llm_manager.executor import LocalExecutor
+from local_llm_manager.processes import ProcessRunner
 
 from local_llm_manager import config
 from local_llm_manager.manager import Manager
@@ -253,12 +254,57 @@ def test_a_share_reports_a_symlinked_shard_once(tmp_path):
         raise AssertionError("the share never became ready")
 
     m = asyncio.run(manifest())
+    assert m["version"] == 2
     assert m["total"] == 1002, "the linked shard was counted next to its target"
     by_path = {f["path"]: f for f in m["files"]}
     assert set(by_path) == {"model.safetensors", "tensors/model.safetensors", "config.json"}
     assert by_path["model.safetensors"]["link"] == "tensors/model.safetensors"
     assert by_path["model.safetensors"]["size"] == 0 and by_path["model.safetensors"]["sha256"] is None
     assert by_path["tensors/model.safetensors"]["sha256"]
+
+
+def test_share_stores_link_targets_relative(tmp_path):
+    """An absolute symlink of the source folder travels as a relative one: the source machine's
+    paths do not exist on the machine that copies."""
+    from local_llm_manager.shares import HashCache, Shares
+    src = tmp_path / "m"
+    (src / "tensors").mkdir(parents=True)
+    (src / "tensors" / "a.safetensors").write_bytes(b"x" * 10)
+    (src / "a.safetensors").symlink_to(src / "tensors" / "a.safetensors")  # absolute on purpose
+
+    async def entries():
+        shares = Shares(HashCache(None))
+        info = shares.create(str(src))
+        return shares.shares[info["id"]]["files"]
+
+    by_path = {f["path"]: f for f in asyncio.run(entries())}
+    assert by_path["a.safetensors"]["link"] == "tensors/a.safetensors"
+
+
+@pytest.mark.parametrize("kind", ["absolute", "escaping"])
+def test_copy_refuses_links_leaving_the_target(hub, monkeypatch, kind):
+    """A manipulated source must not plant absolute or escaping links on the copying machine."""
+    client, local, mac, src, dest = hub
+    (src / "alias").symlink_to("model.safetensors")
+    wid = weights(client, **{str(local): str(src)})
+    shares = client.app.state.manager.local.shares
+    evil = str(src / "model.safetensors") if kind == "absolute" else "../../evil"
+    original = shares.create
+
+    def tampered(path, *args, **kwargs):
+        info = original(path, *args, **kwargs)
+        for f in shares.shares[info["id"]]["files"]:
+            if f.get("link") is not None:
+                f["link"] = evil
+        return info
+
+    monkeypatch.setattr(shares, "create", tampered)
+    items = wait(client, client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac]}).json()["id"])
+    fragment = "absolute" if kind == "absolute" else "outside"
+    assert items[mac]["state"] == "failed", items
+    assert "refusing" in items[mac]["message"] and fragment in items[mac]["message"]
+    assert not (dest / "alias").is_symlink() and not (dest / "alias").exists()
+    assert not (dest.parent.parent / "evil").exists()
 
 
 def test_a_symlinked_shard_arrives_as_a_link(hub):
@@ -277,3 +323,168 @@ def test_a_symlinked_shard_arrives_as_a_link(hub):
     assert (dest / "tensors" / "model.safetensors").read_bytes() == data
     assert (dest / "model.safetensors").read_bytes() == data  # through the link
     assert os.path.islink(dest / "sub") is False
+
+    # Again: the link is skipped like a file that is already here - and the real shard stays a real
+    # file (the link's destination must not be resolved into the path that gets replaced).
+    client.put(f"/api/weights/{wid}/hosts/{mac}", json={"path": ""})
+    items = wait(client, client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac]}).json()["id"])
+    assert "already here" in items[mac]["message"]
+    assert os.path.islink(dest / "model.safetensors")
+    assert not (dest / "tensors" / "model.safetensors").is_symlink()
+    assert (dest / "tensors" / "model.safetensors").read_bytes() == data
+
+
+def test_a_share_lists_a_linked_directory_once(tmp_path):
+    """A symlinked subdirectory travels as a link entry; its files are listed once, under the real path."""
+    from local_llm_manager.shares import HashCache, Shares
+    src = tmp_path / "Qwen3.8"
+    (src / "shards").mkdir(parents=True)
+    (src / "shards" / "model.safetensors").write_bytes(b"z" * 1000)
+    (src / "tensors").symlink_to("shards", target_is_directory=True)
+    (src / "config.json").write_text("{}")
+
+    async def manifest():
+        shares = Shares(HashCache(None))
+        info = shares.create(str(src))
+        for _ in range(200):
+            m = Shares.manifest(shares.shares[info["id"]])
+            if m["ready"]:
+                return m
+            await asyncio.sleep(0.01)
+        raise AssertionError("the share never became ready")
+
+    m = asyncio.run(manifest())
+    assert m["total"] == 1002, "the linked directory's files were counted next to their real path"
+    by_path = {f["path"]: f for f in m["files"]}
+    assert set(by_path) == {"shards/model.safetensors", "tensors", "config.json"}
+    assert by_path["tensors"]["link"] == "shards"
+    assert by_path["tensors"]["size"] == 0 and by_path["tensors"]["sha256"] is None
+    assert by_path["shards/model.safetensors"]["sha256"]
+
+
+def test_a_symlinked_subdirectory_arrives_as_a_link(hub):
+    """The target gets the source's layout: the linked directory is a link again, and the files
+    below it are reachable through it. A second copy skips the link like it skips files."""
+    client, local, mac, src, dest = hub
+    data = (src / "model.safetensors").read_bytes()
+    (src / "shards").mkdir()
+    (src / "shards" / "model.safetensors").write_bytes(data)
+    (src / "model.safetensors").unlink()
+    (src / "tensors").symlink_to("shards", target_is_directory=True)
+
+    wid = weights(client, **{str(local): str(src)})
+    items = wait(client, client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac]}).json()["id"])
+    assert items[mac]["state"] == "ok", items
+    assert os.path.islink(dest / "tensors") and os.readlink(dest / "tensors") == "shards"
+    assert (dest / "shards" / "model.safetensors").read_bytes() == data
+    assert (dest / "tensors" / "model.safetensors").read_bytes() == data  # through the link
+
+    client.put(f"/api/weights/{wid}/hosts/{mac}", json={"path": ""})
+    items = wait(client, client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac]}).json()["id"])
+    assert "already here" in items[mac]["message"]
+
+
+def test_copy_refuses_to_replace_a_real_directory_with_a_link(hub):
+    """A real directory at the target keeps its content: the copy fails clearly instead of deleting it."""
+    client, local, mac, src, dest = hub
+    (src / "shards").mkdir()
+    (src / "shards" / "model.safetensors").write_bytes(b"x" * 10)
+    (src / "tensors").symlink_to("shards", target_is_directory=True)
+    (dest / "tensors").mkdir(parents=True)
+    (dest / "tensors" / "precious.txt").write_text("keep me")
+
+    wid = weights(client, **{str(local): str(src)})
+    items = wait(client, client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac]}).json()["id"])
+    assert items[mac]["state"] == "failed", items
+    assert "real directory" in items[mac]["message"]
+    assert not (dest / "tensors").is_symlink()
+    assert (dest / "tensors" / "precious.txt").read_text() == "keep me"
+
+
+# ---- compatibility: targets from before links existed (0.2.0) ----------------------------------
+
+
+def test_links_as_files_expands_linked_directories(tmp_path):
+    """links_as_files emits only real file entries (size + sha256, no link key) - the format 0.2.0
+    targets read. A linked directory's files travel below its path; a cycle does not hang."""
+    from local_llm_manager.shares import HashCache, Shares
+    src = tmp_path / "m"
+    (src / "shards").mkdir(parents=True)
+    (src / "shards" / "a.safetensors").write_bytes(b"z" * 1000)
+    (src / "tensors").symlink_to("shards", target_is_directory=True)
+    (src / "loop").symlink_to(".", target_is_directory=True)  # points back into its own folder
+    (src / "config.json").write_text("{}")
+
+    async def manifest():
+        shares = Shares(HashCache(None))
+        info = shares.create(str(src), links_as_files=True)
+        for _ in range(200):
+            m = Shares.manifest(shares.shares[info["id"]])
+            if m["ready"]:
+                return m
+            await asyncio.sleep(0.01)
+        raise AssertionError("the share never became ready")
+
+    m = asyncio.run(manifest())
+    assert m["version"] == 2
+    assert all("link" not in f for f in m["files"]), "an old target cannot recreate links"
+    by_path = {f["path"]: f for f in m["files"]}
+    assert by_path["tensors/a.safetensors"]["size"] == 1000
+    assert by_path["tensors/a.safetensors"]["sha256"] == by_path["shards/a.safetensors"]["sha256"]
+    assert "loop/shards/a.safetensors" in by_path  # the cycle was expanded once, not endlessly
+
+
+def test_compat_share_copies_as_real_files(setup, monkeypatch, tmp_path):
+    """A share with links_as_files=True is consumable without any link support: every entry arrives
+    as a real file with the source's bytes (what a 0.2.0 target does with path/size/sha256)."""
+    client, agent, _, _, mac = setup
+    client.app.state.manager.transfer_poll = 0.02
+    monkeypatch.setattr(config, "MODEL_DIRS", [str(tmp_path / "models")])
+    monkeypatch.setattr(config, "PUBLIC_URL", "http://hub.local:8090")
+    agent.state.executor.transfers.transport = httpx.ASGITransport(app=client.app)
+    src = tmp_path / "src" / "Qwen3-8B"
+    (src / "tensors").mkdir(parents=True)
+    data = os.urandom(100_000)
+    (src / "tensors" / "model.safetensors").write_bytes(data)
+    (src / "model.safetensors").symlink_to("tensors/model.safetensors")
+    (src / "config.json").write_text("{}")
+    shares = client.app.state.manager.local.shares
+
+    async def create():
+        return shares.create(str(src), links_as_files=True)
+
+    info = client.portal.call(create)
+    task = client.portal.call(lambda: agent.state.executor.transfers.start_copy(
+        "http://hub.local:8090", info["id"], info["ticket"], "Compat"))
+    deadline = time.time() + 10
+    while task["state"] == "running" and time.time() < deadline:
+        time.sleep(0.02)
+    assert task["state"] == "ok", task
+
+    m = shares.manifest(shares.shares[info["id"]])
+    assert all("link" not in f for f in m["files"])
+    by_path = {f["path"]: f for f in m["files"]}
+    assert by_path["model.safetensors"]["size"] == len(data)
+    assert by_path["model.safetensors"]["sha256"] == by_path["tensors/model.safetensors"]["sha256"]
+    dest = tmp_path / "models" / "Compat"
+    assert not (dest / "model.safetensors").is_symlink()
+    assert (dest / "model.safetensors").read_bytes() == data
+    assert (dest / "tensors" / "model.safetensors").read_bytes() == data
+
+
+def test_agent_share_endpoint_links_as_files(setup, tmp_path):
+    """The agent endpoint takes the optional flag; without it (old hubs) links travel as links."""
+    src = tmp_path / "m"
+    (src / "tensors").mkdir(parents=True)
+    (src / "tensors" / "a.safetensors").write_bytes(b"x" * 10)
+    (src / "a.safetensors").symlink_to("tensors/a.safetensors")
+    agent = TestClient(create_agent_app(LocalExecutor(FakeDocker(), ProcessRunner(tmp_path / "procs"))))
+    auth = {"Authorization": f"Bearer {test_hosts.TOKEN}"}
+    for body, expect_link in (({"path": str(src)}, True),
+                              ({"path": str(src), "links_as_files": False}, True),
+                              ({"path": str(src), "links_as_files": True}, False)):
+        r = agent.post("/agent/v1/shares", json=body, headers=auth)
+        assert r.status_code == 200, r.text
+        entries = agent.app.state.executor.shares.shares[r.json()["id"]]["files"]
+        assert any("link" in f for f in entries) == expect_link, body
+    assert agent.post("/agent/v1/shares", json={"path": str(tmp_path / "gone")}, headers=auth).status_code == 404

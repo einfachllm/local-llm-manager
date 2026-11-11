@@ -39,6 +39,9 @@ class TransferRequest(BaseModel):
 
 class ShareRequest(BaseModel):
     path: str = Field(min_length=1, max_length=1000)
+    # Hubs copying to a target from before links existed ask for links as real files. Old hubs do not
+    # send the field (default), old agents ignore unknown fields.
+    links_as_files: bool = False
 
 
 def require_token(request: Request) -> None:
@@ -173,7 +176,12 @@ def create_agent_app(executor: Optional[LocalExecutor] = None,
     @app.post("/agent/v1/shares", dependencies=auth)
     async def create_share(body: ShareRequest):
         """Share a path read-only so another machine can copy it (see shares.py)."""
-        return await ex.create_share(body.path)
+        # Straight to Shares.create so the flag arrives even where the executor wrapper predates it;
+        # same 404 as LocalExecutor.create_share when the path is not there.
+        try:
+            return ex.shares.create(body.path, links_as_files=body.links_as_files)
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e))
 
     # Reading a share needs its ticket, not the agent token.
     add_share_routes(app, ex.shares)

@@ -6,7 +6,8 @@
 # Register the folder that holds both models (e.g. ~/models/qwen38, or ~/models if they sit there) as
 # "Qwen3.8-Models": {weights} becomes that folder on the machine the recipe starts on, so model and
 # drafter travel together. One folder is one row in the Weights tab, so a shared ~/models is one entry.
-# The TensorFold preset fills in the native process and the /health check.
+# The TensorFold preset fills in the native process and the /health check. --name is the served
+# model id: qwen3.8 as in the other three engines, so Switch to keeps the endpoint unchanged.
 name: tensorfold-qwen38-27b
 description: Qwen3.8-27B-NVFP4 with the DFlash2 drafter, native TensorFold CUDA engine
 framework: tensorfold
@@ -15,7 +16,7 @@ weights: Qwen3.8-Models
 model: '{weights}/Qwen3.8-27B-NVFP4'
 host_port: 8101
 args: |
-  --name qwen3.8-27b
+  --name qwen3.8
   --drafter {weights}/Qwen3.8-27B-DFlash2
   --context 262144
   --parallel 4

@@ -35,7 +35,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "image": "lmsysorg/sglang:spark",
         "container_port": 30000,
         "command": "python3 -m sglang.launch_server --model-path {model} --host {bind_host} --port {port}",
-        "args": "--mem-fraction-static 0.4\n--context-length 32768",
+        "args": "--mem-fraction-static 0.4\n--context-length 32768\n--enable-metrics",
         "health_path": "/health",
         "docker_args": SPARK_DOCKER_ARGS,
         "volumes": HF_CACHE_VOLUME,
@@ -47,7 +47,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "image": "ghcr.io/ggml-org/llama.cpp:server-cuda",
         "container_port": 8080,
         "command": "-m {model} --host {bind_host} --port {port}",
-        "args": "-ngl 999\n-c 32768",
+        "args": "-ngl 999\n-c 32768\n--metrics",
         "health_path": "/health",
         "docker_args": "",
         "volumes": "~/models:/models",
@@ -83,7 +83,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "image": "",
         "container_port": 8080,
         "command": "llama-server -m {model} --host {bind_host} --port {port}",
-        "args": "-ngl 999\n-c 32768",
+        "args": "-ngl 999\n-c 32768\n--metrics",
         "health_path": "/health",
         "docker_args": "",
         "volumes": "",
@@ -316,9 +316,30 @@ def build_run_argv(recipe: dict[str, Any]) -> list[str]:
     return argv
 
 
+def _mask_env_value(token: str) -> str:
+    """KEY=value -> KEY=*** for display; a bare KEY (passed through from the environment) stays as is."""
+    key, sep, _ = token.partition("=")
+    return f"{key}=***" if sep else token
+
+
 def format_command(argv: list[str]) -> str:
-    """Human-readable, copy-pasteable rendering of an argv (secrets passed as bare env names stay hidden)."""
-    return shlex.join(argv)
+    """Human-readable rendering of an argv for display only (preview, start message, activity log).
+    Secret values are masked: `-e KEY=value` becomes `-e KEY=***`, bare env names stay visible.
+    For execution use build_run_argv, which keeps the real values."""
+    out: list[str] = []
+    mask_next = False
+    for token in argv:
+        if mask_next:
+            out.append(_mask_env_value(token))
+            mask_next = False
+        elif token in ("-e", "--env"):
+            out.append(token)
+            mask_next = True
+        elif token.startswith("--env="):
+            out.append("--env=" + _mask_env_value(token[len("--env="):]))
+        else:
+            out.append(token)
+    return shlex.join(out)
 
 
 def build_process_argv(recipe: dict[str, Any]) -> list[str]:
@@ -343,7 +364,10 @@ def process_env(recipe: dict[str, Any]) -> dict[str, str]:
 
 
 def format_process_command(recipe: dict[str, Any]) -> str:
-    env = [line for line in _lines(recipe.get("env", "")) if "=" in line]
+    """Display rendering of a native start (preview, start message, activity log): KEY=value env lines
+    with the value masked, then the command. Bare passthrough names are left out - the process inherits
+    the manager's environment. For execution use build_process_argv/process_env."""
+    env = [_mask_env_value(line) for line in _lines(recipe.get("env", "")) if "=" in line]
     return " ".join([shlex.quote(e) for e in env] + [shlex.join(build_process_argv(recipe))])
 
 

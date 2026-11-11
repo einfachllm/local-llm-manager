@@ -1,7 +1,9 @@
 services:
   local-llm-manager:
     # Prebuilt image from CI (amd64 + arm64). `docker compose up -d --build` builds it locally instead.
-    image: ghcr.io/einfachllm/local-llm-manager:v0.2.0
+    # :latest is moved by hand after each release (Actions -> Docker latest -> Run workflow on main),
+    # so `docker compose pull && docker compose up -d` upgrades to the newest release.
+    image: ghcr.io/einfachllm/local-llm-manager:latest
     build: .
     container_name: local-llm-manager
     restart: unless-stopped

@@ -30,6 +30,9 @@ def local_now() -> datetime:
 
 
 def parse_time(value: str) -> datetime:
+    if value.endswith("Z"):
+        # Python 3.10's fromisoformat does not know the "Z" suffix (3.11+ does).
+        value = value[:-1] + "+00:00"
     dt = datetime.fromisoformat(value)
     if dt.tzinfo is None:
         # Times entered in the browser without an offset are Spark-local.

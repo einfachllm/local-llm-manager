@@ -65,4 +65,6 @@ jobs:
       - run: python -m build
       - name: Wheel ships the web UI
         run: unzip -l dist/*.whl | grep -q 'local_llm_manager/static/index.html'
+      - name: Wheel ships the seed example (DGXM_SEED without the repo)
+        run: unzip -l dist/*.whl | grep -q 'local_llm_manager/seed/qwen38-mtp.yaml'
 

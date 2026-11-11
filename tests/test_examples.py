@@ -59,8 +59,13 @@ def flags(text: str) -> list[str]:
 
 
 def served_name(recipe: dict) -> str | None:
-    given = tokens(recipe.get("args"))
-    return given[given.index("--served-model-name") + 1] if "--served-model-name" in given else None
+    """The model name clients send: --served-model-name (vLLM/SGLang), --alias (llama.cpp) or
+    --name (TensorFold, in args or command) - whichever the engine uses."""
+    given = tokens(recipe.get("args")) + tokens(recipe.get("command"))
+    for flag in ("--served-model-name", "--alias", "--name"):
+        if flag in given:
+            return given[given.index(flag) + 1]
+    return None
 
 
 def lines_of(recipe: dict, field: str) -> list[str]:
@@ -105,8 +110,10 @@ def test_the_family_shares_one_port_and_one_served_name():
     assert missing == [], f"the Qwen3.8 engine family lost {missing}"
     ports = {all_recipes[n]["host_port"] for n in FAMILY}
     assert len(ports) == 1, f"the family no longer shares one port: {ports}"
-    served = {served_name(all_recipes[n]) for n in FAMILY if all_recipes[n]["runtime"] == "docker"}
-    assert len(served) == 1 and None not in served, f"the docker engines disagree on the served name: {served}"
+    # All four engines, native TensorFold included: its --name is the served model id, so a client
+    # asking for "qwen3.8" keeps working after a switch to it.
+    served = {served_name(all_recipes[n]) for n in FAMILY}
+    assert len(served) == 1 and None not in served, f"the engines disagree on the served name: {served}"
 
 
 def test_no_other_example_sits_on_the_family_port():

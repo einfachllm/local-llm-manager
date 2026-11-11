@@ -24,13 +24,28 @@ NOT_BLOCKED = [
     (_CMD + r"(/(?!dev/null)[^\s;|&)`'\"]+)", "Runs a program by absolute path ({0})", "code"),
     (r"(?<![<0-9&])>>?\s*((?:/|~|\$HOME|\$\{HOME\})(?!dev/(?:null|stdout|stderr)\b)[^\s;|&)]*)", "Writes to a file ({0})", "code"),
     (r"/dev/(?:tcp|udp)/", "Opens a network connection through bash's /dev/tcp", "raw"),
-    (r"\b(?:unset\s+-f\s+command_not_found_handle|command_not_found_handle\s*\(\))", "Overrides the hook the importer uses to block commands", "code"),
+    (r"\b(?:unset\s+-f\s+command_not_found_handle|command_not_found_handle\s*\(\)"
+     r"|function\s+command_not_found_handle\b)", "Overrides the hook the importer uses to block commands", "code"),
     (r"\benable\s+-[a-z]*f", "Loads bash builtins from a file", "code"),
     (r"\bcommand\s+-[a-zA-Z]*p", "command -p runs programs from the system PATH", "code"),
     (r"\bhash\s+-[a-zA-Z]*p", "hash -p maps a command name to a program path", "code"),
     (r"\b[gm]?awk\b[^\n]*\bsystem\s*\(", "awk system() runs shell commands", "raw"),
     (r"\b[gm]?awk\b[^\n]*(?:print|printf)[^\n]*>\s*\"", "awk writes to a file", "raw"),
+    # awk can also run commands without system(): piping print/printf into a quoted command, or reading
+    # a command's output with `"cmd" | getline`. Both execute a shell during the import.
+    (r"\b[gm]?awk\b[^\n]*\bprint[f]?\b[^\n]*\|\s*[\"']", "awk pipes output to a shell command", "raw"),
+    (r"\b[gm]?awk\b[^\n]*\|\s*getline\b", "awk reads from a shell command (getline)", "raw"),
+    # GNU sed's `e` command (script `e cmd`, address `1e cmd`, or the s///e flag) runs shell commands.
+    (r"\bsed\b[^\n]*(?:['\"][0-9]*e\s|s[/|][^\n]*[/|]e\b)", "sed's e command runs shell commands", "raw"),
     (r"\bsed\b[^\n|;]*\s-[a-zA-Z]*i", "sed -i edits files in place", "code"),
+    # sort -o / --output writes a file without a redirect operator, so the write rule above misses it.
+    (r"\bsort\b[^\n|;]*(?:\s-o\b|\s--output\b)", "sort -o writes to a file", "code"),
+    # eval runs its (often quoted, hence invisible) argument as shell code; cd lets a later relative
+    # write land outside the import's working directory; source/. pulls in unchecked code.
+    (r"\beval\b", "eval runs hidden shell code", "code"),
+    (r"\bcd\b", "cd changes directory (a relative write could escape the import folder)", "code"),
+    (r"(?:^|[;&|\s])(?:source|\.)\s+(?!-)\S", "Sources another script (its content is not checked)", "code"),
+    (r"\bdate\b[^\n|;]*\s(?:-s|--set)\b", "date -s sets the system clock", "code"),
     (r"\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b", "Downloads and runs a script (curl | sh)", "code"),
 ]
 
@@ -106,10 +121,33 @@ def _code_only(line: str) -> str:
     return "".join(out)
 
 
+def _logical_lines(text: str) -> list[tuple[int, str]]:
+    """(first line number, line text) with backslash continuations joined, so a command split over
+    several lines (`curl ... \\` + `| sh`) is checked as one. bash removes the backslash and newline
+    outright, so the pieces are concatenated without adding a space. The number points at the first
+    physical line of the command."""
+    out: list[tuple[int, str]] = []
+    buf: list[str] = []
+    start = 1
+    for n, raw in enumerate(text.splitlines(), start=1):
+        if not buf:
+            start = n
+        stripped = raw.rstrip()
+        if stripped.endswith("\\"):
+            buf.append(stripped[:-1])
+            continue
+        buf.append(raw)
+        out.append((start, "".join(buf)))
+        buf = []
+    if buf:
+        out.append((start, "".join(buf)))
+    return out
+
+
 def check_script(text: str) -> dict[str, Any]:
     findings = []
     seen = set()
-    for n, raw in enumerate(text.splitlines(), start=1):
+    for n, raw in _logical_lines(text):
         if n == 1 and raw.startswith("#!"):
             continue
         line = _strip_comment(raw)

@@ -38,7 +38,21 @@ def test_validation(client):
     r = client.post("/api/recipes", json=native(host_port=9001, container_port=1234)).json()
     assert r["runtime"] == "process" and r["container_port"] == 9001
     cmd = client.post("/api/recipes/preview", json=native(host_port=9002)).json()["command"]
-    assert cmd.startswith("GREETING=hello ") and cmd.endswith("-m http.server 9002 --bind 127.0.0.1")
+    assert "GREETING=***" in cmd and "hello" not in cmd and cmd.endswith("-m http.server 9002 --bind 127.0.0.1")
+
+
+def test_env_values_are_masked_in_preview_and_activity_log(client):
+    body = native(host_port=free_port(), env="SECRET=hunter2\nBARE_KEY")
+    cmd = client.post("/api/recipes/preview", json=body).json()["command"]
+    assert "SECRET=***" in cmd and "hunter2" not in cmd
+    r = client.post("/api/recipes", json=body).json()
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+    try:
+        events = client.get("/api/events").json()
+        assert "SECRET=***" in events[0]["message"] and "hunter2" not in events[0]["message"]
+        assert all("hunter2" not in e["message"] for e in events)
+    finally:
+        client.post(f"/api/recipes/{r['id']}/stop")
 
 
 def test_start_ready_logs_stop(client):
@@ -73,6 +87,19 @@ def test_missing_command_is_reported(client):
     r = client.post("/api/recipes", json=native(command="definitely-not-installed-xyz --port {port}")).json()
     res = client.post(f"/api/recipes/{r['id']}/start")
     assert res.status_code == 500 and "Command not found" in res.json()["detail"]
+
+
+def test_docker_outage_does_not_affect_native_status(client, fake_docker):
+    r = client.post("/api/recipes", json=native(host_port=free_port())).json()
+    client.post(f"/api/recipes/{r['id']}/start")
+    assert wait_status(client, r["id"], {"ready"})["status"] == "ready"
+    fake_docker.fail_list_containers = True
+    try:
+        # Native processes do not ask Docker: their status stays readable during a daemon outage.
+        assert client.get(f"/api/recipes/{r['id']}").json()["status"] == "ready"
+    finally:
+        fake_docker.fail_list_containers = False
+        client.post(f"/api/recipes/{r['id']}/stop")
 
 
 def test_process_survives_new_runner_and_switch_stops_it(client, tmp_path):

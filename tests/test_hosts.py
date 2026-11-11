@@ -114,3 +114,53 @@ def test_host_validation(setup):
     assert client.post("/api/recipes", json=recipe_body(host_id=999)).status_code == 404
     # Renaming the local host works; it keeps having no URL.
     assert client.put(f"/api/hosts/{local['id']}", json={"name": "spark"}).json()["name"] == "spark"
+
+
+def _copy_spy(client, monkeypatch, tmp_path, mac):
+    """Prepare a hub->agent copy of a small model and record the links_as_files flag of the share."""
+    from test_transfers import wait
+    client.app.state.manager.transfer_poll = 0.02
+    monkeypatch.setattr(config, "MODEL_DIRS", [str(tmp_path / "models")])
+    monkeypatch.setattr(config, "PUBLIC_URL", "http://hub.local:8090")
+    src = tmp_path / "src" / "M"
+    (src / "tensors").mkdir(parents=True)
+    (src / "tensors" / "a.safetensors").write_bytes(b"x" * 100)
+    (src / "a.safetensors").symlink_to("tensors/a.safetensors")
+    (src / "config.json").write_text("{}")
+    local = client.get("/api/hosts").json()[0]["id"]
+    wid = client.post("/api/weights", json={"name": "M", "locations": {str(local): str(src)}}).json()["id"]
+    seen = {}
+    shares = client.app.state.manager.local.shares
+    real_create = shares.create
+
+    def spy(path, *a, **kw):
+        seen["links_as_files"] = kw.get("links_as_files", False)
+        return real_create(path, *a, **kw)
+
+    monkeypatch.setattr(shares, "create", spy)
+    res = client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac["id"]]})
+    assert res.status_code == 202, res.text
+    items = wait(client, res.json()["id"])
+    assert items[mac["id"]]["state"] == "ok", items
+    return seen
+
+
+def test_copy_to_a_new_agent_serves_links_as_links(setup, monkeypatch, tmp_path):
+    """An agent that advertises copy_links (0.3.0+) gets the link manifest."""
+    client, agent, _, _, mac = setup
+    agent.state.executor.transfers.transport = httpx.ASGITransport(app=client.app)
+    seen = _copy_spy(client, monkeypatch, tmp_path, mac)
+    assert seen["links_as_files"] is False
+
+
+def test_copy_to_an_old_agent_serves_links_as_files(setup, monkeypatch, tmp_path):
+    """An agent without copy_links (pre-0.3.0) cannot recreate links: serve ordinary files instead."""
+    client, agent, _, _, mac = setup
+    agent.state.executor.transfers.transport = httpx.ASGITransport(app=client.app)
+
+    async def old_info(self):
+        return {"hostname": "old", "platform": "linux", "machine": "x86_64", "version": "0.2.0"}
+
+    monkeypatch.setattr(executor_mod.RemoteExecutor, "info", old_info)
+    seen = _copy_spy(client, monkeypatch, tmp_path, mac)
+    assert seen["links_as_files"] is True

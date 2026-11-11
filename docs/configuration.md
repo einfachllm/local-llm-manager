@@ -44,7 +44,7 @@ Values marked *agent* matter only with `DGXM_MODE=agent`, *hub* only in the defa
 
 | Variable | Default | Description |
 |---|---|---|
-| `DGXM_DB` | `./data/manager.db` | SQLite database (recipes, hosts, events). Readable by its owner only. |
+| `DGXM_DB` | `./data/manager.db` | SQLite database (recipes, hosts, events), relative to the working directory. Readable by its owner only. |
 | `DGXM_PROC_DIR` | `<db folder>/processes` | State and log files of native-process recipes. |
 | `DGXM_RETENTION_DAYS` | `90` | Days to keep activity-log entries and start-time measurements; pruned on startup. `0` keeps everything. |
 
