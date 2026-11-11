@@ -24,8 +24,8 @@ from .docker import Docker, try_drop_caches_locally
 from .processes import ProcessError, ProcessRunner
 from .shares import HashCache, Shares, folder_bytes
 from .transfers import Tasks
-from .recipes import (GgufChoiceError, resolve_gguf, build_process_argv, build_run_argv, format_command, format_process_command, process_env,
-                      secret_names)
+from .recipes import (GgufChoiceError, UnknownPlaceholderError, resolve_gguf, build_process_argv, build_run_argv,
+                      check_placeholders, format_command, format_process_command, process_env, secret_names)
 
 # Matches a Hugging Face repo id: exactly one "/" with no path-like characters on either side.
 _HF_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -143,6 +143,7 @@ def scan_weight_dirs(dirs: list[str]) -> list[dict[str, Any]]:
     folders hold symlinks into the cache that a single mount cannot follow."""
     found: list[dict[str, Any]] = []
     seen: set[str] = set()
+    seen_real: set[str] = set()  # realpaths already listed: a symlinked folder and its target are one model
     for d in dirs:
         root = os.path.realpath(os.path.expanduser(d))
         if not os.path.isdir(root):
@@ -153,12 +154,35 @@ def scan_weight_dirs(dirs: list[str]) -> list[dict[str, Any]]:
             weights = [f for f in filenames if f.lower().endswith(_WEIGHT_FILE_EXTS)]
             if dirpath != root and ("config.json" in filenames or any(not f.endswith(".gguf") for f in weights)):
                 size = folder_bytes(dirpath)
-                if dirpath not in seen:
+                real = os.path.realpath(dirpath)
+                if dirpath not in seen and real not in seen_real:
                     seen.add(dirpath)
+                    seen_real.add(real)
                     found.append({"path": _contract_home(dirpath), "name": os.path.basename(dirpath),
                                   "kind": "dir", "size_gb": round(size / 1e9, 1)})
                 dirnames[:] = []  # a model folder: don't list its sub-folders as models too
                 continue
+            # Symlinked subfolders are not descended into (followlinks=False). List the ones whose target
+            # is a model folder, so e.g. ~/models/link -> /data/models/x is still discoverable.
+            if dirpath.rstrip("/").count("/") - base_depth < SCAN_MAX_DEPTH:
+                for name in dirnames:
+                    link = os.path.join(dirpath, name)
+                    if not os.path.islink(link):
+                        continue
+                    real = os.path.realpath(link)
+                    if real in seen_real or not os.path.isdir(real):
+                        continue
+                    try:
+                        entries = os.listdir(real)
+                    except OSError:
+                        continue
+                    if not ("config.json" in entries or any(e.lower().endswith(_WEIGHT_FILE_EXTS) for e in entries)):
+                        continue
+                    seen_real.add(real)
+                    found.append({"path": _contract_home(link), "name": name, "kind": "dir",
+                                  "size_gb": round(folder_bytes(real) / 1e9, 1)})
+                    if len(found) >= SCAN_MAX_RESULTS:
+                        return found[:SCAN_MAX_RESULTS]
             for f in sorted(filenames):
                 if f.lower().endswith(".gguf"):
                     full = os.path.join(dirpath, f)
@@ -193,8 +217,10 @@ def _instance_key(recipe: dict, instance: dict) -> str:
 
 
 def host_info() -> dict[str, Any]:
+    # copy_links: this agent can recreate symlinks from a share manifest (0.3.0+). Hubs use the flag
+    # to decide whether links may travel as links; agents without it get ordinary files.
     return {"hostname": socket.gethostname(), "platform": sys.platform, "machine": platform.machine(),
-            "version": __version__}
+            "version": __version__, "copy_links": True}
 
 
 class LocalExecutor:
@@ -239,7 +265,11 @@ class LocalExecutor:
     async def _instances(self, recipes: list[dict]) -> dict[int, Optional[dict]]:
         """Container (docker) or process (native) info per recipe id, in the same shape."""
         need_docker = any(r.get("runtime", "docker") == "docker" for r in recipes)
-        containers = await self.docker.list_containers() if need_docker else {}
+        try:
+            containers = await self.docker.list_containers() if need_docker else {}
+        except RuntimeError as e:
+            # Daemon down is an error, not "no containers": the manager reports the host as offline.
+            raise ActionError(f"Cannot list Docker containers: {e}", 502)
         return {
             r["id"]: self.procs.status(r["container_name"]) if r.get("runtime") == "process"
             else containers.get(r["container_name"])
@@ -324,6 +354,10 @@ class LocalExecutor:
     async def start(self, recipe: dict) -> str:
         """Start a recipe that is not running. Returns a message (first line) + the command used."""
         name = recipe["container_name"]
+        try:
+            check_placeholders(recipe)  # also covers direct agent calls, without a hub in front
+        except UnknownPlaceholderError as e:
+            raise ActionError(str(e), 422)
         # The Manager already refused ports of running recipes; anything still listening is foreign.
         if await asyncio.to_thread(port_in_use, recipe["host_port"]):
             raise ActionError(f"Port {recipe['host_port']} on {socket.gethostname()} is already in use by a program "
@@ -415,10 +449,11 @@ class LocalExecutor:
         except ValueError as e:
             raise ActionError(str(e), 422)
 
-    async def create_share(self, path: str) -> dict[str, Any]:
-        """Let another machine copy this path (read-only, with a ticket, for a few hours)."""
+    async def create_share(self, path: str, links_as_files: bool = False) -> dict[str, Any]:
+        """Let another machine copy this path (read-only, with a ticket, for a few hours). links_as_files
+        serves symlinks as ordinary files, for copy targets from before links existed."""
         try:
-            return self.shares.create(path)
+            return self.shares.create(path, links_as_files=links_as_files)
         except FileNotFoundError as e:
             raise ActionError(str(e), 404)
 
@@ -541,9 +576,9 @@ class RemoteExecutor:
                 raise ActionError(f"The agent on '{self.host['name']}' is too old for this - update it", 502)
             raise
 
-    async def create_share(self, path: str) -> dict[str, Any]:
+    async def create_share(self, path: str, links_as_files: bool = False) -> dict[str, Any]:
         try:
-            return await self._call("POST", "/shares", {"path": path}, timeout=60.0)
+            return await self._call("POST", "/shares", {"path": path, "links_as_files": links_as_files}, timeout=60.0)
         except ActionError as e:
             if e.status_code == 404 and e.message == "Not Found":  # agents before shares existed
                 raise ActionError(f"The agent on '{self.host['name']}' is too old to share - update it", 502)

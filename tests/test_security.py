@@ -109,6 +109,31 @@ def test_failed_logins_are_throttled(password, fake_docker, tmp_path):
         assert c.get("/api/meta", headers=basic("admin", "guess")).status_code == 401
 
 
+def test_health_mute_survives_restart(tmp_path, fake_docker, monkeypatch):
+    """A muted finding stays muted across a manager restart - mutes live in the database (DOC-23)."""
+    from local_llm_manager import executor as executor_mod
+    from local_llm_manager.db import Database
+    from local_llm_manager.processes import ProcessRunner
+
+    async def no_local_drop():
+        return "not root"
+
+    monkeypatch.setattr(executor_mod, "try_drop_caches_locally", no_local_drop)
+    db_path = tmp_path / "m.db"
+    app1 = create_app(Database(db_path), fake_docker, run_scheduler=False,
+                      procs=ProcessRunner(tmp_path / "p1"))
+    with TestClient(app1, base_url="http://127.0.0.1") as c1:
+        r = c1.post("/api/health/mute", json={"key": "mem_low:1", "hours": 24})
+        assert r.status_code == 200
+        until = r.json()["muted_until"]
+    app2 = create_app(Database(db_path), fake_docker, run_scheduler=False,
+                      procs=ProcessRunner(tmp_path / "p2"))
+    with TestClient(app2, base_url="http://127.0.0.1") as c2:
+        assert c2.app.state.health.mutes().get("mem_low:1") == until
+        assert c2.post("/api/health/unmute", json={"key": "mem_low:1"}).status_code == 204
+        assert "mem_low:1" not in c2.app.state.health.mutes()
+
+
 def test_installer_env_gets_random_secrets(tmp_path):
     import shutil
     from pathlib import Path

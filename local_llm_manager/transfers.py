@@ -5,6 +5,7 @@ connection or restarts does not interrupt them; the hub starts a task and then a
 """
 
 import asyncio
+import errno
 import hashlib
 import os
 import re
@@ -69,7 +70,11 @@ def download_argv(repo: str, target: str) -> list[str]:
 
 
 class Tasks:
-    """Pull / download tasks of this machine. `start_*` returns at once; `get(id)` tells the progress."""
+    """Pull / download tasks of this machine. `start_*` returns at once; `get(id)` tells the progress.
+
+    Tasks live in memory only: after this machine's restart they are gone, and the hub starts them
+    again (its resume_jobs / _follow see the 404). That is safe: a copy resumes from its .part files,
+    a download skips what it already has, and start_* dedups a transfer that is still running."""
 
     def __init__(self, docker, cache: Optional[HashCache] = None):
         self.docker = docker
@@ -197,6 +202,15 @@ def _safe_target(root: Path, rel: str) -> Path:
     return p
 
 
+def _safe_link(root: Path, rel: str) -> Path:
+    """Where a link entry goes: the path itself stays unresolved - it is the link that gets created
+    (or skipped when it is already there). Only its parent folder is checked against the root."""
+    p = root / rel
+    if not p.parent.resolve().is_relative_to(root.resolve()):
+        raise ValueError(f"refusing a path outside the target: {rel}")
+    return p
+
+
 class Copy:
     """Copy one share from another machine into this machine's model dir: several files at once,
     each checked against the source's SHA-256 while it is written, files that are already here (same
@@ -205,6 +219,7 @@ class Copy:
     def __init__(self, tasks: "Tasks", task: dict[str, Any], source: str, share_id: str, ticket: str,
                  target: Path):
         self.tasks, self.task, self.target = tasks, task, target
+        self.root = target  # run() widens it to the folder the manifest's paths live in
         self.base = f"{source.rstrip('/')}/agent/v1/shares/{share_id}"
         self.headers = {TICKET_HEADER: ticket}
         self.done = 0
@@ -223,6 +238,7 @@ class Copy:
             self.total = manifest["total"]
             files = manifest["files"]
             root = self.target if manifest["kind"] == "dir" else self.target.parent
+            self.root = root
             root.mkdir(parents=True, exist_ok=True)
             # Enough room? (files already here with the right size are not counted)
             def present(f: dict[str, Any]) -> bool:
@@ -231,6 +247,15 @@ class Copy:
                     return d.is_symlink() and os.readlink(d) == f["link"]
                 return d.exists() and d.stat().st_size == f["size"]
             needed = sum(f["size"] for f in files if not present(f))
+            # A file with the right size but a known-bad checksum gets replaced: the old one stays
+            # until the new one is complete - room for both. (An unknown hash is only verified
+            # during the copy; those files stay counted as before.)
+            for f in files:
+                if f.get("link") is None and present(f):
+                    d = self.target if f["path"] == "." else self.target / f["path"]
+                    have = self.tasks.cache.get(d)
+                    if have is not None and have != f["sha256"]:
+                        needed += 2 * f["size"]
             free = shutil.disk_usage(root).free
             if needed > free - 2e9:
                 raise RuntimeError(f"Not enough disk space in {root}: {needed / 1e9:.1f} GB needed, "
@@ -242,10 +267,20 @@ class Copy:
 
             async def one(f: dict[str, Any]) -> None:
                 async with sem:
-                    dest = self.target if f["path"] == "." else _safe_target(self.target, f["path"])
+                    if f["path"] == ".":
+                        dest = self.target
+                    elif f.get("link") is not None:
+                        dest = _safe_link(self.target, f["path"])
+                    else:
+                        dest = _safe_target(self.target, f["path"])
                     counts["copied" if await self._file(c, f, dest) else "skipped"] += 1
 
-            await asyncio.gather(*(one(f) for f in files))
+            try:
+                await asyncio.gather(*(one(f) for f in files))
+            except OSError as e:
+                if e.errno == errno.ENOSPC:
+                    raise RuntimeError(f"Disk full while copying to {self.target}: {e}") from e
+                raise
         self.done = self.total
         self._show()
         n, skipped = counts["copied"], counts["skipped"]
@@ -271,12 +306,23 @@ class Copy:
         if f.get("link") is not None:
             # A link of the source folder: recreated as a link, its bytes come with the file it points
             # at. Copying the content instead would put every such shard on the target twice.
-            if dest.is_symlink() and os.readlink(dest) == f["link"]:
+            link = f["link"]
+            # The source does not get to decide where links on this machine point: only relative
+            # targets that stay inside the copied folder are recreated. An absolute link would
+            # dangle here, an escaping one would point at something else on this machine.
+            if not link or os.path.isabs(link):
+                raise RuntimeError(f"{f['path']}: refusing an absolute link target: {link!r}")
+            if not (dest.parent / link).resolve().is_relative_to(self.root.resolve()):
+                raise RuntimeError(f"{f['path']}: refusing a link target outside {self.root}: {link!r}")
+            if dest.is_symlink() and os.readlink(dest) == link:
                 return False
+            if dest.is_dir() and not dest.is_symlink():
+                # A real directory with content of its own: never delete it to make room for a link.
+                raise RuntimeError(f"{f['path']}: refusing to replace a real directory with a link: {dest}")
             dest.parent.mkdir(parents=True, exist_ok=True)
             if dest.exists() or dest.is_symlink():
                 dest.unlink()  # an earlier copy made a real file of it, or the link points elsewhere
-            os.symlink(f["link"], dest)
+            os.symlink(link, dest)
             return True
         if dest.exists() and dest.stat().st_size == f["size"]:
             have = self.tasks.cache.get(dest) or await asyncio.to_thread(sha256_file, dest)

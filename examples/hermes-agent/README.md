@@ -127,7 +127,7 @@ state plus the recipe definition, and no Hermes install on the host to maintain:
 | Field | Value |
 |---|---|
 | This recipe runs | An agent |
-| Image | `nousresearch/hermes-agent` |
+| Image | `nousresearch/hermes-agent:latest` - Hermes changes fast; pin a tag for reproducibility |
 | Command | `gateway run` - and only that: never override the entrypoint, the image needs its s6 `/init` |
 | Volumes | `~/.hermes:/opt/data` (same config, keys and sessions as the native install) |
 | Port | a free placeholder, e.g. `8198` (the gateway does not listen on it) |

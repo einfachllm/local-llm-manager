@@ -104,6 +104,115 @@ def test_offline_or_wrong_token_host(setup):
     assert res.status_code == 502 and "token" in res.json()["detail"]
 
 
+def test_start_refuses_unknown_placeholders(setup):
+    """A typo like {modle} is refused before anything starts, with the allowed list (CORE-06)."""
+    client, _, hub_docker, _, mac = setup
+    r = client.post("/api/recipes", json=recipe_body(health_path="", command="vllm serve {modle}")).json()
+    res = client.post(f"/api/recipes/{r['id']}/start")
+    assert res.status_code == 422, res.text
+    assert "{modle}" in res.json()["detail"] and "Allowed" in res.json()["detail"]
+    assert not hub_docker.calls
+    # The same on a remote host: the hub refuses before the agent builds anything.
+    remote = client.post("/api/recipes", json=recipe_body(name="remote", container_name="remote",
+                                                          host_id=mac["id"], health_path="",
+                                                          command="vllm serve {modle}")).json()
+    assert client.post(f"/api/recipes/{remote['id']}/start").status_code == 422
+
+
+def test_start_allows_json_arguments(setup):
+    """JSON arguments like --speculative-config '{"method":...}' are not placeholders (CORE-06)."""
+    client, _, _, _, mac = setup
+    r = client.post("/api/recipes", json=recipe_body(
+        health_path="", args='--speculative-config {"method": "eagle", "model": "x"}')).json()
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+
+
+def test_preview_refuses_unknown_placeholders_and_ambiguous_gguf(setup, tmp_path):
+    """The preview shows what a start would run - including its refusals (CORE-06, UI-08)."""
+    client, _, _, _, mac = setup
+    res = client.post("/api/recipes/preview", json=recipe_body(command="vllm serve {modle}"))
+    assert res.status_code == 422 and "{modle}" in res.json()["detail"]
+    res = client.post("/api/recipes/preview",
+                      json=recipe_body(args='--speculative-config {"method": "eagle"}'))
+    assert res.status_code == 200 and "--speculative-config" in res.json()["command"]
+
+    folder = tmp_path / "ggufs"
+    folder.mkdir()
+    (folder / "x-Q4_K_M.gguf").write_bytes(b"G")
+    (folder / "x-Q8_0.gguf").write_bytes(b"G")
+    w = client.post("/api/weights", json={"name": "GG", "locations": {"1": str(folder)}}).json()
+    body = recipe_body(framework="llamacpp", image="ghcr.io/ggml-org/llama.cpp:server-cuda", model="/model",
+                       command="-m {model} --host {bind_host} --port {port}", args="-ngl 999",
+                       volumes="{weights}:/model:ro", env="", docker_args="", weights_id=w["id"],
+                       container_port=8080)
+    res = client.post("/api/recipes/preview", json=body)
+    assert res.status_code == 422, res.text
+    assert "x-Q4_K_M.gguf" in res.json()["detail"] and "x-Q8_0.gguf" in res.json()["detail"]
+    # The quick recipe's command preview refuses the same folder.
+    base = client.post("/api/recipes", json=body).json()
+    res = client.post("/api/recipes/quick", json={"base_recipe_id": base["id"], "weights_id": w["id"],
+                                                  "save": False})
+    assert res.status_code == 422, res.text
+    assert "x-Q4_K_M.gguf" in res.json()["detail"]
+
+
+def test_digest_image_matches_via_digests(setup):
+    """A recipe pinned to repo@sha256:... is present when the host reports that digest for one of
+    its images - in the overview and in the editor's single-image check (CORE-16)."""
+    client, _, hub_docker, mac_docker, mac = setup
+    digest = "sha256:" + "ab" * 32
+    mac_docker.images = [{"repository": "nvcr.io/nvidia/vllm", "tag": "25.11-py3", "id": "x",
+                          "created": "", "size": "", "digests": [f"nvcr.io/nvidia/vllm@{digest}"]}]
+    r = client.post("/api/recipes", json=recipe_body(host_id=mac["id"],
+                                                     image=f"nvcr.io/nvidia/vllm@{digest}")).json()
+    overview = client.get("/api/images").json()
+    entry = next(i for i in overview["images"] if i["image"] == r["image"])
+    host = next(h for h in entry["hosts"] if h["host_id"] == mac["id"])
+    assert host["state"] == "present", host
+    check = client.get(f"/api/images/check?host_id={mac['id']}&image={r['image']}").json()
+    assert check["state"] == "present", check
+
+
+def test_update_running_recipe_locks_runtime_fields(setup):
+    """While a recipe runs, its runtime settings are locked (the container keeps the old ones);
+    metadata stays editable, and a stopped recipe accepts the changes (LEAD-07)."""
+    client, _, _, _, mac = setup
+    r = client.post("/api/recipes", json=recipe_body(health_path="")).json()
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+    for field, value in (("host_port", 8200), ("container_port", 8001), ("image", "other:1"),
+                         ("args", "--x"), ("env", "A=b"), ("volumes", "/a:/b"), ("command", "other serve"),
+                         ("model", "org/other"), ("framework", "sglang"), ("gpus", "none"), ("docker_args", "")):
+        res = client.put(f"/api/recipes/{r['id']}", json=recipe_body(health_path="", **{field: value}))
+        assert res.status_code == 409, (field, res.text)
+        assert field in res.json()["detail"]
+    w = client.post("/api/weights", json={"name": "Locked"}).json()
+    res = client.put(f"/api/recipes/{r['id']}", json=recipe_body(health_path="", weights_id=w["id"]))
+    assert res.status_code == 409 and "weights_id" in res.json()["detail"]
+    # Metadata stays editable while running.
+    res = client.put(f"/api/recipes/{r['id']}", json=recipe_body(health_path="", tags=["new"], color="blue"))
+    assert res.status_code == 200, res.text
+    assert client.get(f"/api/recipes/{r['id']}").json()["tags"] == ["new"]
+    # Stopped: the port change goes through.
+    assert client.post(f"/api/recipes/{r['id']}/stop").status_code == 200
+    assert client.put(f"/api/recipes/{r['id']}", json=recipe_body(health_path="", host_port=8200)).status_code == 200
+
+
+def test_delete_recipe_cleans_state_files(setup):
+    """Deleting a recipe removes its on-disk state (logs, exit code, stop marker), so a recipe
+    created under the same container name later does not inherit an old crash (CORE-09)."""
+    client, _, _, _, mac = setup
+    r = client.post("/api/recipes", json=recipe_body(health_path="")).json()
+    procs = client.app.state.manager.local.procs
+    name = r["container_name"]
+    (procs.dir / f"{name}.json").write_text("{}")
+    (procs.dir / f"{name}.log").write_text("old log")
+    (procs.dir / f"{name}.log.1").write_text("older log")
+    (procs.dir / f"{name}.exit").write_text("1")
+    (procs.dir / f"{name}.stopped").write_text("abc123")
+    assert client.delete(f"/api/recipes/{r['id']}").status_code == 204
+    assert not list(procs.dir.glob(f"{name}.*"))
+
+
 def test_host_validation(setup):
     client, _, _, _, mac = setup
     local = client.get("/api/hosts").json()[0]
@@ -114,3 +223,53 @@ def test_host_validation(setup):
     assert client.post("/api/recipes", json=recipe_body(host_id=999)).status_code == 404
     # Renaming the local host works; it keeps having no URL.
     assert client.put(f"/api/hosts/{local['id']}", json={"name": "spark"}).json()["name"] == "spark"
+
+
+def _copy_spy(client, monkeypatch, tmp_path, mac):
+    """Prepare a hub->agent copy of a small model and record the links_as_files flag of the share."""
+    from test_transfers import wait
+    client.app.state.manager.transfer_poll = 0.02
+    monkeypatch.setattr(config, "MODEL_DIRS", [str(tmp_path / "models")])
+    monkeypatch.setattr(config, "PUBLIC_URL", "http://hub.local:8090")
+    src = tmp_path / "src" / "M"
+    (src / "tensors").mkdir(parents=True)
+    (src / "tensors" / "a.safetensors").write_bytes(b"x" * 100)
+    (src / "a.safetensors").symlink_to("tensors/a.safetensors")
+    (src / "config.json").write_text("{}")
+    local = client.get("/api/hosts").json()[0]["id"]
+    wid = client.post("/api/weights", json={"name": "M", "locations": {str(local): str(src)}}).json()["id"]
+    seen = {}
+    shares = client.app.state.manager.local.shares
+    real_create = shares.create
+
+    def spy(path, *a, **kw):
+        seen["links_as_files"] = kw.get("links_as_files", False)
+        return real_create(path, *a, **kw)
+
+    monkeypatch.setattr(shares, "create", spy)
+    res = client.post("/api/jobs/copy", json={"weight_id": wid, "host_ids": [mac["id"]]})
+    assert res.status_code == 202, res.text
+    items = wait(client, res.json()["id"])
+    assert items[mac["id"]]["state"] == "ok", items
+    return seen
+
+
+def test_copy_to_a_new_agent_serves_links_as_links(setup, monkeypatch, tmp_path):
+    """An agent that advertises copy_links (0.3.0+) gets the link manifest."""
+    client, agent, _, _, mac = setup
+    agent.state.executor.transfers.transport = httpx.ASGITransport(app=client.app)
+    seen = _copy_spy(client, monkeypatch, tmp_path, mac)
+    assert seen["links_as_files"] is False
+
+
+def test_copy_to_an_old_agent_serves_links_as_files(setup, monkeypatch, tmp_path):
+    """An agent without copy_links (pre-0.3.0) cannot recreate links: serve ordinary files instead."""
+    client, agent, _, _, mac = setup
+    agent.state.executor.transfers.transport = httpx.ASGITransport(app=client.app)
+
+    async def old_info(self):
+        return {"hostname": "old", "platform": "linux", "machine": "x86_64", "version": "0.2.0"}
+
+    monkeypatch.setattr(executor_mod.RemoteExecutor, "info", old_info)
+    seen = _copy_spy(client, monkeypatch, tmp_path, mac)
+    assert seen["links_as_files"] is True

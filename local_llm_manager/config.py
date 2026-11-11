@@ -3,7 +3,9 @@
 import os
 from pathlib import Path
 
-DB_PATH = Path(os.environ.get("DGXM_DB", Path(__file__).resolve().parent.parent / "data" / "manager.db"))
+# Relative to the working directory: run.sh cd's into the app folder, and the installers / Docker
+# set an absolute DGXM_DB. An installed package must not write into its own site-packages.
+DB_PATH = Path(os.environ.get("DGXM_DB", "data/manager.db"))
 # State and log files of native-process recipes.
 PROC_DIR = Path(os.environ.get("DGXM_PROC_DIR", DB_PATH.parent / "processes"))
 # Listen address of the manager. "tailscale" = this machine's Tailscale IPv4 (resolved at startup), so the

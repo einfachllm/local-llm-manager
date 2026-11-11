@@ -60,3 +60,14 @@ def test_snapshot_includes_cpu(monkeypatch):
     import asyncio
     snap = asyncio.run(system.snapshot())
     assert snap["cpu"] == {"temperature": 50.0}
+
+
+def test_memory_is_decimal_gb(monkeypatch):
+    """UI-04/FLEET-12: memory readings use the same decimal GB as the Weights tab (128 GB machine
+    shows 128.0, not 119.2 GiB labelled "GB")."""
+    class VM:
+        total = 128_000_000_000
+        available = 100_000_000_000
+    monkeypatch.setattr(system.psutil, "virtual_memory", lambda: VM())
+    m = system.read_meminfo()
+    assert m == {"total_gb": 128.0, "available_gb": 100.0, "used_gb": 28.0}

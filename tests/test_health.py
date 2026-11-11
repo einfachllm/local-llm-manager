@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime, timedelta
 
 from local_llm_manager import health
@@ -163,6 +164,25 @@ def test_muted_findings_stay_visible_but_quiet():
     assert f.public()["muted"] and events == []
 
 
+def test_host_offline_hold_equals_clear_for_seamless_handover():
+    # A failed recipe on a host that goes offline: start_failed clears after CLEAR_SECONDS,
+    # host_offline becomes a finding after its hold. Equal values hand over with no gap.
+    assert health.RULES["host_offline"]["hold"] == health.CLEAR_SECONDS
+    t, events, clock = tracker()
+    failed = Condition("start_failed", "start_failed:7", CRITICAL, "gemma", "CUDA OOM",
+                       host_id=1, recipe_id=7)
+    offline = Condition("host_offline", "host_offline:1", CRITICAL, "spark-01", "does not answer",
+                        host_id=1)
+    t.update([failed], {})                     # host online, recipe failed -> finding at once
+    assert [f.rule for f in t.findings()] == ["start_failed"]
+    t.update([offline], {})                    # host goes offline: the handover starts now
+    assert [f.rule for f in t.findings()] == ["start_failed"]   # not cleared yet
+    clock.t += health.CLEAR_SECONDS
+    t.update([offline], {})                    # exactly at the handover point
+    assert [f.rule for f in t.findings()] == ["host_offline"]   # no gap, no overlap
+    assert [e[1] for e in events] == ["critical", "resolved", "critical"]
+
+
 # ---- through the app ----------------------------------------------------------
 
 
@@ -199,3 +219,62 @@ def test_host_memory_finding_via_api(client, monkeypatch):
     asyncio.run(monitor.check())
     [f] = client.get("/api/hosts").json()[0]["findings"]
     assert (f["rule"], f["severity"]) == ("mem_low", "critical")
+
+
+# ---- findings survive a restart (HEALTH-01) -----------------------------------
+
+
+def _failed_recipe(client, fake_docker):
+    r = client.post("/api/recipes", json=recipe_body()).json()
+    client.post(f"/api/recipes/{r['id']}/start")
+    fake_docker.containers[r["container_name"]].update(state="exited", status="Exited (1) 1 minute ago")
+    fake_docker.log_stats = "torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB"
+    asyncio.run(client.app.state.health.check())
+    return r
+
+
+def test_finding_since_survives_restart(client, fake_docker):
+    _failed_recipe(client, fake_docker)
+    [f] = client.app.state.health.findings()
+    events_before = client.get("/api/events").json()
+
+    # A second monitor on the same database is a "restart": it restores the finding ...
+    monitor2 = health.HealthMonitor(client.app.state.db, client.app.state.manager)
+    [f2] = monitor2.findings()
+    assert (f2["key"], f2["since"]) == (f["key"], f["since"])
+    # ... and while the condition still holds it continues without a new event.
+    asyncio.run(monitor2.check())
+    [f3] = monitor2.findings()
+    assert f3["since"] == f["since"]
+    assert client.get("/api/events").json() == events_before
+
+
+def test_restarted_finding_resolves_when_condition_gone(client, fake_docker):
+    r = _failed_recipe(client, fake_docker)
+    # The recipe recovers while the manager is "down".
+    fake_docker.containers[r["container_name"]].update(state="running", status="Up 1 second")
+    monitor2 = health.HealthMonitor(client.app.state.db, client.app.state.manager)
+    assert len(monitor2.findings()) == 1          # restored from the store
+    asyncio.run(monitor2.check())                 # condition gone on the first check
+    assert monitor2.findings() == []
+    ev = client.get("/api/events").json()[0]
+    assert (ev["source"], ev["action"], ev["ok"]) == ("health", "resolved", True)
+
+
+def test_restarted_finding_keeps_mute(client, fake_docker):
+    _failed_recipe(client, fake_docker)
+    [f] = client.app.state.health.findings()
+    client.post("/api/health/mute", json={"key": f["key"], "hours": 24})
+    monitor2 = health.HealthMonitor(client.app.state.db, client.app.state.manager)
+    [f2] = monitor2.findings()
+    assert f2["muted"] is True
+
+
+def test_corrupt_active_store_is_ignored(client):
+    db = client.app.state.db
+    db.set_setting(health.ACTIVE_KEY, "not json")
+    assert health.HealthMonitor(db, client.app.state.manager).findings() == []
+    db.set_setting(health.ACTIVE_KEY, json.dumps({"x": {"rule": "no_such_rule", "key": "x"}}))
+    assert health.HealthMonitor(db, client.app.state.manager).findings() == []
+    db.set_setting(health.ACTIVE_KEY, json.dumps({"start_failed:1": {"rule": "start_failed"}}))
+    assert health.HealthMonitor(db, client.app.state.manager).findings() == []  # missing fields

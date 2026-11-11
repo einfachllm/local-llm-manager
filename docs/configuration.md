@@ -44,7 +44,7 @@ Values marked *agent* matter only with `DGXM_MODE=agent`, *hub* only in the defa
 
 | Variable | Default | Description |
 |---|---|---|
-| `DGXM_DB` | `./data/manager.db` | SQLite database (recipes, hosts, events). Readable by its owner only. |
+| `DGXM_DB` | `./data/manager.db` | SQLite database (recipes, hosts, events), relative to the working directory. Readable by its owner only. |
 | `DGXM_PROC_DIR` | `<db folder>/processes` | State and log files of native-process recipes. |
 | `DGXM_RETENTION_DAYS` | `90` | Days to keep activity-log entries and start-time measurements; pruned on startup. `0` keeps everything. |
 
@@ -56,6 +56,11 @@ Values marked *agent* matter only with `DGXM_MODE=agent`, *hub* only in the defa
 | `DGXM_HEALTH_TICK` | `15` | Seconds between health checks (hub): memory, GPU temperature, KV cache, failed and slow starts, unreachable hosts. |
 | `DGXM_ONCE_GRACE_SECONDS` | `600` | Grace period for one-shot schedules ("start once at 06:00") that were missed while the manager was down; older misses are skipped. |
 | `DGXM_METRICS` | *(off)* | `1`/`true`/`yes` serves the manager's own metrics at `GET /metrics` in Prometheus format (uptime, request and action counts, stored recipes/hosts - no recipe or host data). `GET /healthz` is always available and needs no login. |
+
+Schedules follow the hub's IANA zone, resolved from `TZ`, the `/etc/localtime` symlink or
+`/etc/timezone` (fixed-offset fallback, correct for UTC). DST transitions are handled: a repeated
+autumn wall time fires once for daily/weekly schedules (hourly ones keep their rhythm), and a
+non-existent spring time (e.g. 02:30) runs at the transition (03:00).
 
 ## Secrets passed to recipes (no `DGXM_` prefix)
 

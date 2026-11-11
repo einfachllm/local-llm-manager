@@ -1,0 +1,14 @@
+# NVIDIA hosts: nvidia-smi readings (GPU load/temperature) in the Hosts graph.
+# Models get their GPUs via their own --gpus flag, not through this reservation.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d
+services:
+  local-llm-manager:
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [utility]

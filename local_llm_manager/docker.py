@@ -4,7 +4,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import AsyncIterator, Optional
+from typing import Any, AsyncIterator, Optional
 
 from . import config
 
@@ -67,6 +67,20 @@ def _created_iso(created_at: str) -> str:
         return created_at
 
 
+def _image_digests(repository: str, raw: Any) -> list[str]:
+    """Full repo@sha256:... references from the digest column of `docker image ls --digests`. The column
+    holds a bare `sha256:...` (prefixed with the repository here), possibly several comma-separated values
+    or a list; `<none>`/empty means the image has no repo digest."""
+    parts = [str(x) for x in raw] if isinstance(raw, (list, tuple)) else str(raw or "").split(",")
+    out = []
+    for part in parts:
+        d = part.strip()
+        if not d or d == "<none>":
+            continue
+        out.append(d if "@" in d else f"{repository}@{d}")
+    return out
+
+
 class Docker:
     """Container operations. Swappable in tests."""
 
@@ -78,11 +92,13 @@ class Docker:
         return await run(argv, timeout=1800)
 
     async def list_containers(self) -> dict[str, dict]:
-        """All containers keyed by name: {state, status, id, image}."""
+        """All containers keyed by name: {state, status, id, image}. A failed `docker ps` (daemon down,
+        socket gone) raises instead of looking like "no containers": callers must not read that as
+        "everything stopped"."""
         res = await run([self.binary, "ps", "-a", "--no-trunc", "--format", "{{json .}}"], timeout=15)
-        containers: dict[str, dict] = {}
         if not res.ok:
-            return containers
+            raise RuntimeError(res.error or "docker ps failed")
+        containers: dict[str, dict] = {}
         for line in res.stdout.splitlines():
             try:
                 c = json.loads(line)
@@ -98,8 +114,10 @@ class Docker:
         return containers
 
     async def list_images(self) -> list[dict]:
-        """Local images: {repository, tag, id, created (ISO), size}. Dangling `<none>` images are skipped."""
-        res = await run([self.binary, "image", "ls", "--format", "{{json .}}"], timeout=30)
+        """Local images: {repository, tag, id, created (ISO), size, digests}. Dangling `<none>` images are
+        skipped, but an untagged image that has a repo digest is kept: it is referenced as repo@sha256:...
+        and the digests field is what lets the manager recognise it."""
+        res = await run([self.binary, "image", "ls", "--digests", "--format", "{{json .}}"], timeout=30)
         if not res.ok:
             raise RuntimeError(res.error or "docker image ls failed")
         images = []
@@ -108,10 +126,13 @@ class Docker:
                 i = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if i.get("Repository", "<none>") == "<none>" or i.get("Tag", "<none>") == "<none>":
+            repo, tag = i.get("Repository", "<none>"), i.get("Tag", "<none>")
+            digests = _image_digests(repo, i.get("Digest") or i.get("RepoDigests") or "")
+            if repo == "<none>" or (tag == "<none>" and not digests):
                 continue
-            images.append({"repository": i["Repository"], "tag": i["Tag"], "id": i.get("ID", "")[-12:],
-                           "created": _created_iso(i.get("CreatedAt", "")), "size": i.get("Size", "")})
+            images.append({"repository": repo, "tag": tag, "id": i.get("ID", "")[-12:],
+                           "created": _created_iso(i.get("CreatedAt", "")), "size": i.get("Size", ""),
+                           "digests": digests})
         return images
 
     async def pull(self, image: str, on_line=None, timeout: float = 4 * 3600) -> CommandResult:

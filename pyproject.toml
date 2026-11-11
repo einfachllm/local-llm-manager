@@ -29,7 +29,8 @@ local-llm-manager = "local_llm_manager.main:run"
 packages = ["local_llm_manager"]
 
 [tool.setuptools.package-data]
-local_llm_manager = ["static/*"]
+# seed/*: the example a fresh install starts with, for pip installs without the repo's examples/ folder.
+local_llm_manager = ["static/*", "seed/*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "local_llm_manager.__version__" }

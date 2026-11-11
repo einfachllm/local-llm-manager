@@ -1,9 +1,12 @@
+import asyncio
 import threading
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import pytest
 from conftest import recipe_body
 
+from local_llm_manager import docker as docker_mod
 from local_llm_manager import executor as executor_mod
 from local_llm_manager.recipes import build_run_argv
 from local_llm_manager.scheduler import compute_next_run, local_now
@@ -81,6 +84,18 @@ def test_preview(client):
     assert "local-llm-manager.recipe=7" in cmd
 
 
+def test_env_values_masked_in_display_but_not_in_execution(client, fake_docker):
+    body = recipe_body(env="HF_TOKEN\nSECRET=hunter2")
+    cmd = client.post("/api/recipes/preview", json=body).json()["command"]
+    assert "SECRET=***" in cmd and "-e HF_TOKEN" in cmd and "hunter2" not in cmd
+    r = client.post("/api/recipes", json=body).json()
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+    # The activity log shows the masked command, the real docker run keeps the value.
+    events = client.get("/api/events").json()
+    assert "SECRET=***" in events[0]["message"] and "hunter2" not in events[0]["message"]
+    assert "SECRET=hunter2" in fake_docker.calls[-1]
+
+
 def test_start_stop_restart(client, fake_docker):
     r = create(client)
     assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
@@ -92,9 +107,11 @@ def test_start_stop_restart(client, fake_docker):
     # Can't delete while running.
     assert client.delete(f"/api/recipes/{r['id']}").status_code == 409
 
-    # Edit + restart re-creates the container with the new args.
+    # Runtime fields are locked while the model runs (LEAD-07): stop, edit, start.
+    assert client.put(f"/api/recipes/{r['id']}", json=recipe_body(args="--max-model-len 1024")).status_code == 409
+    assert client.post(f"/api/recipes/{r['id']}/stop").status_code == 200
     client.put(f"/api/recipes/{r['id']}", json=recipe_body(args="--max-model-len 1024"))
-    assert client.post(f"/api/recipes/{r['id']}/restart").status_code == 200
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
     last_run = [c for c in fake_docker.calls if c[0] == "docker"][-1]
     assert last_run[-2:] == ["--max-model-len", "1024"]
     assert ["rm", "test-vllm"] in fake_docker.calls
@@ -142,6 +159,106 @@ def test_switch_stops_others_and_drops_caches(client, fake_docker, monkeypatch):
     statuses = {r["name"]: r["status"] for r in client.get("/api/recipes").json()}
     assert statuses == {"A": "stopped", "B": "ready"}
     assert fake_docker.dropped == 1
+
+
+def test_switch_stops_the_rest_and_reports_balance_when_a_stop_fails(client, fake_docker):
+    a = create(client, name="A", host_port=8101)
+    b = create(client, name="B", host_port=8102)
+    c = create(client, name="C", host_port=8103)
+    client.post(f"/api/recipes/{a['id']}/start")
+    client.post(f"/api/recipes/{b['id']}/start")
+    fake_docker.fail_stop.add(a["container_name"])
+
+    res = client.post(f"/api/recipes/{c['id']}/switch")
+    assert res.status_code == 502
+    detail = res.json()["detail"]
+    assert "Stopped B" in detail and "could not stop" in detail and "A" in detail and "boom stop" in detail
+    # B was stopped despite A's failure; C was not started on top of the still-running A.
+    statuses = {r["name"]: r["status"] for r in client.get("/api/recipes").json()}
+    assert statuses == {"A": "ready", "B": "stopped", "C": "stopped"}
+    assert fake_docker.dropped == 0
+
+
+def test_stop_all_continues_past_a_failed_stop(client, fake_docker):
+    a = create(client, name="A", host_port=8101)
+    b = create(client, name="B", host_port=8102)
+    client.post(f"/api/recipes/{a['id']}/start")
+    client.post(f"/api/recipes/{b['id']}/start")
+    fake_docker.fail_stop.add(a["container_name"])
+
+    res = client.post("/api/system/stop-all")
+    assert res.status_code == 502
+    detail = res.json()["detail"]
+    assert "Stopped B" in detail and "could not stop" in detail and "A" in detail
+    statuses = {r["name"]: r["status"] for r in client.get("/api/recipes").json()}
+    assert statuses == {"A": "ready", "B": "stopped"}
+
+
+def test_free_memory_reports_failed_stops(client, fake_docker, monkeypatch):
+    monkeypatch.setattr(executor_mod.sys, "platform", "linux")
+    a = create(client, name="A", host_port=8101)
+    b = create(client, name="B", host_port=8102)
+    client.post(f"/api/recipes/{a['id']}/start")
+    client.post(f"/api/recipes/{b['id']}/start")
+    fake_docker.fail_stop.add(a["container_name"])
+
+    res = client.post("/api/system/free-memory")
+    assert res.status_code == 502
+    assert "Stopped B" in res.json()["detail"] and "could not stop" in res.json()["detail"]
+    assert fake_docker.dropped == 0  # caches are not dropped while a model is still running
+
+
+def test_docker_daemon_down_reports_offline_not_stopped(client, fake_docker):
+    r = create(client)
+    client.post(f"/api/recipes/{r['id']}/start")
+    fake_docker.fail_list_containers = True
+
+    recipes = client.get("/api/recipes").json()
+    assert recipes[0]["status"] == "offline" and "Docker daemon" in recipes[0]["error"]
+    assert client.get(f"/api/recipes/{r['id']}").json()["status"] == "offline"
+    # A start attempt fails with the Docker error instead of a false success.
+    res = client.post(f"/api/recipes/{r['id']}/start")
+    assert res.status_code == 502 and "Docker daemon" in res.json()["detail"]
+    # stop_all and switch report the outage instead of silently doing nothing.
+    assert client.post("/api/system/stop-all").status_code == 502
+    b = create(client, name="B", host_port=8200)
+    res = client.post(f"/api/recipes/{b['id']}/switch")
+    assert res.status_code == 502 and "Docker daemon" in res.json()["detail"]
+    assert fake_docker.containers[r["container_name"]]["state"] == "running"  # untouched
+
+
+def test_docker_daemon_back_online(client, fake_docker):
+    r = create(client)
+    client.post(f"/api/recipes/{r['id']}/start")
+    fake_docker.fail_list_containers = True
+    assert client.get(f"/api/recipes/{r['id']}").json()["status"] == "offline"
+    fake_docker.fail_list_containers = False
+    assert client.get(f"/api/recipes/{r['id']}").json()["status"] == "ready"
+
+
+def test_docker_list_containers_raises_when_ps_fails(monkeypatch):
+    # The real Docker wrapper (not the fake): a failed `docker ps` must raise, not look like "no containers".
+    async def failed_run(argv, timeout=60.0):
+        return docker_mod.CommandResult(1, "", "Cannot connect to the Docker daemon")
+
+    monkeypatch.setattr(docker_mod, "run", failed_run)
+    with pytest.raises(RuntimeError, match="Docker daemon"):
+        asyncio.run(docker_mod.Docker().list_containers())
+
+
+def test_executor_turns_container_list_failure_into_offline(monkeypatch):
+    # LocalExecutor surfaces a Docker outage as ActionError(502) so the manager reports "offline".
+    ex = executor_mod.LocalExecutor.__new__(executor_mod.LocalExecutor)
+
+    class BrokenDocker:
+        async def list_containers(self):
+            raise RuntimeError("Cannot connect to the Docker daemon")
+
+    ex.docker = BrokenDocker()
+    recipe = {"id": 1, "runtime": "docker", "container_name": "m"}
+    with pytest.raises(executor_mod.ActionError) as ei:
+        asyncio.run(ex._instances([recipe]))
+    assert ei.value.status_code == 502 and "Docker daemon" in ei.value.message
 
 
 def test_running_recipe_reports_live_server_metrics(client, fake_docker, monkeypatch):

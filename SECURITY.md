@@ -25,6 +25,9 @@ Local LLM Manager is built to **run arbitrary containers and processes** on the 
 
 - Anyone who can log in to the dashboard can start any Docker container on the hub and its agents,
   which is effectively **root** on those machines.
+- The Docker Compose deployment runs the manager itself as **root inside the container** and mounts the
+  host's Docker socket — root in the container plus the socket is root on the host. This is inherent to
+  managing Docker; run it only on machines you trust, on a private network (see below).
 - The agent token grants the same level of control over an agent machine.
 - Hub ↔ agent traffic is plain HTTP (run it over Tailscale/WireGuard, which encrypts it). The Hosts tab
   marks each host 🔒 Tailscale / 🔒 HTTPS or ⚠ plain HTTP.

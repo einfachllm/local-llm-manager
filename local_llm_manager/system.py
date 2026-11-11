@@ -9,12 +9,13 @@ from .docker import run
 
 
 def read_meminfo() -> dict[str, float]:
-    """Total / available / used memory in GB (Linux: MemAvailable; macOS: free + inactive pages)."""
+    """Total / available / used memory in decimal GB (Linux: MemAvailable; macOS: free + inactive pages).
+    Decimal (1e9), not GiB: the same unit the Weights tab uses, so "GB" means one thing everywhere."""
     try:
         vm = psutil.virtual_memory()
     except Exception:
         return {"total_gb": 0, "available_gb": 0, "used_gb": 0}
-    gb = 1024 ** 3
+    gb = 1e9
     return {
         "total_gb": round(vm.total / gb, 1),
         "available_gb": round(vm.available / gb, 1),

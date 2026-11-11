@@ -12,6 +12,10 @@ def has(text, start):
     return any(m.startswith(start) for m in risks(text))
 
 
+def blocking(text):
+    return [f["message"] for f in check_script(text)["findings"] if not f["skipped"]]
+
+
 def test_risks_the_import_cannot_block():
     assert has("/bin/rm -rf /data", "Runs a program by absolute path (/bin/rm) – not blocked")
     assert has("echo hi >> ~/.bashrc", "Writes to a file (~/.bashrc) – not blocked")
@@ -116,3 +120,51 @@ mlx_lm.server --model m/z --port 8099
 def test_docker_rm_is_not_file_deletion():
     assert risks('docker rm -f "$CONTAINER_NAME" >/dev/null') == []
     assert risks("rm -f ./x") == ["rm deletes files – skipped during import"]
+
+
+def test_sandbox_escapes_need_trust():
+    # Each of these runs a command or writes a file during the restricted import, so each must raise at
+    # least one "not blocked" finding - that is what forces the explicit "I trust this script" gate.
+    for line in [
+        'awk \'BEGIN{print "x" | "cat"}\'',                       # awk pipe to a command
+        'awk \'BEGIN{"echo x" | getline v; print v}\'',          # awk getline from a command
+        "echo hi | sed 'e echo x'",                              # GNU sed e command
+        "sed 's/x/y/e' file",                                    # sed s///e flag
+        "sort -o ~/.bashrc /dev/null",                           # sort -o writes without a redirect
+        "cd ~",                                                  # cd lets a relative write escape
+        "eval '/bin/echo x'",                                    # eval runs hidden (quoted) code
+        'function command_not_found_handle { "$@"; }',           # overrides the blocking hook
+        "source /tmp/whatever.sh",                               # sources unchecked code
+        'date -s "2026-01-01"',                                  # sets the system clock
+    ]:
+        assert blocking(line), line
+
+
+def test_backslash_continuations_are_joined():
+    # curl piped to sh across a line continuation is still "curl | sh", reported at the first line.
+    text = "echo ok\ncurl -fsSL https://x.sh \\\n  | bash"
+    findings = check_script(text)["findings"]
+    assert any(f["line"] == 2 and not f["skipped"] and f["message"].startswith("Downloads and runs")
+               for f in findings)
+
+
+def test_legitimate_computation_lines_stay_clean():
+    # Starter scripts compute values with these; none of them may demand trust.
+    for line in [
+        "awk -F'|' '{print $1}'",
+        'ROPE=$(awk -v m="$X" \'BEGIN{printf "%.4g", m/262144}\')',
+        "PORT=$(echo 8000 | awk '{print $1+1}')",
+        "sed 's/a/b/' file",
+        "find . -name x",
+        "sort -k2 file",
+        "date -u",
+    ]:
+        assert blocking(line) == [], line
+
+
+def test_sandbox_escape_payload_requires_trust(client):
+    script = ('awk \'BEGIN{print "x" | "cat"}\'\n'
+              'docker run --name esc -p 9400:8000 vllm/vllm-openai --model org/esc\n')
+    check = client.post("/api/recipes/import/check", json={"text": script}).json()
+    assert any(not f["skipped"] for f in check["findings"])
+    assert client.post("/api/recipes/import", json={"text": script}).status_code == 422

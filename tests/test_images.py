@@ -29,13 +29,58 @@ def test_list_images_parses_docker_output(monkeypatch):
     ])
 
     async def fake_run(argv, timeout=60.0):
-        assert argv[1:3] == ["image", "ls"]
+        assert argv[1:3] == ["image", "ls"] and "--digests" in argv
         return docker_mod.CommandResult(0, out, "")
 
     monkeypatch.setattr(docker_mod, "run", fake_run)
     images = asyncio.run(Docker("docker").list_images())
     assert images == [{"repository": "vllm/vllm-openai", "tag": "v0.11.0", "id": "456789abcdef",
-                       "created": "2026-10-20T14:03:11+02:00", "size": "18.3GB"}]
+                       "created": "2026-10-20T14:03:11+02:00", "size": "18.3GB", "digests": []}]
+
+
+def test_list_images_keeps_digest_only_images(monkeypatch):
+    out = "\n".join([
+        # Pulled by digest: no tag, but a repo digest -> kept so a repo@sha256:... recipe can match it.
+        '{"Repository":"vllm/vllm-openai","Tag":"<none>","Digest":"sha256:abc123","ID":"sha256:0123456789abcdef","CreatedAt":"2026-10-20 14:03:11 +0200 CEST","Size":"18.3GB"}',
+        # Untagged and no digest -> still skipped.
+        '{"Repository":"orphan/repo","Tag":"<none>","Digest":"<none>","ID":"sha256:beef","CreatedAt":"2026-10-20 14:03:11 +0200 CEST","Size":"1GB"}',
+        # Dangling -> skipped.
+        '{"Repository":"<none>","Tag":"<none>","Digest":"sha256:ffff","ID":"sha256:dead","CreatedAt":"2026-10-20 14:03:11 +0200 CEST","Size":"1GB"}',
+    ])
+
+    async def fake_run(argv, timeout=60.0):
+        return docker_mod.CommandResult(0, out, "")
+
+    monkeypatch.setattr(docker_mod, "run", fake_run)
+    images = asyncio.run(Docker("docker").list_images())
+    assert len(images) == 1
+    assert images[0]["repository"] == "vllm/vllm-openai"
+    assert images[0]["digests"] == ["vllm/vllm-openai@sha256:abc123"]
+
+
+def test_list_images_digests_on_tagged_image_and_multiple(monkeypatch):
+    out = "\n".join([
+        '{"Repository":"vllm/vllm-openai","Tag":"latest","Digest":"sha256:aaa","ID":"sha256:0123456789abcdef","CreatedAt":"2026-10-20 14:03:11 +0200 CEST","Size":"18.3GB"}',
+        '{"Repository":"multi/arch","Tag":"v1","Digest":"sha256:bbb, sha256:ccc","ID":"sha256:fedcba987654","CreatedAt":"2026-10-20 14:03:11 +0200 CEST","Size":"2GB"}',
+    ])
+
+    async def fake_run(argv, timeout=60.0):
+        return docker_mod.CommandResult(0, out, "")
+
+    monkeypatch.setattr(docker_mod, "run", fake_run)
+    images = asyncio.run(Docker("docker").list_images())
+    assert images[0]["digests"] == ["vllm/vllm-openai@sha256:aaa"]
+    assert images[1]["digests"] == ["multi/arch@sha256:bbb", "multi/arch@sha256:ccc"]
+
+
+def test_image_digests_helper():
+    from local_llm_manager.docker import _image_digests
+    assert _image_digests("repo", "sha256:abc") == ["repo@sha256:abc"]
+    assert _image_digests("repo", "<none>") == []
+    assert _image_digests("repo", "") == []
+    assert _image_digests("repo", "sha256:a, sha256:b") == ["repo@sha256:a", "repo@sha256:b"]
+    assert _image_digests("repo", ["repo@sha256:a"]) == ["repo@sha256:a"]
+    assert _image_digests("repo", "repo@sha256:a") == ["repo@sha256:a"]  # already a full reference
 
 
 def img(repo, tag, created, size="10GB"):

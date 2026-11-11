@@ -14,7 +14,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
 
@@ -31,7 +31,10 @@ CLEAR_SECONDS = 60
 FAIL_LOG_TAIL = 300
 
 RULES: dict[str, dict[str, Any]] = {
-    "host_offline": {"title": "Host unreachable", "hold": 120,
+    # hold == CLEAR_SECONDS: when a host goes offline, its recipe findings (e.g. start_failed)
+    # clear after CLEAR_SECONDS, and host_offline becomes a finding after its hold. Making them
+    # equal hands over seamlessly, with no gap where neither is shown.
+    "host_offline": {"title": "Host unreachable", "hold": CLEAR_SECONDS,
                      "hint": "Check that the manager runs on that machine and the network between hub and agent."},
     "mem_low": {"title": "Memory almost full", "hold": 60,
                 "hint": "Stop a model you don't need, or use Switch to: it stops the others and frees memory first."},
@@ -234,6 +237,10 @@ class Tracker:
     def update(self, conditions: list[Condition], mutes: dict[str, str]) -> None:
         now = self.clock()
         current = {c.key: c for c in conditions}
+        # Clear first, then report new findings: when a condition hands over to another in the same
+        # tick (a failed recipe on a host that just went offline), the activity log reads
+        # "resolved start_failed" before "host unreachable" instead of the other way round.
+        self._clear_gone(now, current)
         for key, c in current.items():
             p = self.seen.get(key)
             if p is None:
@@ -251,18 +258,21 @@ class Tracker:
                 f.detail, f.label = c.detail or f.detail, c.label or f.label
                 if worse:
                     self._log(f, f.severity)
+        for f in self.active.values():
+            f.muted_until = mutes.get(f.key, "")
+
+    def _clear_gone(self, now: float, current: dict[str, Condition]) -> None:
+        """Forget conditions that are no longer reported, and resolve their findings after CLEAR_SECONDS
+        (a blip below that never became a finding is dropped at once, so it cannot count towards a hold)."""
         for key in list(self.seen):
             if key in current:
                 continue
             p = self.seen[key]
             if now - p.last_seen >= CLEAR_SECONDS or key not in self.active:
-                # Not yet a finding: forget it right away, so a blip never counts towards the hold time.
                 del self.seen[key]
                 f = self.active.pop(key, None)
                 if f:
                     self._log(f, "resolved")
-        for f in self.active.values():
-            f.muted_until = mutes.get(f.key, "")
 
     def _log(self, f: Finding, action: str) -> None:
         if f.muted_until:
@@ -285,6 +295,9 @@ def _now_iso() -> str:
 
 
 MUTES_KEY = "health_mutes"
+# Active findings, kept in settings so they survive a restart (since preserved, and a condition
+# that is gone resolves with a "resolved" entry instead of silently disappearing).
+ACTIVE_KEY = "health_active"
 
 
 class HealthMonitor:
@@ -296,6 +309,40 @@ class HealthMonitor:
         self._fail_cache: dict[tuple[int, str], tuple[str, str]] = {}
         self._task: Optional[asyncio.Task] = None
         self.last_run: str = ""
+        self._active_payload: Optional[str] = None
+        self._load_active()
+
+    def _load_active(self) -> None:
+        """Restore the findings that were active before a restart. A condition that still holds
+        continues with its original `since` (no new event); one that is gone on the first check
+        resolves right away, so the activity log gets the "resolved" entry it promises."""
+        try:
+            data = json.loads(self.db.get_setting(ACTIVE_KEY) or "{}")
+        except ValueError:
+            return
+        if not isinstance(data, dict):
+            return
+        now = self.tracker.clock()
+        mutes = self.mutes()
+        for key, d in data.items():
+            if not isinstance(d, dict) or d.get("rule") not in RULES or d.get("key") != key:
+                continue
+            try:
+                f = Finding(**{k: d[k] for k in Finding.__dataclass_fields__ if k in d})
+            except TypeError:
+                continue
+            f.muted_until = mutes.get(key, "")
+            self.tracker.active[key] = f
+            cond = Condition(f.rule, f.key, f.severity, f.target, f.message,
+                             f.host_id, f.recipe_id, f.detail, f.label)
+            # Seen long enough ago that an absent condition clears on the first check.
+            self.tracker.seen[key] = _Pending(now - CLEAR_SECONDS, now - CLEAR_SECONDS, cond)
+
+    def _save_active(self) -> None:
+        payload = json.dumps({k: asdict(f) for k, f in self.tracker.active.items()}, sort_keys=True)
+        if payload != self._active_payload:
+            self.db.set_setting(ACTIVE_KEY, payload)
+            self._active_payload = payload
 
     # mutes: {finding key: until (ISO)}, kept in settings so they survive restarts
     def mutes(self) -> dict[str, str]:
@@ -357,6 +404,7 @@ class HealthMonitor:
             recipes, await self._fail_causes(recipes),
             slow_starts(self.db.pending_starts(), self.db.list_start_times(500)))
         self.tracker.update(conditions, self.mutes())
+        self._save_active()
         self.last_run = _now_iso()
 
     def findings(self) -> list[dict[str, Any]]:

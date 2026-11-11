@@ -59,8 +59,13 @@ def flags(text: str) -> list[str]:
 
 
 def served_name(recipe: dict) -> str | None:
-    given = tokens(recipe.get("args"))
-    return given[given.index("--served-model-name") + 1] if "--served-model-name" in given else None
+    """The model name clients send: --served-model-name (vLLM/SGLang), --alias (llama.cpp) or
+    --name (TensorFold, in args or command) - whichever the engine uses."""
+    given = tokens(recipe.get("args")) + tokens(recipe.get("command"))
+    for flag in ("--served-model-name", "--alias", "--name"):
+        if flag in given:
+            return given[given.index(flag) + 1]
+    return None
 
 
 def lines_of(recipe: dict, field: str) -> list[str]:
@@ -105,8 +110,10 @@ def test_the_family_shares_one_port_and_one_served_name():
     assert missing == [], f"the Qwen3.8 engine family lost {missing}"
     ports = {all_recipes[n]["host_port"] for n in FAMILY}
     assert len(ports) == 1, f"the family no longer shares one port: {ports}"
-    served = {served_name(all_recipes[n]) for n in FAMILY if all_recipes[n]["runtime"] == "docker"}
-    assert len(served) == 1 and None not in served, f"the docker engines disagree on the served name: {served}"
+    # All four engines, native TensorFold included: its --name is the served model id, so a client
+    # asking for "qwen3.8" keeps working after a switch to it.
+    served = {served_name(all_recipes[n]) for n in FAMILY}
+    assert len(served) == 1 and None not in served, f"the engines disagree on the served name: {served}"
 
 
 def test_no_other_example_sits_on_the_family_port():
@@ -140,6 +147,42 @@ def test_starter_scripts_in_the_folder_keep_every_important_line():
             continue
         dropped = [x for x in check_script(f.read_text())["findings"] if x["skipped"]]
         assert dropped == [], f"{f.name} has lines the import would skip: {dropped}"
+
+
+def test_yaml_examples_are_saveable_through_the_api():
+    """The imported drafts must pass the API's own validation, not just the file parser."""
+    from local_llm_manager.main import RecipeIn
+
+    for name, recipe in recipes().items():
+        RecipeIn(**{k: v for k, v in recipe.items() if k != "_warnings"})
+
+
+def test_starter_scripts_really_import_into_valid_recipes():
+    """Beyond the static check: run every published .sh (both example folders) through the restricted
+    import and validate the draft against the API model. Only benign warnings are allowed: the manager
+    drops -d itself, and the Hermes gateway has no model argument. The undefined $ARGS in the Hermes
+    vLLM starter must expand to nothing, not leak into the recipe."""
+    import asyncio
+
+    from local_llm_manager.importer import import_script
+    from local_llm_manager.main import RecipeIn
+
+    folders = (EXAMPLES, ROOT / "examples" / "hermes-agent")
+    scripts = sorted(p for folder in folders for p in folder.glob("*.sh"))
+    assert scripts, "no starter scripts found"
+    for path in scripts:
+        result = asyncio.run(import_script(path.read_text()))
+        recipe = result["recipe"]
+        RecipeIn(**recipe)  # the draft must be saveable through the API
+        assert recipe["host_port"] > 0, path.name
+        assert "$ARGS" not in (recipe.get("args") or ""), f"{path.name}: unexpanded variable in args"
+        unexpected = [w for w in result["warnings"]
+                      if not w.startswith("Removed ")
+                      and not (path.name == "docker-recipe.example.sh"
+                               and w.startswith("Could not tell which argument is the model"))]
+        assert unexpected == [], f"{path.name}: {unexpected}"
+        assert not any("stopped before starting" in w for w in result["warnings"]), \
+            f"{path.name}: preflight checks blocked the import"
 
 
 @pytest.mark.parametrize("name", ["qwen38-dflash.yaml", "qwen38-sglang.yaml", "qwen38-tensorfold.yaml"])

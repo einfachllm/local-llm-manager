@@ -3,9 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'">
+  <meta name="theme-color" content="#0d1424">
   <title>Local LLM Manager</title>
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
   <link rel="stylesheet" href="/static/style.css">
-  <script>try { var th = localStorage.getItem("llm.theme") || "dark"; if (th === "auto") th = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"; document.documentElement.dataset.theme = th; } catch { /* storage unavailable */ }</script>
+  <script src="/static/theme.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -32,6 +37,7 @@
       <header class="topbar">
         <button class="nav-toggle" id="btn-nav" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">☰</button>
         <div class="section-title" id="section-title">Recipes</div>
+        <span id="conn-state" class="conn-badge hidden" role="status">⚠ connection lost</span>
         <div class="hosts-strip" id="hosts-strip"></div>
       </header>
 
@@ -58,7 +64,7 @@
               <button type="button" data-kind="model">🧠 Models</button>
               <button type="button" data-kind="agent">🤖 Agents</button>
             </div>
-            <input id="recipe-search" type="search" placeholder="Search name, model, image, tag…">
+            <input id="recipe-search" type="search" placeholder="Search name, model, host, image, tag…">
           </div>
           <div class="rail-label">Group</div>
           <div class="tag-filter" id="recipe-group" role="group" aria-label="Group">
@@ -216,17 +222,19 @@
           <button class="btn ghost danger" id="btn-clear-events">Clear log</button>
         </div>
       </div>
+      <div class="table-wrap">
       <table class="table">
         <thead><tr><th>Time</th><th>Source</th><th>Action</th><th>Target</th><th>Result</th></tr></thead>
         <tbody id="events"></tbody>
       </table>
+      </div>
     </section>
   </main>
     </div>
   </div>
 
   <!-- Recipe editor -->
-  <dialog id="dlg-recipe" class="dialog editor">
+  <dialog id="dlg-recipe" class="dialog editor" aria-labelledby="recipe-title">
     <form id="form-recipe" method="dialog">
       <div class="dialog-head">
         <h3 id="recipe-title">Recipe</h3>
@@ -299,7 +307,7 @@
   </dialog>
 
   <!-- Host editor -->
-  <dialog id="dlg-host" class="dialog">
+  <dialog id="dlg-host" class="dialog" aria-labelledby="host-title">
     <form id="form-host" method="dialog">
       <div class="dialog-head"><h3 id="host-title">Host</h3><button type="button" class="x" data-close>&times;</button></div>
       <div class="form-grid">
@@ -319,7 +327,7 @@
   </dialog>
 
   <!-- Pull an image / download weights on several hosts -->
-  <dialog id="dlg-transfer" class="dialog">
+  <dialog id="dlg-transfer" class="dialog" aria-labelledby="transfer-title">
     <form id="form-transfer" method="dialog">
       <div class="dialog-head"><h3 id="transfer-title">Pull on hosts</h3><button type="button" class="x" data-close>&times;</button></div>
       <p class="hint copy-hint" id="transfer-hint"></p>
@@ -343,7 +351,7 @@
   </dialog>
 
   <!-- Copy a recipe to other hosts -->
-  <dialog id="dlg-copy" class="dialog">
+  <dialog id="dlg-copy" class="dialog" aria-labelledby="copy-title">
     <form id="form-copy" method="dialog">
       <div class="dialog-head"><h3 id="copy-title">Copy to other hosts</h3><button type="button" class="x" data-close>&times;</button></div>
       <p class="hint copy-hint">Each host gets its own copy with the same settings and port. Change the original later and
@@ -359,7 +367,7 @@
   </dialog>
 
   <!-- Weights entry -->
-  <dialog id="dlg-weight" class="dialog">
+  <dialog id="dlg-weight" class="dialog" aria-labelledby="weight-title">
     <form id="form-weight" method="dialog">
       <div class="dialog-head"><h3 id="weight-title">Model</h3><button type="button" class="x" data-close>&times;</button></div>
       <div class="form-grid">
@@ -380,9 +388,9 @@
   </dialog>
 
   <!-- Import -->
-  <dialog id="dlg-import" class="dialog wide">
+  <dialog id="dlg-import" class="dialog wide" aria-labelledby="import-title">
     <form id="form-import" method="dialog">
-      <div class="dialog-head"><h3>Add a recipe</h3><button type="button" class="x" data-close>&times;</button></div>
+      <div class="dialog-head"><h3 id="import-title">Add a recipe</h3><button type="button" class="x" data-close>&times;</button></div>
       <div class="import-body">
         <p class="hint">Paste a <b>YAML recipe</b> or a <b>shell script</b> (<code>docker run …</code> works too).
           Scripts are checked first, then run in a restricted bash: only read-only text tools run, a fake
@@ -408,9 +416,9 @@
   </dialog>
 
   <!-- Export -->
-  <dialog id="dlg-export" class="dialog wide">
+  <dialog id="dlg-export" class="dialog wide" aria-labelledby="export-title">
     <form id="form-export" method="dialog">
-      <div class="dialog-head"><h3>Recipe file</h3><button type="button" class="x" data-close>&times;</button></div>
+      <div class="dialog-head"><h3 id="export-title">Recipe file</h3><button type="button" class="x" data-close>&times;</button></div>
       <div class="import-body">
         <p class="hint">A compact recipe file: only settings that differ from the <span id="export-framework">framework</span>
           preset are written down. Volumes, environment, extra Docker flags and server arguments are all included,
@@ -433,7 +441,7 @@
   </dialog>
 
   <!-- Logs -->
-  <dialog id="dlg-logs" class="dialog full">
+  <dialog id="dlg-logs" class="dialog full" aria-labelledby="logs-title">
     <div class="dialog-head">
       <h3 id="logs-title">Logs</h3>
       <div class="logs-tools">
@@ -449,7 +457,7 @@
   </dialog>
 
   <!-- Schedule editor -->
-  <dialog id="dlg-schedule" class="dialog">
+  <dialog id="dlg-schedule" class="dialog" aria-labelledby="schedule-title">
     <form id="form-schedule" method="dialog">
       <div class="dialog-head"><h3 id="schedule-title">Schedule</h3><button type="button" class="x" data-close>&times;</button></div>
       <div class="form-grid">
@@ -484,7 +492,7 @@
   <datalist id="tag-list"></datalist>
   <div id="tl-tip" class="tl-tip hidden"></div>
   <div id="jobs" class="jobs" aria-live="polite"></div>
-  <div id="toasts"></div>
+  <div id="toasts" aria-live="polite"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

@@ -58,7 +58,8 @@ jobs:
           mike list --json | python -c "import json,sys; sys.exit(0 if any('stable' in v['aliases'] for v in json.load(sys.stdin)) else 1)" \
             || mike set-default --push dev
       - name: Publish the release as "stable"
-        if: startsWith(github.ref, 'refs/tags/v')
+        # Pre-release tags (vX.Y.Z-rc.1) must not move the public "stable" docs.
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
         run: |
           version="${GITHUB_REF_NAME#v}"
           mike deploy --push --update-aliases "${version%.*}" stable

@@ -35,7 +35,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "image": "lmsysorg/sglang:spark",
         "container_port": 30000,
         "command": "python3 -m sglang.launch_server --model-path {model} --host {bind_host} --port {port}",
-        "args": "--mem-fraction-static 0.4\n--context-length 32768",
+        "args": "--mem-fraction-static 0.4\n--context-length 32768\n--enable-metrics",
         "health_path": "/health",
         "docker_args": SPARK_DOCKER_ARGS,
         "volumes": HF_CACHE_VOLUME,
@@ -47,7 +47,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "image": "ghcr.io/ggml-org/llama.cpp:server-cuda",
         "container_port": 8080,
         "command": "-m {model} --host {bind_host} --port {port}",
-        "args": "-ngl 999\n-c 32768",
+        "args": "-ngl 999\n-c 32768\n--metrics",
         "health_path": "/health",
         "docker_args": "",
         "volumes": "~/models:/models",
@@ -83,7 +83,7 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "image": "",
         "container_port": 8080,
         "command": "llama-server -m {model} --host {bind_host} --port {port}",
-        "args": "-ngl 999\n-c 32768",
+        "args": "-ngl 999\n-c 32768\n--metrics",
         "health_path": "/health",
         "docker_args": "",
         "volumes": "",
@@ -169,10 +169,53 @@ def uses_weights(recipe: dict[str, Any]) -> bool:
 
 
 def fill_weights(recipe: dict[str, Any], path: Optional[str]) -> dict[str, Any]:
-    """A copy of the recipe with {weights} replaced by this host's path (left as is when there is none)."""
+    """A copy of the recipe with {weights} replaced by this host's path (left as is when there is none).
+    In command/args the path is shell-quoted: those fields are split into words later, so a path with
+    spaces must stay a single token. model/volumes/env take the raw path - model is quoted by substitute,
+    volumes/env are used line by line (quoting them would put literal quotes into the docker -v/-e value)."""
     if not path or not uses_weights(recipe):
         return recipe
-    return {**recipe, **{f: (recipe.get(f) or "").replace(WEIGHTS, path) for f in WEIGHT_FIELDS}}
+    out = {**recipe}
+    for f in WEIGHT_FIELDS:
+        value = recipe.get(f) or ""
+        if WEIGHTS in value:
+            out[f] = value.replace(WEIGHTS, shlex.quote(path) if f in ("command", "args") else path)
+    return out
+
+
+# Placeholders the manager substitutes in command/args. Anything else shaped like {name} is a typo that
+# would otherwise be passed to the engine literally, so it is rejected before starting.
+PLACEHOLDERS = ("model", "port", "host_port", "name", "bind_host", "weights")
+_PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}")
+
+
+def unknown_placeholders(recipe: dict[str, Any]) -> list[str]:
+    """Sorted unknown {name} placeholders in command/args. JSON arguments such as
+    --speculative-config '{"method":…}' do not match: the pattern needs a bare word between the braces,
+    and a quote/colon right after the opening brace is not a word character."""
+    found: set[str] = set()
+    for f in ("command", "args"):
+        for m in _PLACEHOLDER_RE.finditer(recipe.get(f) or ""):
+            name = m.group(0)[1:-1]
+            if name not in PLACEHOLDERS:
+                found.add(name)
+    return sorted(found)
+
+
+class UnknownPlaceholderError(ValueError):
+    """command/args name a placeholder the manager does not substitute (raised before starting)."""
+
+    def __init__(self, names: list[str]):
+        self.names = names
+        super().__init__("Unknown placeholder(s) in command/args: " + ", ".join("{" + n + "}" for n in names)
+                         + ". Allowed: " + ", ".join("{" + p + "}" for p in PLACEHOLDERS))
+
+
+def check_placeholders(recipe: dict[str, Any]) -> None:
+    """Raise UnknownPlaceholderError when command/args use a placeholder outside PLACEHOLDERS."""
+    names = unknown_placeholders(recipe)
+    if names:
+        raise UnknownPlaceholderError(names)
 
 
 def model_mount(model: str, volumes: str) -> Optional[tuple[int, str]]:
@@ -301,6 +344,9 @@ def build_run_argv(recipe: dict[str, Any]) -> list[str]:
     if recipe.get("gpus"):
         argv += ["--gpus", recipe["gpus"]]
     docker_args = split_args(recipe.get("docker_args", ""))
+    # Bound container log growth by default; a recipe that sets its own --log-opt keeps full control.
+    if not any(a == "--log-opt" or a.startswith("--log-opt=") for a in docker_args):
+        argv += ["--log-opt", "max-size=50m", "--log-opt", "max-file=3"]
     if not uses_host_network(docker_args):
         bind = f"{config.PUBLISH_IP}:" if config.PUBLISH_IP else ""
         argv += ["-p", f"{bind}{recipe['host_port']}:{recipe['container_port']}"]
@@ -316,9 +362,30 @@ def build_run_argv(recipe: dict[str, Any]) -> list[str]:
     return argv
 
 
+def _mask_env_value(token: str) -> str:
+    """KEY=value -> KEY=*** for display; a bare KEY (passed through from the environment) stays as is."""
+    key, sep, _ = token.partition("=")
+    return f"{key}=***" if sep else token
+
+
 def format_command(argv: list[str]) -> str:
-    """Human-readable, copy-pasteable rendering of an argv (secrets passed as bare env names stay hidden)."""
-    return shlex.join(argv)
+    """Human-readable rendering of an argv for display only (preview, start message, activity log).
+    Secret values are masked: `-e KEY=value` becomes `-e KEY=***`, bare env names stay visible.
+    For execution use build_run_argv, which keeps the real values."""
+    out: list[str] = []
+    mask_next = False
+    for token in argv:
+        if mask_next:
+            out.append(_mask_env_value(token))
+            mask_next = False
+        elif token in ("-e", "--env"):
+            out.append(token)
+            mask_next = True
+        elif token.startswith("--env="):
+            out.append("--env=" + _mask_env_value(token[len("--env="):]))
+        else:
+            out.append(token)
+    return shlex.join(out)
 
 
 def build_process_argv(recipe: dict[str, Any]) -> list[str]:
@@ -343,7 +410,10 @@ def process_env(recipe: dict[str, Any]) -> dict[str, str]:
 
 
 def format_process_command(recipe: dict[str, Any]) -> str:
-    env = [line for line in _lines(recipe.get("env", "")) if "=" in line]
+    """Display rendering of a native start (preview, start message, activity log): KEY=value env lines
+    with the value masked, then the command. Bare passthrough names are left out - the process inherits
+    the manager's environment. For execution use build_process_argv/process_env."""
+    env = [_mask_env_value(line) for line in _lines(recipe.get("env", "")) if "=" in line]
     return " ".join([shlex.quote(e) for e in env] + [shlex.join(build_process_argv(recipe))])
 
 

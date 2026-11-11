@@ -1,9 +1,12 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from conftest import recipe_body
 
 from local_llm_manager.scheduler import local_now
-from local_llm_manager.timeline import build_timeline
+from local_llm_manager.timeline import build_timeline, fire_times
+
+BERLIN = ZoneInfo("Europe/Berlin")
 
 T0 = local_now().replace(year=2030, month=1, day=7, hour=0, minute=0, second=0, microsecond=0)  # a Monday
 
@@ -72,3 +75,75 @@ def test_switch_and_free_memory_only_affect_their_host():
     assert blocks(tl, 2) == [("02:00", "06:00", True)]
     assert blocks(tl, 3) == [("00:00", "03:00", False)]   # only mac's free_memory stops it
     assert [(l["host"], l["name"]) for l in tl["lanes"]] == [("mac", "mac-a"), ("spark", "spark-a"), ("spark", "spark-b")]
+
+
+# ---- TIME-02: the plan matches the scheduler's DST rhythm ---------------------
+
+
+def test_fire_times_fall_back_daily_once():
+    s = {"cron": "30 2 * * *"}
+    times = fire_times(s, datetime(2026, 10, 24, 0, 0, tzinfo=BERLIN),
+                       datetime(2026, 10, 27, 0, 0, tzinfo=BERLIN))
+    # One 02:30 per day; on the fall-back day only the first instance (+02:00) runs - the repeated
+    # wall time is skipped because it would fire again one real hour later.
+    assert times == [datetime(2026, 10, 24, 2, 30, tzinfo=BERLIN),
+                     datetime(2026, 10, 25, 2, 30, tzinfo=BERLIN),
+                     datetime(2026, 10, 26, 2, 30, tzinfo=BERLIN)]
+
+
+def test_fire_times_fall_back_hourly_keeps_both_slots():
+    s = {"cron": "0 * * * *"}
+    times = fire_times(s, datetime(2026, 10, 25, 0, 30, tzinfo=BERLIN),
+                       datetime(2026, 10, 25, 4, 30, tzinfo=BERLIN))
+    assert times == [datetime(2026, 10, 25, 1, 0, tzinfo=BERLIN),
+                     datetime(2026, 10, 25, 2, 0, tzinfo=BERLIN),
+                     datetime(2026, 10, 25, 2, 0, tzinfo=BERLIN, fold=1),
+                     datetime(2026, 10, 25, 3, 0, tzinfo=BERLIN),
+                     datetime(2026, 10, 25, 4, 0, tzinfo=BERLIN)]
+    assert [t.utcoffset() for t in times] == [timedelta(hours=2)] * 2 + [timedelta(hours=1)] * 3
+
+
+def test_fire_times_spring_transition_once():
+    s = {"cron": "30 2 * * *"}
+    times = fire_times(s, datetime(2026, 3, 28, 0, 0, tzinfo=BERLIN),
+                       datetime(2026, 3, 31, 0, 0, tzinfo=BERLIN))
+    # 02:30 does not exist on the spring-forward day: croniter moves it to the transition (03:00),
+    # so the plan shows one run, not a gap.
+    assert times == [datetime(2026, 3, 28, 2, 30, tzinfo=BERLIN),
+                     datetime(2026, 3, 29, 3, 0, tzinfo=BERLIN),
+                     datetime(2026, 3, 30, 2, 30, tzinfo=BERLIN)]
+
+
+# ---- TIME-04: switch is kind-aware (agents are kept, switch-to-agent refused) --
+
+
+def test_switch_keeps_agents_running():
+    recipes = [{"id": 1, "name": "model", "host_id": 1, "kind": "model"},
+               {"id": 2, "name": "agent", "host_id": 1, "kind": "agent"}]
+    schedules = [sched(1, "switch", 1, cron="0 2 * * *")]
+    tl = build_timeline(schedules, recipes, running_ids={2}, start=T0, end=T0 + timedelta(hours=6),
+                        hosts={1: "spark"})
+    assert blocks(tl, 2) == [("00:00", "06:00", True)]   # agent keeps running across the switch
+    assert blocks(tl, 1) == [("02:00", "06:00", True)]   # the model starts
+
+
+def test_switch_to_agent_is_not_planned_as_run():
+    recipes = [{"id": 1, "name": "model", "host_id": 1, "kind": "model"},
+               {"id": 2, "name": "agent", "host_id": 1, "kind": "agent"}]
+    schedules = [sched(1, "switch", 2, cron="0 2 * * *")]
+    tl = build_timeline(schedules, recipes, running_ids={1}, start=T0, end=T0 + timedelta(hours=6),
+                        hosts={1: "spark"})
+    assert blocks(tl, 1) == [("00:00", "06:00", True)]   # refused switch stops nothing
+    assert blocks(tl, 2) == []                            # no run block for the agent
+    ev = next(e for e in tl["events"] if e["action"] == "switch")
+    assert "agent" in ev["error"]
+
+
+def test_stop_all_still_stops_agents():
+    recipes = [{"id": 1, "name": "model", "host_id": 1, "kind": "model"},
+               {"id": 2, "name": "agent", "host_id": 1, "kind": "agent"}]
+    schedules = [sched(1, "stop_all", cron="0 2 * * *")]
+    tl = build_timeline(schedules, recipes, running_ids={1, 2}, start=T0, end=T0 + timedelta(hours=6),
+                        hosts={1: "spark"})
+    assert blocks(tl, 1) == [("00:00", "02:00", False)]
+    assert blocks(tl, 2) == [("00:00", "02:00", False)]   # stop_all does not keep agents

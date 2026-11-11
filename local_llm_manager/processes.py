@@ -24,9 +24,40 @@ from . import config
 # Runs the server, then stores its exit code. Not `exec`, so the code can be written afterwards.
 WRAPPER = '"$@"; code=$?; echo "$code" > "$0"; exit "$code"'
 
+# A running native log is rotated (copytruncate) once it grows past this size; one previous generation
+# is kept as <name>.log.1. start() opens the log in append mode, so truncation does not lose the writer.
+LOG_MAX_BYTES = 50 * 1024 * 1024
+_TAIL_CHUNK = 64 * 1024
+
 
 class ProcessError(Exception):
     pass
+
+
+def _tail_lines(path: Path, tail: int) -> list[str]:
+    """The last `tail` lines of a file without reading it all: seek backwards from the end in chunks
+    until enough newlines are found. Matches read().splitlines()[-tail:], including files with or without
+    a trailing newline, so a multi-GB log does not have to fit in memory."""
+    if tail <= 0:
+        return []
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        remaining = f.tell()
+        if remaining == 0:
+            return []
+        blocks: list[bytes] = []
+        newlines = 0
+        # Stop once we have more than `tail` newlines: that guarantees `tail` complete lines even if the
+        # first block starts mid-line. For short files we simply reach the start.
+        while remaining > 0 and newlines <= tail:
+            step = min(_TAIL_CHUNK, remaining)
+            remaining -= step
+            f.seek(remaining)
+            block = f.read(step)
+            blocks.append(block)
+            newlines += block.count(b"\n")
+    data = b"".join(reversed(blocks))
+    return data.decode(errors="replace").splitlines()[-tail:]
 
 
 class ProcessRunner:
@@ -62,7 +93,8 @@ class ProcessRunner:
         state = self._read_state(name)
         if state is None:
             return None
-        _, _, exit_file = self._paths(name)
+        _, log_file, exit_file = self._paths(name)
+        self._maybe_rotate_log(log_file)
         if self._alive(state):
             return {"id": str(state["pid"]), "state": "running", "image": "",
                     "status": f"Up {_ago(state['started_at'])} (pid {state['pid']})"}
@@ -81,6 +113,14 @@ class ProcessRunner:
         return {"id": str(state["pid"]), "state": "exited", "status": text, "image": "", "exit_code": code,
                 "failed": code not in (None, 0) and not state.get("stopped")}
 
+    def cleanup_state(self, name: str) -> None:
+        """Remove the on-disk state of a deleted recipe: its state/log/exit files, the previous log
+        generation and the stop marker. The caller must ensure no other recipe uses this container name
+        (the files are keyed by name). Missing files are fine."""
+        state_file, log_file, exit_file = self._paths(name)
+        for p in (state_file, log_file, log_file.with_suffix(".log.1"), exit_file, self.dir / f"{name}.stopped"):
+            p.unlink(missing_ok=True)
+
     def start(self, name: str, argv: list[str], env: dict[str, str], cwd: Optional[str] = None) -> int:
         if not argv:
             raise ProcessError("The recipe has no command")
@@ -93,6 +133,7 @@ class ProcessRunner:
             log_file.replace(log_file.with_suffix(".log.1"))
         exit_file.unlink(missing_ok=True)
         bash = shutil.which("bash") or "/bin/bash"
+        # Append mode is required: _maybe_rotate_log truncates this file while the child keeps writing.
         with open(log_file, "ab") as log:
             log.write(f"== {datetime.now().astimezone().isoformat(timespec='seconds')} starting: "
                       f"{' '.join(argv)}\n".encode())
@@ -172,9 +213,21 @@ class ProcessRunner:
         _, log_file, _ = self._paths(name)
         if not log_file.exists():
             return None
-        with open(log_file, "rb") as f:
-            lines = f.read().decode(errors="replace").splitlines()
-        return "\n".join(lines[-tail:]) + "\n"
+        return "\n".join(_tail_lines(log_file, tail)) + "\n"
+
+    def _maybe_rotate_log(self, log_file: Path) -> None:
+        """copytruncate: once the log passes LOG_MAX_BYTES, copy it to <name>.log.1 (replacing the old
+        generation) and truncate it in place. Safe while the process runs because start() opened the log
+        in append mode: the writer's next write lands at the new end, not at a stale offset."""
+        try:
+            if log_file.stat().st_size <= LOG_MAX_BYTES:
+                return
+            with open(log_file, "rb") as src, open(log_file.with_suffix(".log.1"), "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            with open(log_file, "r+b") as f:
+                f.truncate(0)
+        except OSError:
+            pass  # a log that cannot be rotated must not break status/log reads
 
     async def follow_logs(self, name: str, tail: int = 200) -> AsyncIterator[str]:
         """Yield the last `tail` lines, then new lines until the process has exited."""

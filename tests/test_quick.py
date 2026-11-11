@@ -1,6 +1,61 @@
+import pytest
 from conftest import recipe_body
 
-from local_llm_manager.recipes import set_flag
+from local_llm_manager.recipes import (FRAMEWORKS, UnknownPlaceholderError, build_process_argv, build_run_argv,
+                                       check_placeholders, fill_weights, set_flag, unknown_placeholders)
+
+
+def test_engine_presets_enable_metrics():
+    # The dashboard reads live stats from /metrics; these engines only expose it when asked to.
+    assert "--enable-metrics" in FRAMEWORKS["sglang"]["args"].splitlines()
+    assert "--metrics" in FRAMEWORKS["llamacpp"]["args"].splitlines()
+    assert "--metrics" in FRAMEWORKS["llamacpp-native"]["args"].splitlines()
+
+
+def test_weights_path_with_spaces_stays_one_token_native():
+    path = "/home/user/Mein Modell/qwen"
+    r = {"runtime": "process", "command": "llama-server -m {weights} --port {port}",
+         "args": "--drafter {weights}/d", "model": "", "host_port": 8101, "container_port": 8101,
+         "container_name": "t", "volumes": "", "env": "", "docker_args": ""}
+    argv = build_process_argv(fill_weights(r, path))
+    assert path in argv and f"{path}/d" in argv
+    assert "Mein" not in argv and "Modell/qwen" not in argv
+
+
+def test_weights_path_with_spaces_stays_one_token_docker():
+    path = "/home/user/Mein Modell/qwen"
+    r = {"runtime": "docker", "command": "-m {model} --port {port}", "args": "--mmproj {weights}/mmproj.gguf",
+         "model": "/model", "image": "img", "host_port": 8101, "container_port": 8080,
+         "container_name": "t", "volumes": "{weights}:/model:ro", "env": "", "docker_args": "", "gpus": ""}
+    argv = build_run_argv(fill_weights(r, path))
+    assert f"{path}/mmproj.gguf" in argv
+    # volumes stay raw: a literal quote would become part of the docker -v host path.
+    assert argv[argv.index("-v") + 1] == f"{path}:/model:ro"
+
+
+def test_weights_in_model_is_quoted_exactly_once():
+    path = "/home/user/Mein Modell/qwen"
+    r = {"runtime": "process", "command": "llama-server -m {model} --port {port}", "args": "",
+         "model": "{weights}", "host_port": 8101, "container_port": 8101, "container_name": "t",
+         "volumes": "", "env": "", "docker_args": ""}
+    argv = build_process_argv(fill_weights(r, path))
+    assert argv[argv.index("-m") + 1] == path
+
+
+def test_unknown_placeholders_are_rejected():
+    r = {"command": "serve {modle} --port {port}", "args": "--foo {bar}"}
+    assert unknown_placeholders(r) == ["bar", "modle"]
+    with pytest.raises(UnknownPlaceholderError) as ei:
+        check_placeholders(r)
+    assert ei.value.names == ["bar", "modle"]
+
+
+def test_known_placeholders_and_json_args_pass():
+    r = {"command": "serve {model} --host {bind_host} --port {port}",
+         "args": ('--speculative-config \'{"method":"mtp","num_speculative_tokens":4}\'\n'
+                  '--name {name}\n--drafter {weights}/d')}
+    assert unknown_placeholders(r) == []
+    check_placeholders(r)  # must not raise
 
 BASE_VOLS = "~/models/Old-Model:/model:ro\n/data/hf:/root/.cache/huggingface"
 BASE_ARGS = "--served-model-name old\n--max-model-len 524288\n--tool-call-parser qwen3_coder\n--enable-prefix-caching"

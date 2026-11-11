@@ -78,7 +78,8 @@ class HashCache:
 
 
 def list_files(root: Path) -> list[Path]:
-    """Regular files below root (or root itself), without symlinks leaving it and without partial copies."""
+    """Regular files below root (or root itself), without symlinks leaving it and without partial copies.
+    Symlinked directories within root are listed as links; their files travel under the real path."""
     if root.is_file():
         return [root]
     # Symlinks may point within the share - or, in a Hugging Face cache snapshot
@@ -87,6 +88,12 @@ def list_files(root: Path) -> list[Path]:
     out = []
     for dirpath, dirnames, files in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))  # e.g. hf's .cache metadata
+        for d in dirnames:
+            p = Path(dirpath) / d
+            # A linked directory travels as a link (os.walk does not descend into it); its files are
+            # listed under the real path. Links leaving the share are left out, like file links.
+            if p.is_symlink() and p.resolve().is_relative_to(root.resolve()):
+                out.append(p)
         for f in sorted(files):
             p = Path(dirpath) / f
             if f.endswith(".part") or not p.is_file():
@@ -127,7 +134,7 @@ class Shares:
         self.shares: dict[str, dict[str, Any]] = {}
         self._tasks: set[asyncio.Task] = set()
 
-    def create(self, path: str, ttl: int = SHARE_TTL) -> dict[str, Any]:
+    def create(self, path: str, ttl: int = SHARE_TTL, links_as_files: bool = False) -> dict[str, Any]:
         root = Path(os.path.expanduser(path)).resolve()
         if not root.exists():
             raise FileNotFoundError(f"{path} does not exist on this machine")
@@ -135,14 +142,25 @@ class Shares:
         for k in [k for k, s in self.shares.items() if s["expires"] < now]:
             self.shares.pop(k)
         files = list_files(root)
-        # A link to a file of the same share travels as a link: its bytes are already in the manifest,
-        # so the target gets this machine's layout instead of a second copy of every shard.
+        # A link to a file or directory of the same share travels as a link: its bytes are already in
+        # the manifest, so the target gets this machine's layout instead of a second copy of every
+        # shard. The target is stored relative to the link's own folder: an absolute source path would
+        # dangle on the machine that copies (and the copying side refuses links leaving its folder).
+        # links_as_files is for targets from before links existed: every entry is a real file with
+        # size and checksum (the only keys those targets read), and a linked directory's files travel
+        # below the link's path - duplicated bytes, but a complete model there.
         real = {str(p.resolve()) for p in files if not p.is_symlink()}
-        entries = [{"path": "." if root.is_file() else str(p.relative_to(root)), "abs": p,
-                    "size": 0, "sha256": None, "link": os.readlink(p)}
-                   if p.is_symlink() and str(p.resolve()) in real else
-                   {"path": "." if root.is_file() else str(p.relative_to(root)), "abs": p,
-                    "size": p.stat().st_size, "sha256": self.cache.get(p)} for p in files]
+        entries: list[dict[str, Any]] = []
+        for p in files:
+            rel = "." if root.is_file() else str(p.relative_to(root))
+            internal = p.is_symlink() and (not p.is_file() or str(p.resolve()) in real)
+            if internal and not links_as_files:
+                entries.append({"path": rel, "abs": p, "size": 0, "sha256": None,
+                                "link": os.path.relpath(p.resolve(), p.parent)})
+            elif internal and not p.is_file():
+                self._files_below(entries, rel, p.resolve(), set())
+            else:
+                entries.append({"path": rel, "abs": p, "size": p.stat().st_size, "sha256": self.cache.get(p)})
         share = {"id": secrets.token_hex(8), "ticket": secrets.token_urlsafe(32), "root": root,
                  "expires": now + ttl, "kind": "file" if root.is_file() else "dir", "name": root.name,
                  "files": entries, "hashed": 0}
@@ -154,6 +172,20 @@ class Shares:
         task.add_done_callback(self._tasks.discard)
         return {"id": share["id"], "ticket": share["ticket"], "expires": share["expires"],
                 "files": len(files), "total": share["total"]}
+
+    def _files_below(self, entries: list[dict[str, Any]], rel: str, target: Path, seen: set[Path]) -> None:
+        """links_as_files: the files below a linked directory, as real file entries below the link's
+        path. seen stops a link that points back into its own folder from looping."""
+        if target in seen:
+            return
+        seen.add(target)
+        for sub in list_files(target):
+            sub_rel = str(Path(rel) / sub.relative_to(target))
+            if sub.is_symlink() and not sub.is_file():
+                self._files_below(entries, sub_rel, sub.resolve(), seen)
+            else:
+                entries.append({"path": sub_rel, "abs": sub, "size": sub.stat().st_size,
+                                "sha256": self.cache.get(sub)})
 
     async def _hash(self, share: dict[str, Any]) -> None:
         sem = asyncio.Semaphore(HASH_WORKERS)
@@ -182,8 +214,10 @@ class Shares:
         # A link needs no checksum: the file it points at is in the same share and has one.
         ready = all(f["sha256"] or f.get("link") is not None for f in share["files"])
         files = [{k: f[k] for k in ("path", "size", "sha256", "link") if k in f} for f in share["files"]]
-        return {"kind": share["kind"], "name": share["name"], "total": share["total"], "ready": ready,
-                "hashed": min(share["hashed"], share["total"]), "files": files if ready else []}
+        # version is informational: targets from before links existed read only kind/total/ready/
+        # hashed/files (and path/size/sha256 per file) and ignore unknown keys.
+        return {"version": 2, "kind": share["kind"], "name": share["name"], "total": share["total"],
+                "ready": ready, "hashed": min(share["hashed"], share["total"]), "files": files if ready else []}
 
     @staticmethod
     def file(share: dict[str, Any], rel: str) -> Path:

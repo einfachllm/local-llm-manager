@@ -8,7 +8,7 @@ name: qwen38-flash-next-fp4
 description: Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121) - b12x vLLM with MTP
 framework: vllm
 image: eugr/spark-vllm-b12x:latest
-command: serve {model} --host 0.0.0.0 --port {port}
+command: serve {model} --host {bind_host} --port {port}
 docker_args: >-
   --network host --ipc host --shm-size 16g --ulimit memlock=-1 --ulimit
   stack=67108864 --security-opt seccomp=unconfined --security-opt apparmor=unconfined

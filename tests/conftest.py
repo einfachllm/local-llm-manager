@@ -19,6 +19,10 @@ class FakeDocker:
         self.containers: dict[str, dict] = {}
         self.calls: list[list[str]] = []
         self.fail_run = False
+        # Container names whose `docker stop` fails (the container keeps running).
+        self.fail_stop: set[str] = set()
+        # The Docker daemon is unreachable: `docker ps` fails instead of listing containers.
+        self.fail_list_containers = False
         self.dropped = 0
         # Ports the fake executor reports as already listening (foreign programs).
         self.ports_in_use: set[int] = set()
@@ -37,13 +41,18 @@ class FakeDocker:
         return CommandResult(0, "abc123def456\n", "")
 
     async def list_images(self):
-        return [dict(i) for i in self.images]
+        # Like Docker.list_images, every entry carries a digests list (repo@sha256:... references).
+        return [{"digests": [], **dict(i)} for i in self.images]
 
     async def list_containers(self):
+        if self.fail_list_containers:
+            raise RuntimeError("Cannot connect to the Docker daemon")
         return {k: dict(v) for k, v in self.containers.items()}
 
     async def stop(self, name, timeout=30):
         self.calls.append(["stop", name])
+        if name in self.fail_stop:
+            return CommandResult(1, "", "boom stop")
         self.containers[name].update(state="exited", status="Exited (0) 1 second ago")
         return CommandResult(0, name, "")
 

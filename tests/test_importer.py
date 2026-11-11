@@ -42,7 +42,11 @@ def test_starter_script_round_trip():
     img = r["image"]
     assert rebuilt[rebuilt.index(img) + 1:] == original[original.index(img) + 1:]
     assert "-p" not in rebuilt
-    opts = lambda argv: sorted(a for a in argv[:argv.index(img)] if a not in ("--rm", "-d", "-p"))
+    # The manager adds default log rotation; the starter script has none (CORE-07).
+    assert "--log-opt" in rebuilt and "max-size=50m" in rebuilt and "max-file=3" in rebuilt
+    log_defaults = {"--log-opt", "max-size=50m", "max-file=3"}
+    opts = lambda argv: sorted(a for a in argv[:argv.index(img)]
+                               if a not in ("--rm", "-d", "-p") and a not in log_defaults)
     extra = {"docker", "run", "--label", "local-llm-manager=1", "local-llm-manager.recipe=1"}
     assert [a for a in opts(rebuilt) if a not in extra] == [os.path.expanduser(a) for a in opts(original)]
 
