@@ -263,15 +263,24 @@ def test_job_eviction_spares_running_jobs(tmp_path):
         def items():
             return [{"host_id": 1, "name": "", "state": "waiting", "message": "", "progress": ""}]
 
+        async def wait_until(cond, timeout=5.0):
+            """Poll instead of sleeping a fixed time: a loaded CI machine may need longer."""
+            deadline = asyncio.get_running_loop().time() + timeout
+            while not cond():
+                assert asyncio.get_running_loop().time() < deadline, "timed out waiting for the jobs"
+                await asyncio.sleep(0.01)
+
         running = [m._new_job("pull", f"r{i}", items(), slow) for i in range(3)]
         for i in range(25):
             m._new_job("pull", f"d{i}", items(), quick)
-        await asyncio.sleep(0.05)  # let the quick ones finish
+        running_ids = {j["id"] for j in running}
+        # Every job that is not one of the gated ones has finished (and older ones were evicted).
+        await wait_until(lambda: all(j["done"] for j in m.jobs.values() if j["id"] not in running_ids))
         assert all(j["id"] in m.jobs and not m.jobs[j["id"]]["done"] for j in running)
         assert len(m.jobs) <= 23  # 3 running + at most 20 finished
         assert {j["id"] for j in m.jobs.values()} == {j["id"] for j in db.load_jobs()}
         gate.set()
-        await asyncio.sleep(0.05)
+        await wait_until(lambda: all(m.jobs[j["id"]]["done"] for j in running))
         assert all(m.jobs[j["id"]]["done"] for j in running)
 
     asyncio.run(main())
