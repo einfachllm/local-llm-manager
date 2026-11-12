@@ -36,6 +36,8 @@ silicon, or any Linux box - from any browser on your network:
 ### Everything else
 
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).
+  A running model's runtime settings are locked - stop it before changing ports, command, image or
+  environment, so the card always matches what runs.
 - **Agents next to models:** run the programs that use your models - e.g. a [Hermes Agent](examples/hermes-agent/)
   Telegram gateway - as recipes too. They get their own section per host (🤖 above 🧠), keep running when you
   switch models, and show whether their secrets are set and whether a stray second copy is running.
@@ -49,7 +51,8 @@ silicon, or any Linux box - from any browser on your network:
   stopped answering, or a start that failed - with the cause from its log (e.g. *CUDA out of memory*) and
   what usually helps - shown on the card, the host and in the activity log. Mute one for 24 h.
   [More](https://einfachllm.github.io/local-llm-manager/health/)
-- **Activity log** of every start, stop and switch with the exact command and result.
+- **Activity log** of every start, stop and switch with the command and result (values of explicit
+  `KEY=value` environment lines are masked).
 - **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
   ⭐ pinned recipes (shown in a dedicated “Pinned” section at the top), collapsible groups, larger recipe
   cards, and keyboard shortcuts (`?` shows them). Blur and theme toggles live in the left sidebar.
@@ -157,7 +160,8 @@ git pull                  # or a release: git fetch --tags && git checkout v0.3.
 ./install.sh              # Linux; on macOS: ./install-macos.sh
 ```
 
-With Docker Compose: `docker compose pull && docker compose up -d`.
+With Docker Compose: `docker compose pull && docker compose up -d` - with the same `-f` override files
+you started it with (e.g. `-f docker-compose.nvidia.yml`).
 
 If the service does not start after an upgrade, check its log: newer versions refuse weak passwords
 (under 12 characters) and agent tokens under 32 characters. On macOS the service then stays stopped
@@ -247,9 +251,10 @@ native-process and `--network host` recipes.
 
 - Pick a **framework preset** (it fills in image, command, port and health check), then adjust the model,
   arguments, environment and volumes. The editor shows the exact `docker run` command.
-- In the command, `{model}`, `{port}`, `{host_port}`, `{name}` and `{bind_host}` (listen address) are replaced. An environment line with
-  only a name (e.g. `HF_TOKEN`) takes the value from the manager's own `.env`, so secrets stay out of
-  recipes.
+- In the command, `{model}`, `{port}`, `{host_port}`, `{name}`, `{bind_host}` (listen address) and `{weights}`
+  are replaced; an unknown placeholder such as `{modle}` is refused at start and in the preview instead of
+  reaching the engine. An environment line with only a name (e.g. `HF_TOKEN`) takes the value from the
+  manager's own `.env`, so secrets stay out of recipes.
 - **Native process** recipes run the command directly on the machine (needed for MLX on a Mac). Output
   goes to `data/processes/<name>.log`, and processes keep running if the manager restarts.
 - **Import** fills a recipe from a starter script by running it with bash in a restricted mode that only

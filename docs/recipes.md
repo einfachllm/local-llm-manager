@@ -112,11 +112,21 @@ model on two engines as well: same weights entry, different image and port.
 
 - **Weights:** compact recipes name a registered entry (`weights:`). Create it in the **Weights** tab with the folder on each host that runs the recipe, or change the name in the file. If a main model and a draft model share a folder, register that folder once, mount it, and point `model:` at the subfolder (see `nemotron-3.5-super-vl.yaml`). Starter scripts mount a concrete folder; download the model there, or point the volume at your copy. The **Weights** tab finds model folders under `DGXM_MODEL_DIR` by itself and offers them under "Found on your hosts".
 - **Ports:** the port in `host_port:` / `port:` / `--port` becomes the recipe's port. Keep it the **same across models** you want to switch between, and give each `--served-model-name` a stable short name - then **Switch to** changes the model and your agents keep the same endpoint `http://<host>:<port>/v1`.
+- **Placeholders:** in a command or its arguments the manager replaces `{model}`, `{port}`, `{host_port}`,
+  `{name}`, `{bind_host}` (the listen address) and `{weights}` (the entry's path on that host). Anything
+  else in braces - a typo like `{modle}` - is refused when you start or preview the recipe, with the list
+  of names it does not know. In a command or argument a `{weights}` path is quoted, so a folder with a
+  space stays one argument.
 - **Secrets:** files list only bare names (e.g. `HF_TOKEN`); put the values in the manager's `.env` (see [Configuration](configuration.md)).
 - **vLLM images:** the preset command starts with `vllm serve`. For `vllm/vllm-openai` (whose entrypoint already runs `vllm serve`), the manager drops the duplicate; images with a plain `vllm` entrypoint keep `serve`. The preview shows the actual command.
 - **Logs:** Docker recipes get `--log-opt max-size=50m --log-opt max-file=3` by default, so container
   logs stay bounded; set your own `--log-opt` in *Extra Docker flags* to override. A native process
   keeps the previous run's log as `<name>.log.1` in `DGXM_PROC_DIR`.
+- **Editing a running model:** its runtime settings - ports, command, arguments, image, environment,
+  volumes, extra Docker flags, GPUs, model, weights entry, framework and runtime - are locked until you
+  stop it (the running container would keep the old ones, so the dashboard would show something that is
+  not running). Name, description, tags, colour and the pin stay editable; **Stop**, change, **Start**.
+  Moving a recipe to another host or renaming its container also needs a stop first.
 - Recipes are a starting point: the flags are tuned for the machine they ran on. Check `--gpu-memory-utilization`, `--max-model-len` and `--max-num-seqs` against your GPU's memory.
 
 ## Recipe list, filters and pinned recipes

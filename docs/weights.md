@@ -83,6 +83,13 @@ A model that is on one machine already (downloaded, or copied there from your SS
 **⇉ Copy to other hosts…** on its row. Tick the target hosts and the jobs panel shows GB, MB/s and the time
 left per machine.
 
+Before a copy starts, the manager checks the target: is there room for what is missing (a file it will
+replace counts twice - old and new), and does a *running* model on that machine use the target folder?
+If so the copy is refused - stop that model first, because replacing shards under a loading server can
+crash it or load a mix of old and new. Files a copy already brought are skipped by size and SHA-256, so
+an interrupted copy continues where it stopped; a job that makes no progress for 30 minutes gives up,
+and a hub restart picks unfinished jobs up again.
+
 ```mermaid
 flowchart LR
     hf["☁️ Hugging Face"]
