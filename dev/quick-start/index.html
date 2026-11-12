@@ -704,9 +704,9 @@
 <p>The installer prints a generated password and stores it in <code>.env</code> in this folder.</p>
 </div>
 <div class="tabbed-block">
-<p>Installs a launchd agent. Docker on a Mac cannot use the GPU, so use native recipes (framework
-<em>Custom (native)</em>) with e.g. MLX (<code>pip install mlx-lm</code>) or llama.cpp (<code>brew install llama.cpp</code>). For importing start scripts, also
-run <code>brew install bash</code>.</p>
+<p>Installs a launchd agent. Docker on a Mac cannot use the GPU, so use the native presets - <strong>MLX</strong>
+(<code>pip install mlx-lm</code>) or <strong>llama.cpp server (native)</strong> (<code>brew install llama.cpp</code>); <em>Custom (native)</em>
+is for any other binary. For importing start scripts, also run <code>brew install bash</code>.</p>
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/einfachllm/local-llm-manager.git
 <span class="nb">cd</span><span class="w"> </span>local-llm-manager
 ./install-macos.sh

@@ -880,7 +880,7 @@ because they suit different machines and model files. You don't need to know the
 </tbody>
 </table>
 <p>Everything else (<strong>TensorFold</strong>, experimental, and <strong>Custom</strong>) is for special cases: a program not in the list, or a
-start script you already have. <strong>📋 Import</strong> turns such a script into a recipe for you.</p>
+start script you already have. <strong>＋ Add recipe</strong> takes such a script and turns it into a recipe for you.</p>
 <h3 id="the-easy-way-copy-what-already-works">The easy way: copy what already works<a class="headerlink" href="#the-easy-way-copy-what-already-works" title="Permanent link">&para;</a></h3>
 <p>You rarely fill in a recipe by hand. <strong>⧉ Duplicate</strong> takes a recipe that already runs and makes a copy
 for another model. Everything else (engine, settings, port) stays the same:</p>
@@ -988,7 +988,8 @@ other settings), the dashboard offers to update all copies and restart them.</p>
 </li>
 <li>
 <p>🔑 <strong>Password protected</strong></p>
-<p>The dashboard needs a password. Machines only obey the dashboard they were added to.</p>
+<p>The installers set a dashboard password (<code>DGXM_PASSWORD</code>) - keep it, since without one the dashboard is
+open to anyone who can reach the port. Machines only obey the dashboard they were added to (token).</p>
 </li>
 <li>
 <p>🔒 <strong>Private network</strong></p>

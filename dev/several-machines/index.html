@@ -801,8 +801,9 @@ later, the machine tells the hub itself.</p>
 field that decides where they run.</p>
 <h2 id="the-hosts-tab">The Hosts tab<a class="headerlink" href="#the-hosts-tab" title="Permanent link">&para;</a></h2>
 <p><img alt="Hosts tab: the hub and an agent PC as a graph, with ports, endpoints and live metrics" src="../screenshots/hosts-dark.png" /></p>
-<p>The tab opens with a <strong>graph of your setup</strong>: the hub on top and a line to every agent PC. Each machine
-shows what matters at a glance:</p>
+<p>The tab opens with a <strong>graph of your setup</strong>: the hub and every agent PC, side by side when they fit in
+one line (the hub on top with the agents below when the window is narrow) and each link on its own track
+so the colours stay readable. Each machine shows what matters at a glance:</p>
 <ul>
 <li><strong>online / offline</strong>, operating system and CPU architecture (e.g. <code>Linux · aarch64</code>);</li>
 <li>a <strong>memory bar</strong> (used / total GB), <strong>GPU load</strong> and <strong>GPU and CPU temperature</strong> (the CPU value turns yellow from 85 °C, red
@@ -815,10 +816,12 @@ shows what matters at a glance:</p>
 open it. On a phone the machines stack along one line.</p>
 <p>Below the graph:</p>
 <ul>
-<li><strong>Host details &amp; actions</strong> (collapsed): the host table with status, platform, memory, GPU / CPU and
-  models, plus <strong>Stop all</strong> and <strong>Free memory</strong> (stop all models and drop the page cache) per machine.</li>
-<li><strong>Ports &amp; endpoints:</strong> every recipe's port per host, its status, live <strong>metrics</strong> of running models
-  (output/input tokens per second, running requests, KV-cache use) and its endpoint
+<li><strong>Table view · stop all, free memory, remove</strong> (collapsed): the host table with status, platform,
+  memory, GPU / CPU and models, plus <strong>Stop all</strong> and <strong>Free memory</strong> (stop all models and drop the page
+  cache) per machine.</li>
+<li><strong>Ports &amp; endpoints:</strong> by default the ports of the models that are <em>running</em> (a <strong>Show all (n not
+  running)</strong> switch adds the stopped ones) with their status, the live <strong>metrics</strong> of running models
+  (output/input tokens per second, running requests, KV-cache use) and the endpoint
   <code>http://&lt;host&gt;:&lt;port&gt;/v1</code> with a <strong>Copy</strong> button. Recipes that share a port on one host are marked
   <em>shared</em> - only one of them can run at a time, which is exactly what <strong>Switch to</strong> uses.</li>
 </ul>
@@ -843,17 +846,12 @@ open it. On a phone the machines stack along one line.</p>
 </ol>
 <p><strong>Images and weights on every machine:</strong></p>
 <ul>
-<li>
-<p><strong>Images:</strong> in the <strong>Images</strong> tab, <strong>⤓ Pull…</strong> on an image runs <code>docker pull</code> on the machines you tick,
-  all at once (private registries: <code>docker login</code> on each machine once).
-Details on the Weights tab: <a href="../weights/">Weights</a>.</p>
-</li>
-<li>
-<p><strong>Weights from Hugging Face:</strong> in the <strong>Weights</strong> tab, <strong>⬇ Download from Hugging Face…</strong>. By default only the first
+<li><strong>Images:</strong> in the <strong>Images</strong> tab, <strong>⤓ Pull…</strong> on an image runs <code>docker pull</code> on the machines you tick,
+  all at once (private registries: <code>docker login</code> on each machine once).</li>
+<li><strong>Weights from Hugging Face:</strong> in the <strong>Weights</strong> tab, <strong>⬇ Download from Hugging Face…</strong>. By default only the first
   ticked machine downloads; the others then copy from it over your network, so the model comes over the
   internet once. Needs the <code>hf</code> command there (<code>pip install -U huggingface_hub</code>); gated models need
-  <code>HF_TOKEN</code> in that machine's <code>.env</code>.</p>
-</li>
+  <code>HF_TOKEN</code> in that machine's <code>.env</code>.</li>
 <li><strong>Weights already on a machine</strong> (e.g. from your SSD): <strong>⇉ Copy to other hosts…</strong> on the model's row. Machines copy
   straight from each other - the hub only arranges it - like a snowball: each machine that has the weights
   serves one copy at a time and every finished machine joins in, so 5 machines are done in 3 rounds.
