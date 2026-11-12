@@ -20,10 +20,10 @@ is measured as a share of the machine's total, and the KV-cache rule only fires 
 | **Start takes unusually long** - compared with the recipe's own earlier starts | over 2× the median (and at least 2 min more), from 3 measured starts on | – | at once |
 
 A condition has to hold for the time in the last column before it becomes a finding, and it has to be
-gone for a minute before the finding clears. "Host unreachable" holds for the same minute a cleared
-finding takes, so a failed start on a host that goes offline hands over without a gap. So a reading that sits on a threshold does not flap on and
+gone for a minute before the finding clears. So a reading that sits on a threshold does not flap on and
 off, and the activity log gets one entry when a finding appears, one when it gets worse (warning →
-critical) and one when it is resolved.
+critical) and one when it is resolved. "Host unreachable" holds for the same minute a cleared finding
+takes, so a failed start on a host that goes offline hands over without a gap.
 
 For example, 121 GB on a DGX Spark: a warning under about 9.7 GB free, critical under about 3.6 GB.
 On a 16 GB laptop: under about 1.3 GB and 0.5 GB.

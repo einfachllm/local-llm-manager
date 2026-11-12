@@ -5,7 +5,8 @@ Everything is set in the **`.env` file in the install folder** (used by `install
 you and fill in secrets. Restart the service after changes (`sudo systemctl restart local-llm-manager`,
 or rerun the installer).
 
-Values marked *agent* matter only with `DGXM_MODE=agent`, *hub* only in the default hub mode.
+Where a key only matters in one mode, its description says so (`DGXM_MODE=agent` for agents, the default
+hub mode otherwise).
 
 ## Dashboard and network
 

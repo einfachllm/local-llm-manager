@@ -86,7 +86,7 @@ because they suit different machines and model files. You don't need to know the
 | 👤 Just you, on a Linux / NVIDIA machine | **vLLM** or **llama.cpp** | Both are fine |
 
 Everything else (**TensorFold**, experimental, and **Custom**) is for special cases: a program not in the list, or a
-start script you already have. **📋 Import** turns such a script into a recipe for you.
+start script you already have. **＋ Add recipe** takes such a script and turns it into a recipe for you.
 
 ### The easy way: copy what already works
 
@@ -221,7 +221,8 @@ other settings), the dashboard offers to update all copies and restart them.
 
 -   🔑 **Password protected**
 
-    The dashboard needs a password. Machines only obey the dashboard they were added to.
+    The installers set a dashboard password (`DGXM_PASSWORD`) - keep it, since without one the dashboard is
+    open to anyone who can reach the port. Machines only obey the dashboard they were added to (token).
 
 -   🔒 **Private network**
 

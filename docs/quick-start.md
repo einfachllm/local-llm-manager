@@ -27,9 +27,9 @@ This page sets up the manager on one machine and starts a first model. For more 
 
 === "macOS"
 
-    Installs a launchd agent. Docker on a Mac cannot use the GPU, so use native recipes (framework
-    *Custom (native)*) with e.g. MLX (`pip install mlx-lm`) or llama.cpp (`brew install llama.cpp`). For importing start scripts, also
-    run `brew install bash`.
+    Installs a launchd agent. Docker on a Mac cannot use the GPU, so use the native presets - **MLX**
+    (`pip install mlx-lm`) or **llama.cpp server (native)** (`brew install llama.cpp`); *Custom (native)*
+    is for any other binary. For importing start scripts, also run `brew install bash`.
 
     ```bash
     git clone https://github.com/einfachllm/local-llm-manager.git

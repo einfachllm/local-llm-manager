@@ -60,8 +60,9 @@ field that decides where they run.
 
 ![Hosts tab: the hub and an agent PC as a graph, with ports, endpoints and live metrics](screenshots/hosts-dark.png)
 
-The tab opens with a **graph of your setup**: the hub on top and a line to every agent PC. Each machine
-shows what matters at a glance:
+The tab opens with a **graph of your setup**: the hub and every agent PC, side by side when they fit in
+one line (the hub on top with the agents below when the window is narrow) and each link on its own track
+so the colours stay readable. Each machine shows what matters at a glance:
 
 - **online / offline**, operating system and CPU architecture (e.g. `Linux · aarch64`);
 - a **memory bar** (used / total GB), **GPU load** and **GPU and CPU temperature** (the CPU value turns yellow from 85 °C, red
@@ -75,10 +76,12 @@ open it. On a phone the machines stack along one line.
 
 Below the graph:
 
-- **Host details & actions** (collapsed): the host table with status, platform, memory, GPU / CPU and
-  models, plus **Stop all** and **Free memory** (stop all models and drop the page cache) per machine.
-- **Ports & endpoints:** every recipe's port per host, its status, live **metrics** of running models
-  (output/input tokens per second, running requests, KV-cache use) and its endpoint
+- **Table view · stop all, free memory, remove** (collapsed): the host table with status, platform,
+  memory, GPU / CPU and models, plus **Stop all** and **Free memory** (stop all models and drop the page
+  cache) per machine.
+- **Ports & endpoints:** by default the ports of the models that are *running* (a **Show all (n not
+  running)** switch adds the stopped ones) with their status, the live **metrics** of running models
+  (output/input tokens per second, running requests, KV-cache use) and the endpoint
   `http://<host>:<port>/v1` with a **Copy** button. Recipes that share a port on one host are marked
   *shared* - only one of them can run at a time, which is exactly what **Switch to** uses.
 
@@ -105,8 +108,6 @@ E.g. a company where every employee has their own DGX Spark: set the recipe up o
 
 - **Images:** in the **Images** tab, **⤓ Pull…** on an image runs `docker pull` on the machines you tick,
   all at once (private registries: `docker login` on each machine once).
-Details on the Weights tab: [Weights](weights.md).
-
 - **Weights from Hugging Face:** in the **Weights** tab, **⬇ Download from Hugging Face…**. By default only the first
   ticked machine downloads; the others then copy from it over your network, so the model comes over the
   internet once. Needs the `hf` command there (`pip install -U huggingface_hub`); gated models need

@@ -21,21 +21,24 @@ silicon, or any Linux box - from any browser on your network:
   / `docker run` you already have - no forms. Only what differs from the engine's defaults is written down.
   **Recipe file…** exports any recipe as YAML/JSON, so you can move it to another manager, keep it in Git or
   share it; on one dashboard, **⇉** copies a recipe to other hosts and keeps the copies in sync.
-  [More](https://einfachllm.github.io/local-llm-manager/recipes/)
+  [More](https://einfachllm.github.io/local-llm-manager/stable/recipes/)
 - **📦 Weights management.** One table shows which model is where on every machine and finds folders and
   `.gguf` files on its own. **⬇ Download from Hugging Face** once, then **⇉ copy to other hosts** machine to
   machine over your network (snowball-style, SHA-256 checked, resumable). Recipes use `{weights}`, so they
-  run on any host without edits. [More](https://einfachllm.github.io/local-llm-manager/weights/)
+  run on any host without edits. [More](https://einfachllm.github.io/local-llm-manager/stable/weights/)
 - **🔗 Hub and agents.** Start the hub, install the same app on your other machines in agent mode, and
   connect them with a token - or let them ask to join (`DGXM_HUB_URL`) and approve them when both show the
-  same join code. [More](https://einfachllm.github.io/local-llm-manager/several-machines/)
+  same join code. [More](https://einfachllm.github.io/local-llm-manager/stable/several-machines/)
 - **🗺️ Hosts at a glance.** The Hosts tab draws the hub and every agent PC as a graph: memory, GPU load,
   GPU and CPU temperature, what runs where, and whether each connection is encrypted. **Ports & endpoints**
-  lists every endpoint with live tokens/s, requests and KV-cache use.
+  lists the running models' endpoints with live tokens/s, requests and KV-cache use (a *Show all* switch
+  adds the stopped ones).
 
 ### Everything else
 
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).
+  A running model's runtime settings are locked - stop it before changing ports, command, image or
+  environment, so the card always matches what runs.
 - **Agents next to models:** run the programs that use your models - e.g. a [Hermes Agent](examples/hermes-agent/)
   Telegram gateway - as recipes too. They get their own section per host (🤖 above 🧠), keep running when you
   switch models, and show whether their secrets are set and whether a stray second copy is running.
@@ -48,8 +51,9 @@ silicon, or any Linux box - from any browser on your network:
 - **Health findings:** memory almost full, a hot GPU, a KV cache that makes requests wait, a host that
   stopped answering, or a start that failed - with the cause from its log (e.g. *CUDA out of memory*) and
   what usually helps - shown on the card, the host and in the activity log. Mute one for 24 h.
-  [More](https://einfachllm.github.io/local-llm-manager/health/)
-- **Activity log** of every start, stop and switch with the exact command and result.
+  [More](https://einfachllm.github.io/local-llm-manager/dev/health/)
+- **Activity log** of every start, stop and switch with the command and result (values of explicit
+  `KEY=value` environment lines are masked).
 - **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
   ⭐ pinned recipes (shown in a dedicated “Pinned” section at the top), collapsible groups, larger recipe
   cards, and keyboard shortcuts (`?` shows them). Blur and theme toggles live in the left sidebar.
@@ -157,7 +161,8 @@ git pull                  # or a release: git fetch --tags && git checkout v0.3.
 ./install.sh              # Linux; on macOS: ./install-macos.sh
 ```
 
-With Docker Compose: `docker compose pull && docker compose up -d`.
+With Docker Compose: `docker compose pull && docker compose up -d` - with the same `-f` override files
+you started it with (e.g. `-f docker-compose.nvidia.yml`).
 
 If the service does not start after an upgrade, check its log: newer versions refuse weak passwords
 (under 12 characters) and agent tokens under 32 characters. On macOS the service then stays stopped
@@ -206,7 +211,7 @@ log. Every other machine runs the same app as an **agent** that only executes wh
      same token.
 
 Recipes then get a **Host** field, and the agent appears in the Hosts graph.
-Step by step: [Several machines](https://einfachllm.github.io/local-llm-manager/several-machines/).
+Step by step: [Several machines](https://einfachllm.github.io/local-llm-manager/stable/several-machines/).
 
 **Network access needed:**
 
@@ -234,7 +239,9 @@ own devices. It also encrypts the hub ↔ agent traffic, which is otherwise plai
    ```
 3. Add agents under **Hosts → Add host** by their Tailscale name, e.g. `http://mac-studio:8090`.
 4. On your phone, open `http://<hub-name>:8090` (e.g. `http://spark:8090`) and use *Add to Home Screen*.
-   For HTTPS, run `tailscale serve --bg 8090` on the hub and open `https://<hub-name>.<tailnet>.ts.net`.
+   For HTTPS, run `tailscale serve --bg 8090` on the hub and open `https://<hub-name>.<tailnet>.ts.net` -
+   `serve` proxies to `localhost`, so keep the manager listening there (e.g. `DGXM_HOST=127.0.0.1` or
+   `0.0.0.0`); with `DGXM_HOST=tailscale` it binds only the Tailscale address and `serve` cannot reach it.
 
 `tailscale` is resolved to the machine's address (`tailscale ip -4`) at start-up; if Tailscale is not up
 yet, the service fails and systemd / launchd retry. A Docker Compose hub needs the Tailscale override
@@ -247,9 +254,10 @@ native-process and `--network host` recipes.
 
 - Pick a **framework preset** (it fills in image, command, port and health check), then adjust the model,
   arguments, environment and volumes. The editor shows the exact `docker run` command.
-- In the command, `{model}`, `{port}`, `{host_port}`, `{name}` and `{bind_host}` (listen address) are replaced. An environment line with
-  only a name (e.g. `HF_TOKEN`) takes the value from the manager's own `.env`, so secrets stay out of
-  recipes.
+- In the command, `{model}`, `{port}`, `{host_port}`, `{name}`, `{bind_host}` (listen address) and `{weights}`
+  are replaced; an unknown placeholder such as `{modle}` is refused at start and in the preview instead of
+  reaching the engine. An environment line with only a name (e.g. `HF_TOKEN`) takes the value from the
+  manager's own `.env`, so secrets stay out of recipes.
 - **Native process** recipes run the command directly on the machine (needed for MLX on a Mac). Output
   goes to `data/processes/<name>.log`, and processes keep running if the manager restarts.
 - **Import** fills a recipe from a starter script by running it with bash in a restricted mode that only
@@ -260,7 +268,7 @@ native-process and `--network host` recipes.
   the editor exports the current recipe that way - volumes, environment and extra Docker flags included.
 - **Moving recipes:** change a recipe's **Host** to run it elsewhere (with `{weights}` the model folder
   follows), **⇉** to copy it to several hosts, or **Recipe file…** → paste into **＋ Add recipe** to take it
-  to another manager. See [Recipes](https://einfachllm.github.io/local-llm-manager/recipes/#move-recipes-between-machines-and-managers).
+  to another manager. See [Recipes](https://einfachllm.github.io/local-llm-manager/stable/recipes/#move-recipes-between-machines-and-managers).
 - Live stats come from the server's `/metrics` endpoint: on by default in vLLM and TensorFold; the
   SGLang and llama.cpp presets turn them on (`--enable-metrics` / `--metrics`).
 - Starting is refused if the port is already in use on that machine.
@@ -299,7 +307,7 @@ recipes to `{weights}`. A model missing on some hosts gets one button: **⇉ Cop
 host has it, else **⬇ Download…** from Hugging Face. Importing a `docker run` whose model mount is a registered path picks that entry, too.
 
 The full guide - the table, downloading from Hugging Face and copying between hosts - is on the
-[Weights](https://einfachllm.github.io/local-llm-manager/weights/) page.
+[Weights](https://einfachllm.github.io/local-llm-manager/stable/weights/) page.
 
 Not to be confused with **agent mode** ([Several machines](#several-machines)), which is how the manager itself runs on a second machine.
 
@@ -347,7 +355,7 @@ service after changes (`sudo systemctl restart local-llm-manager`, or rerun the 
 
 | Variable | Default | |
 |---|---|---|
-| `DGXM_PASSWORD` / `DGXM_USER` | *(empty = no login, local access only)* / `admin` | Dashboard login, at least 12 characters |
+| `DGXM_PASSWORD` / `DGXM_USER` | *(empty = no login; requests must be addressed to an IP, `localhost` or a local/Tailscale name)* / `admin` | Dashboard login, at least 12 characters |
 | `DGXM_PORT` / `DGXM_HOST` | `8090` / `0.0.0.0` | Listen address; `tailscale` = Tailscale IP only |
 | `DGXM_PUBLISH_IP` | *(empty = all interfaces)* | Address model ports are published on; `tailscale` = Tailscale IP |
 | `DGXM_MODE` | `hub` | `agent`: no dashboard, controlled by a hub |
