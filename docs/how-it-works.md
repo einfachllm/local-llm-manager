@@ -221,7 +221,8 @@ other settings), the dashboard offers to update all copies and restart them.
 
 -   🔑 **Password protected**
 
-    The dashboard needs a password. Machines only obey the dashboard they were added to.
+    The installers set a dashboard password (`DGXM_PASSWORD`) - keep it, since without one the dashboard is
+    open to anyone who can reach the port. Machines only obey the dashboard they were added to (token).
 
 -   🔒 **Private network**
 

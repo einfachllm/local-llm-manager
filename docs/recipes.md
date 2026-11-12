@@ -14,7 +14,7 @@ check, so a recipe only writes down what differs from it.
 | `llamacpp` | llama.cpp server | Docker | `ghcr.io/ggml-org/llama.cpp:server-cuda` | `.gguf` files, smaller GPUs |
 | `llamacpp-native` | llama.cpp server | native process | `llama-server` | `.gguf` on a Mac or without Docker |
 | `mlx` | MLX | native process | `mlx_lm.server` | Macs with Apple silicon |
-| `tensorfold` | TensorFold *(experimental)* | native process, or Docker when the recipe brings its own `image:` and `command:` | `tensorfold serve` | trying TensorFold; a starter image that ships the engine |
+| `tensorfold` | TensorFold *(experimental)* | native process, or Docker when the recipe also sets `runtime: docker` with its own `image:` and `command:` | `tensorfold serve` | trying TensorFold; a starter image that ships the engine |
 | `custom` / `process-custom` | anything else | Docker / native process | your image or binary | other servers, agents such as a Hermes gateway |
 
 vLLM, SGLang, llama.cpp and MLX all serve an OpenAI-compatible API at `http://<host>:<port>/v1`, so your
@@ -102,7 +102,8 @@ The current examples:
 | [`hermes-agent-docker.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/hermes-agent-docker.yaml) | - | A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU. |
 
 The four Qwen3.8-27B recipes (`qwen38-mtp`, `qwen38-dflash`, `qwen38-sglang`, `qwen38-tensorfold`) are the
-same model on four engines: they share port **8101** and the served name `qwen3.8`, so one endpoint
+same model on three engines (vLLM twice - with MTP and with the DFlash2 drafter): they share port **8101**
+and the served name `qwen3.8`, so one endpoint
 `http://<host>:8101/v1` keeps working while you switch (`qwen38-dflash-docker.sh` is the second one again,
 as a starter script). The three with a drafter mount one registered folder - the folder holding model and
 drafter - which is how the two stay together on every host. The two `qwen38-flash-next-*` recipes are one

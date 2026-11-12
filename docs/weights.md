@@ -104,7 +104,7 @@ flowchart LR
 ```
 
 - **Machine to machine:** the hub only arranges the copy; the data goes straight from one host to the
-  other (a read-only share protected by a one-time ticket).
+  other (a read-only share, protected by a ticket that is valid while the copy runs - a few hours).
 - **Snowball:** each host that has the weights serves one copy at a time and every finished host joins
   in, so 5 machines are done in 3 rounds.
 - **Safe and resumable:** every file is checked with SHA-256, files a host already has are skipped, an
@@ -118,7 +118,7 @@ To copy *from* the hub's own machine, open the dashboard by its network name (no
 ## Machines with little disk space
 
 Not every machine can hold every model. The table shows each model's size per host, so you see at a
-glance what fills a disk (GB, a million bytes - `du` shows the same folder in GiB; a shard that is only a
+glance what fills a disk (GB, 10⁹ bytes - `du` shows the same folder in GiB; a shard that is only a
 link to a file of the same folder counts once). Keep a model on one machine (or a NAS-mounted folder) and
 **⇉ copy** it only to the machines that need it now; free disk space is checked before a copy starts. After
 deleting a model folder on a host, **Refresh** turns its cell into **✗** and recipes that use it there
