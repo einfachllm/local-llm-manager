@@ -52,6 +52,10 @@ share the weights entry and differ in image and port.
   and let every recipe that needs a subfolder of it use that single entry. Starter scripts mount a
   concrete folder; download the model there, or point the volume at your copy. "Search hosts" in the
   **Weights** tab finds model folders under `DGXM_MODEL_DIR` and registers them.
+  Pick the **parent**, not the model's own entry: with `Qwen3.8-27B-NVFP4` (as "Search hosts" registers
+  it) the mount sits one level too deep and the engine looks for `/models/Qwen3.8-27B-NVFP4` inside
+  itself - SGLang then fails with `Repo id must be in the form …`. The import warns about exactly this,
+  and a start is refused with the fix instead of crashing the container.
 - **Ports:** the port in `host_port:` / `port:` / `--port` becomes the recipe's port. Keep it the **same across models**
   you want to switch between, and give each `--served-model-name` a stable short name - then **Switch to**
   changes the model and your agents keep the same endpoint `http://<host>:<port>/v1`.

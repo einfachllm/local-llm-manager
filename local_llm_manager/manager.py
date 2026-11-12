@@ -6,6 +6,7 @@ executors (executor.py) do the actual work on this machine or on a remote agent.
 
 import asyncio
 import logging
+import os
 import secrets
 import time
 from collections import Counter
@@ -997,6 +998,53 @@ class Manager:
             fail(f"Weights '{weight['name']}' not found on {host} at {check['location'] or check['path']}: "
                  f"copy them there or fix the path in the Weights tab", 409)
         # "unknown" (e.g. an agent too old to check): let the container report it.
+        if check["state"] == "present":
+            await self._require_model_in_weights(recipe, weight, fail)
+
+    async def _require_model_in_weights(self, recipe: dict, weight: dict, fail) -> None:
+        """The weights folder exists - but the recipe's model must sit inside it. A drafter recipe mounts
+        one parent folder and reads `model:` (and the drafter) from subfolders of it; registering the model
+        folder itself instead of that parent mounts the weights one level too deep, and the engine then
+        looks for /models/<name> inside itself and crashes (SGLang: "Repo id must be in the form ...").
+        Catch that here with the fix, instead of letting the container start and fail."""
+        weight_path = self.db.weight_path(weight["id"], recipe["host_id"]) or ""
+        payload = self._payload(recipe)
+        model = str(payload.get("model") or "").strip()
+        mount_target = ""
+        if recipe.get("runtime") == "docker":
+            target = resolve_model_target(model, payload.get("volumes") or "")
+            if target["kind"] != "volume":
+                return  # a Hugging Face id or a path no mount covers: not a {weights} subfolder
+            host_path = target["host_path"]
+            for cont in _volume_host_paths(payload.get("volumes") or ""):
+                cont = cont.rstrip("/")
+                if (model == cont or model.startswith(cont + "/")) and len(cont) > len(mount_target):
+                    mount_target = cont
+        elif model.startswith(("/", "~")):
+            host_path = model  # a native process reads the model straight from the host
+        else:
+            return
+        root, full = os.path.normpath(weight_path), os.path.normpath(host_path)
+        if full == root or not full.startswith(root + os.sep):
+            return  # the weights folder itself (checked above) or a model outside it
+        found, _ = await self._check_paths(recipe["host_id"], [host_path])
+        d = found.get(host_path)
+        if d is None or d["present"]:
+            return  # present, or the host could not answer ("unknown"): let the container report it
+        sub = full[len(root) + 1:]
+        folder_name = root.rsplit("/", 1)[-1]
+        host = self._host_name(recipe["host_id"])
+        expected = d.get("expected") or host_path
+        if sub.split("/", 1)[0] == folder_name:
+            alternative = (f" Or point the recipe's model at the mount target '{mount_target}'."
+                           if recipe.get("runtime") == "docker" and mount_target else "")
+            fail(f"Weights '{weight['name']}' is the model folder itself ({weight_path}), but '{recipe['name']}' "
+                 f"reads '{sub}' from inside it - so it looks for {expected}, which does not exist on {host}. "
+                 f"Register the parent folder that contains '{folder_name}' (and its drafter) in the Weights tab "
+                 f"and pick that entry in the recipe.{alternative}", 409)
+        fail(f"The model of '{recipe['name']}' resolves to {expected}, which does not exist on {host}. "
+             f"Check that the weights folder '{weight['name']}' contains '{sub}' and that the recipe's "
+             f"model path and volumes match.", 409)
 
     async def _stop(self, recipe: dict, source: str, record: bool = True) -> str:
         target = self._target(recipe)

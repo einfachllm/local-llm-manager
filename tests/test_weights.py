@@ -93,6 +93,60 @@ def test_start_refuses_without_weights_on_the_host(client, fake_docker, tmp_path
     assert not fake_docker.calls
 
 
+def test_start_refuses_the_model_folder_registered_instead_of_its_parent(client, fake_docker, tmp_path):
+    """The qwen38-sglang.yaml trap: the recipe mounts {weights} at /models and reads
+    /models/Qwen3.8-27B-NVFP4 from it, but the weights entry is the model folder itself. The mount
+    sits one level too deep, and the engine crashes with a Hugging Face repo-id error - refuse first."""
+    local = client.get("/api/hosts").json()[0]["id"]
+    model_folder = tmp_path / "Qwen3.8-27B-NVFP4"
+    model_folder.mkdir()
+    w = weight(client, name="Qwen3.8-27B-NVFP4", **{str(local): str(model_folder)})
+    body = recipe_body(model="/models/Qwen3.8-27B-NVFP4", volumes="{weights}:/models:ro", weights_id=w["id"])
+    r = client.post("/api/recipes", json=body).json()
+
+    res = client.post(f"/api/recipes/{r['id']}/start")
+    assert res.status_code == 409, res.text
+    detail = res.json()["detail"]
+    assert "model folder itself" in detail and "parent folder" in detail
+    assert not fake_docker.calls
+
+    # The fix the message names: register the parent folder (model and drafter inside) and pick it.
+    (tmp_path / "Qwen3.8-27B-DFlash2").mkdir()
+    parent = weight(client, name="Qwen3.8-Models", **{str(local): str(tmp_path)})
+    assert client.put(f"/api/recipes/{r['id']}", json={**body, "weights_id": parent["id"]}).status_code == 200
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+    assert f"{tmp_path}:/models:ro" in fake_docker.calls[-1]
+
+
+def test_start_refuses_a_missing_model_subfolder_of_the_weights(client, fake_docker, tmp_path):
+    """A weights folder that simply lacks the subfolder the recipe reads: same refusal, generic wording."""
+    local = client.get("/api/hosts").json()[0]["id"]
+    w = weight(client, name="Models", **{str(local): str(tmp_path)})
+    body = recipe_body(model="/models/Sub", volumes="{weights}:/models:ro", weights_id=w["id"])
+    r = client.post("/api/recipes", json=body).json()
+    res = client.post(f"/api/recipes/{r['id']}/start")
+    assert res.status_code == 409 and "does not exist" in res.json()["detail"]
+    assert "model folder itself" not in res.json()["detail"]
+    assert not fake_docker.calls
+
+
+def test_start_refuses_a_native_model_subfolder_missing_from_the_weights(client, tmp_path):
+    """The tensorfold example's version of the trap: model {weights}/Qwen3.8-27B-NVFP4 with the model
+    folder itself registered resolves to <folder>/Qwen3.8-27B-NVFP4, which is not there."""
+    local = client.get("/api/hosts").json()[0]["id"]
+    model_folder = tmp_path / "Qwen3.8-27B-NVFP4"
+    model_folder.mkdir()
+    w = weight(client, name="Qwen3.8-27B-NVFP4", **{str(local): str(model_folder)})
+    body = recipe_body(runtime="process", framework="tensorfold", image="",
+                       command="tensorfold serve {model} --host {bind_host} --port {port}",
+                       model="{weights}/Qwen3.8-27B-NVFP4", volumes="", docker_args="", gpus="",
+                       weights_id=w["id"])
+    r = client.post("/api/recipes", json=body).json()
+    res = client.post(f"/api/recipes/{r['id']}/start")
+    assert res.status_code == 409, res.text
+    assert "model folder itself" in res.json()["detail"]
+
+
 def test_deleting_a_host_drops_its_paths(setup, tmp_path):
     client, _, _, _, mac = setup
     w = weight(client, **{str(mac["id"]): "/srv/models/x"})
