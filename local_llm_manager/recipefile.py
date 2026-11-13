@@ -201,6 +201,24 @@ def recipe_from_file(data: dict[str, Any], registered_weights: Optional[list[dic
             warnings.append(f"The model is not mounted from {{weights}}: add a volume like "
                             f"{WEIGHTS}:{model}:ro.")
 
+    if data.get("weights") and weight is None:
+        # The named entry is missing, but the model folder itself is registered: the classic trap is
+        # picking that entry instead of the parent folder this recipe needs - the mount would sit one
+        # level too deep and the engine would look for the model inside itself.
+        if runtime == "docker":
+            subs = [model[len(t.rstrip("/")) + 1:] for t in map(mount_target, weights_mounts)
+                    if t and model.startswith(t.rstrip("/") + "/")]
+        elif model.startswith(WEIGHTS + "/"):
+            subs = [model[len(WEIGHTS) + 1:]]
+        else:
+            subs = []
+        first = subs[0].split("/", 1)[0] if subs else ""
+        if first and any(str(w.get("name", "")).strip().lower() == first.lower()
+                         for w in registered_weights or []):
+            warnings.append(f"“{first}” is registered as the model folder itself: this recipe needs the folder "
+                            f"that contains it (often the parent, e.g. ~/models) registered as “{weights_name}” "
+                            f"in the Weights tab - not the model entry.")
+
     name = str(data.get("name") or "").strip()
     if not name:
         name = (weight or {}).get("name") or weights_name or model.rstrip("/").rsplit("/", 1)[-1]

@@ -51,6 +51,15 @@ host, or copying it to many, needs no edits** - as long as the model has a path 
 right away whether the weights are on the selected host, and a start is refused with a clear message when
 they are not.
 
+**A model and its drafter in one entry:** recipes like `qwen38-dflash.yaml` mount one folder and read the
+model *and* the drafter from subfolders of it (`model: /models/Qwen3.8-27B-NVFP4`, drafter
+`/models/Qwen3.8-27B-DFlash2`). The entry must then be the **parent** folder that contains both - not the
+model folder itself. "Search hosts" registers model folders, so a parent like `Qwen3.8-Models` is typed in
+once (e.g. `~/models`, or `~/models/qwen38` with the two folders inside). Picking the model's own entry
+instead mounts it one level too deep: the engine looks for `/models/Qwen3.8-27B-NVFP4` inside itself and
+crashes (SGLang: `Repo id must be in the form …`). The start is refused with that diagnosis and the fix -
+register the parent and pick it, or point the model at the mount target.
+
 ## Found on your hosts
 
 You rarely type paths. When the tab opens (or on **Refresh**) every host looks for model folders (with a

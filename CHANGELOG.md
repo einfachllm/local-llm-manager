@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **A weights entry that is the model folder itself no longer starts a doomed container:** drafter
+  recipes (`qwen38-dflash`, `qwen38-sglang`, `qwen38-tensorfold`, `nemotron-3.5-super-vl`) mount one
+  registered parent folder and read model and drafter from subfolders of it. Picking the model's own
+  entry instead - the one "Search hosts" registers - mounted the weights one level too deep, and the
+  engine crashed looking for the model inside itself (SGLang: `Repo id must be in the form …`). The
+  start is now refused with that diagnosis and the fix (register the parent folder, e.g. `~/models`,
+  and pick it), and importing such a file warns which folder to register when the model folder itself
+  is already registered.
+
 ## [0.3.0] - 2026-11-12
 
 ### Highlights

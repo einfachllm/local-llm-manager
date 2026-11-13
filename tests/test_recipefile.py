@@ -292,3 +292,38 @@ def test_a_model_inside_a_weights_folder_is_considered_mounted():
     assert warnings == []
     assert r["model"] == "/models/Nemotron-3.5-Super-VL"
     assert r["volumes"] == "{weights}:/models:ro"
+
+
+def test_unregistered_parent_warns_when_the_model_folder_itself_is_registered():
+    """Importing qwen38-sglang.yaml on a manager that registered the model folder (via Search hosts)
+    instead of the parent: the draft must say which folder to register, not just 'not registered'."""
+    data = {"framework": "sglang", "weights": "Qwen3.8-Models", "model": "/models/Qwen3.8-27B-NVFP4",
+            "volumes": "{weights}:/models:ro"}
+    r, warnings = recipe_from_file(data, [{"id": 1, "name": "Qwen3.8-27B-NVFP4"}])
+    assert r["weights_id"] is None
+    assert any("not registered" in w for w in warnings)
+    hint = next(w for w in warnings if "model folder itself" in w)
+    assert "Qwen3.8-Models" in hint and "parent" in hint
+
+
+def test_unregistered_parent_hint_also_for_a_native_subfolder_model():
+    data = {"framework": "tensorfold", "weights": "Qwen3.8-Models",
+            "model": "{weights}/Qwen3.8-27B-NVFP4"}
+    r, warnings = recipe_from_file(data, [{"id": 1, "name": "Qwen3.8-27B-NVFP4"}])
+    assert any("model folder itself" in w for w in warnings)
+
+
+def test_no_parent_hint_when_the_model_is_the_mount_target():
+    """A recipe that reads the weights folder directly (model = the mount target) needs no parent."""
+    data = {"framework": "vllm", "weights": "Missing", "model": "/model",
+            "volumes": "{weights}:/model:ro"}
+    r, warnings = recipe_from_file(data, [{"id": 1, "name": "model"}])
+    assert not any("model folder itself" in w for w in warnings)
+
+
+def test_no_parent_hint_when_the_parent_is_registered():
+    data = {"framework": "sglang", "weights": "Qwen3.8-Models", "model": "/models/Qwen3.8-27B-NVFP4",
+            "volumes": "{weights}:/models:ro"}
+    r, warnings = recipe_from_file(data, [{"id": 1, "name": "Qwen3.8-Models"},
+                                          {"id": 2, "name": "Qwen3.8-27B-NVFP4"}])
+    assert r["weights_id"] == 1 and warnings == []
