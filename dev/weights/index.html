@@ -781,6 +781,14 @@ first part is used - llama.cpp loads the rest itself. If the folder holds severa
 host, or copying it to many, needs no edits</strong> - as long as the model has a path there. The editor shows
 right away whether the weights are on the selected host, and a start is refused with a clear message when
 they are not.</p>
+<p><strong>A model and its drafter in one entry:</strong> recipes like <code>qwen38-dflash.yaml</code> mount one folder and read the
+model <em>and</em> the drafter from subfolders of it (<code>model: /models/Qwen3.8-27B-NVFP4</code>, drafter
+<code>/models/Qwen3.8-27B-DFlash2</code>). The entry must then be the <strong>parent</strong> folder that contains both - not the
+model folder itself. "Search hosts" registers model folders, so a parent like <code>Qwen3.8-Models</code> is typed in
+once (e.g. <code>~/models</code>, or <code>~/models/qwen38</code> with the two folders inside). Picking the model's own entry
+instead mounts it one level too deep: the engine looks for <code>/models/Qwen3.8-27B-NVFP4</code> inside itself and
+crashes (SGLang: <code>Repo id must be in the form …</code>). The start is refused with that diagnosis and the fix -
+register the parent and pick it, or point the model at the mount target.</p>
 <h2 id="found-on-your-hosts">Found on your hosts<a class="headerlink" href="#found-on-your-hosts" title="Permanent link">&para;</a></h2>
 <p>You rarely type paths. When the tab opens (or on <strong>Refresh</strong>) every host looks for model folders (with a
 <code>config.json</code> or weight files) and <code>.gguf</code> files in its <code>DGXM_MODEL_DIR</code> (default <code>~/models</code>, up to three
