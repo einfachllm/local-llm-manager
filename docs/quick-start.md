@@ -60,6 +60,9 @@ This page sets up the manager on one machine and starts a first model. For more 
     `-f docker-compose.nvidia.yml` for GPU readings in the Hosts graph, and for Tailscale mode
     `-f docker-compose.tailscale.yml` (mounts the host's Tailscale binary and socket).
 
+Run the installers as your normal user, **not with `sudo`**: they ask for it themselves where the
+service file needs it, and under sudo the service would run as root.
+
 ## 2. Log in
 
 Open `http://<machine>:8090` in a browser and log in as **admin** with the password from the installer

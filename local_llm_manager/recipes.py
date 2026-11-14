@@ -368,6 +368,10 @@ def _mask_env_value(token: str) -> str:
     return f"{key}=***" if sep else token
 
 
+# `-eFOO=bar` and `-e=FOO=bar` are the attached spellings docker accepts for `-e FOO=bar`.
+_ATTACHED_ENV_RE = re.compile(r"^(-e=?)([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+
+
 def format_command(argv: list[str]) -> str:
     """Human-readable rendering of an argv for display only (preview, start message, activity log).
     Secret values are masked: `-e KEY=value` becomes `-e KEY=***`, bare env names stay visible.
@@ -383,6 +387,8 @@ def format_command(argv: list[str]) -> str:
             mask_next = True
         elif token.startswith("--env="):
             out.append("--env=" + _mask_env_value(token[len("--env="):]))
+        elif m := _ATTACHED_ENV_RE.match(token):
+            out.append(f"{m.group(1)}{m.group(2)}=***")
         else:
             out.append(token)
     return shlex.join(out)

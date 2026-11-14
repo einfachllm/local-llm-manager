@@ -81,6 +81,33 @@ docker run --rm --gpus all -p 8123:8000 vllm/vllm-openai:latest --model org/m --
     assert r["gpus"] == "all"
 
 
+def test_attached_short_options_are_split_like_docker_does():
+    """`-eFOO=bar`, `-p8081:80` and `-v/host:/container` are valid docker spellings: they must land in
+    the env / port / volume fields (not stay opaque docker arguments), and `-e=FOO=bar` sets FOO."""
+    r, warnings = recipe_from_argv([
+        "-eSECRET=hunter2", "-e=OTHER=topsecret", "-p8081:80", "-v/mnt/q:/model:ro",
+        "vllm/vllm-openai:latest", "/model",
+    ])
+    assert r["env"].splitlines() == ["SECRET=hunter2", "OTHER=topsecret"]
+    assert (r["host_port"], r["container_port"]) == (8081, 80)
+    assert r["volumes"] == "/mnt/q:/model:ro"
+    assert r["docker_args"] == ""
+    assert warnings == []
+
+
+def test_attached_short_options_in_a_starter_script_round_trip():
+    """The whole path: bash captures the argv of a script written with docker's attached spellings."""
+    res = run_import("docker run -d -eSECRET=hunter2 -p8081:80 -v/mnt/q:/model:ro "
+                     "vllm/vllm-openai:latest /model")
+    r = res["recipe"]
+    assert r["env"].splitlines() == ["SECRET=hunter2"]
+    assert (r["host_port"], r["container_port"]) == (8081, 80)
+    assert r["volumes"] == "/mnt/q:/model:ro"
+    assert r["model"] == "/model"
+    rebuilt = build_run_argv({**r, "id": 1})
+    assert "SECRET=hunter2" in rebuilt and "8081:80" in rebuilt[rebuilt.index("-p") + 1]
+
+
 def test_plain_docker_run_command():
     text = """docker run -d --rm --gpus all -p 8200:8000 \\
       -e HF_TOKEN="" -e FOO=bar -v $HOME/.cache/huggingface:/root/.cache/huggingface \\

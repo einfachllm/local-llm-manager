@@ -5,6 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 APP_DIR="$(pwd)"
+if [ -n "${SUDO_USER:-}" ]; then
+  echo "Run this as your normal user, not with sudo: the service must run as you." >&2
+  exit 1
+fi
 # Settings live in .env next to the code - the same file run.sh, docker compose and install-macos.sh use.
 ENV_FILE="${APP_DIR}/.env"
 LEGACY_ENV_FILE="${HOME}/.config/local-llm-manager.env"
