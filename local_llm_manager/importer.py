@@ -244,6 +244,21 @@ def _split_opt(tok: str) -> tuple[str, Optional[str]]:
     return tok, None
 
 
+# Short options of `docker run` that take a value: the attached spelling (`-eFOO=bar`, `-p8080:80`,
+# `-v/host:/container`) is what pflag accepts for every one of them. A leading "=" after the letter is
+# part of the syntax, not the value (`-e=FOO=bar` sets FOO, as docker does).
+_SHORT_VALUE_OPTS = frozenset(o[1] for o in VALUE_OPTS if len(o) == 2 and o.startswith("-"))
+
+
+def _split_run_opt(tok: str) -> tuple[str, Optional[str]]:
+    """A `docker run` option split like docker itself: `--name=x`, `-eFOO=bar` or a bare flag."""
+    key, val = _split_opt(tok)
+    if val is None and len(tok) > 2 and tok[0] == "-" and tok[1] in _SHORT_VALUE_OPTS:
+        val = tok[2:]
+        return tok[:2], val[1:] if val.startswith("=") else val
+    return key, val
+
+
 def _detect_framework(image: str, entrypoint: str, program: list[str]) -> str:
     hay = " ".join([image, entrypoint, *program]).lower()
     if "sglang" in hay:
@@ -343,7 +358,7 @@ def recipe_from_argv(argv: list[str], description: str = "") -> tuple[dict[str, 
 
     i = 0
     while i < len(argv) and argv[i].startswith("-"):
-        key, val = _split_opt(argv[i])
+        key, val = _split_run_opt(argv[i])
         if key in VALUE_OPTS and val is None:
             val = argv[i + 1] if i + 1 < len(argv) else ""
             i += 2

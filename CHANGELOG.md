@@ -6,17 +6,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed
-- **A weights entry that is the model folder itself no longer starts a doomed container:** drafter
-  recipes (`qwen38-dflash`, `qwen38-sglang`, `qwen38-tensorfold`, `nemotron-3.5-super-vl`) mount one
-  registered parent folder and read model and drafter from subfolders of it. Picking the model's own
-  entry instead - the one "Search hosts" registers - mounted the weights one level too deep, and the
-  engine crashed looking for the model inside itself (SGLang: `Repo id must be in the form …`). The
-  start is now refused with that diagnosis and the fix (register the parent folder, e.g. `~/models`,
-  and pick it), and importing such a file warns which folder to register when the model folder itself
-  is already registered.
-
-## [0.3.0] - 2026-11-12
+## [0.3.0] - 2026-11-14
 
 ### Highlights
 - **An audit-driven reliability and security release.** A full review of the POC (five parallel audits plus
@@ -140,6 +130,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Docker-latest workflow already did.
 
 ### Fixed
+- **A weights entry that is the model folder itself no longer starts a doomed container:** drafter
+  recipes (`qwen38-dflash`, `qwen38-sglang`, `qwen38-tensorfold`, `nemotron-3.5-super-vl`) mount one
+  registered parent folder and read model and drafter from subfolders of it. Picking the model's own
+  entry instead - the one "Search hosts" registers - mounted the weights one level too deep, and the
+  engine crashed looking for the model inside itself (SGLang: `Repo id must be in the form …`). The
+  start is now refused with that diagnosis and the fix (register the parent folder, e.g. `~/models`,
+  and pick it), and importing such a file warns which folder to register when the model folder itself
+  is already registered.
+- **Compact `docker run` flags are imported, and stay masked:** docker accepts attached short options, but
+  the importer only read the separated spellings - `-eSECRET=value`, `-p8080:80` and `-v/path:/mount` were
+  kept as opaque extra Docker flags, so the recipe's environment, port and volumes fields missed them and
+  the secret showed in the command preview and activity log. They now land in their fields (`-e=KEY=value`
+  is understood the way docker understands it), and displayed commands mask an attached `-eKEY=value` too.
+- **The installers refuse `sudo`:** run under sudo they installed a root-owned virtualenv and a service
+  running as root. Both now stop with the same "run this as your normal user" message as the uninstallers.
 - **Pinning a recipe or switching its image tag no longer drops its weights:** those two actions sent the
   recipe without `weights_id`, so the registered weights link was silently set to nothing and every later
   start of a `{weights}` recipe was refused (and a sync spread the loss to the copies). The recipe body now

@@ -147,6 +147,9 @@ their own `--gpus` flag, not through this reservation). For Tailscale mode, use
 `docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d` - it mounts the host's
 Tailscale binary and daemon socket (both paths must exist on the host).
 
+Run the two installers as your normal user, **not with `sudo`** - they ask for `sudo` themselves where
+the service file needs it; under sudo the service would run as root.
+
 Then open `http://<machine>:8090` and log in as `admin` with that password. To change it, edit the env file
 (at least 12 characters, no well-known passwords) and restart the service.
 

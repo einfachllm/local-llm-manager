@@ -96,6 +96,19 @@ def test_env_values_masked_in_display_but_not_in_execution(client, fake_docker):
     assert "SECRET=hunter2" in fake_docker.calls[-1]
 
 
+def test_attached_env_flags_in_docker_args_are_masked_too(client, fake_docker):
+    """docker also accepts `-eKEY=value` / `-e=KEY=value`; those must not show the value either."""
+    body = recipe_body(docker_args="--ipc=host -eSECRET=hunter2 -e=OTHER=topsecret")
+    cmd = client.post("/api/recipes/preview", json=body).json()["command"]
+    assert "-eSECRET=***" in cmd and "-e=OTHER=***" in cmd
+    assert "hunter2" not in cmd and "topsecret" not in cmd
+    r = client.post("/api/recipes", json=body).json()
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+    events = client.get("/api/events").json()
+    assert "hunter2" not in events[0]["message"] and "topsecret" not in events[0]["message"]
+    assert "-eSECRET=hunter2" in fake_docker.calls[-1]  # execution still gets the real values
+
+
 def test_start_stop_restart(client, fake_docker):
     r = create(client)
     assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200

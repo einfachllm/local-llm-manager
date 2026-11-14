@@ -156,6 +156,17 @@ def test_database_file_is_private(tmp_path):
     assert oct((tmp_path / "sub" / "manager.db").stat().st_mode & 0o777) == "0o600"
 
 
+def test_installers_refuse_to_run_under_sudo():
+    """The service must run as the invoking user: under sudo it would be installed as root (like the
+    uninstallers, which already refuse). A text guard would not catch a removed check, so read them."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    for name in ("install.sh", "install-macos.sh"):
+        text = (root / name).read_text()
+        assert 'if [ -n "${SUDO_USER:-}" ]' in text, name
+        assert "not with sudo" in text, name
+
+
 def test_publish_ip_binds_ports_and_native_servers(monkeypatch):
     from local_llm_manager import recipes
     monkeypatch.setattr(config, "PUBLISH_IP", "100.64.0.7")
