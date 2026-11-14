@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **LM Studio libraries show up in the Weights tab.** Every host also scans LM Studio's model library
+  (`~/.lmstudio/models`, or its older `~/.cache/lm-studio/models`) when it exists: GGUFs appear per file
+  (one entry per quantization, ready to mount into a llama.cpp recipe), MLX model folders as folders.
+  Model-presence checks cover them, too. Downloads always go into the first `DGXM_MODEL_DIR`, never into
+  LM Studio's library; a custom LM Studio models dir can be added to `DGXM_MODEL_DIR` as usual.
+
 ## [0.3.0] - 2026-11-14
 
 ### Highlights
