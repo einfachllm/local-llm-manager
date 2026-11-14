@@ -108,9 +108,9 @@ More examples:
 |---|---|
 | ![Hosts](docs/screenshots/hosts-dark.png) | ![Recipe editor](docs/screenshots/recipe-editor-dark.png) |
 
-| Light theme, grouped by host, tiles | Schedules & planned-runs timeline |
+| Light theme, grouped by host | Schedules & planned-runs timeline |
 |---|---|
-| ![Light theme, models as tiles](docs/screenshots/recipes-light.png) | ![Schedules](docs/screenshots/schedules-dark.png) |
+| ![Light theme, recipes grouped by host](docs/screenshots/recipes-light.png) | ![Schedules](docs/screenshots/schedules-dark.png) |
 
 The screenshots show a demo setup: a hub `spark-01` and an agent `spark-02`. The **🙈 Blur** toggle in the
 left sidebar replaces host names and IPs with aliases such as `host-3f2a` - handy for screenshots and screen shares.
