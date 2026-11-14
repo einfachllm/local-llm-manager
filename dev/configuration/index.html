@@ -807,7 +807,7 @@ hub mode otherwise).</p>
 <tr>
 <td><code>DGXM_MODEL_DIR</code></td>
 <td><code>~/models</code></td>
-<td>Directories scanned for local model folders and <code>.gguf</code> files (Weights tab: "Found on your hosts" and presence checks). Comma- or whitespace-separated, several allowed, searched up to three levels deep.</td>
+<td>Directories scanned for local model folders and <code>.gguf</code> files (Weights tab: "Found on your hosts" and presence checks). Comma- or whitespace-separated, several allowed, searched up to three levels deep. LM Studio's model library (<code>~/.lmstudio/models</code>, or its older <code>~/.cache/lm-studio/models</code>) is scanned in addition when it exists; downloads always go into the first <code>DGXM_MODEL_DIR</code>, never into LM Studio's library.</td>
 </tr>
 <tr>
 <td><code>DGXM_HF_BIN</code></td>
