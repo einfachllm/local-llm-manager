@@ -42,6 +42,21 @@ HEALTH_HOST = os.environ.get("DGXM_HEALTH_HOST", "") or (
 # recipe's model is present on this host. Comma- or whitespace-separated.
 MODEL_DIRS = [d.strip() for d in os.environ.get("DGXM_MODEL_DIR", "~/models").replace(",", " ").split() if d.strip()]
 
+# LM Studio's model libraries (current and pre-0.3 default layout). Scanned in addition to MODEL_DIRS
+# for the Weights tab and model-presence checks when they exist on this host. Downloads never go
+# there: they always land in the first DGXM_MODEL_DIR. A custom LM Studio models dir can be scanned
+# by adding it to DGXM_MODEL_DIR.
+LMSTUDIO_DIRS = ["~/.lmstudio/models", "~/.cache/lm-studio/models"]
+
+
+def model_scan_dirs() -> list[str]:
+    """MODEL_DIRS plus those LM Studio libraries that exist on this host (order kept, no duplicates)."""
+    dirs = list(MODEL_DIRS)
+    for d in LMSTUDIO_DIRS:
+        if d not in dirs and os.path.isdir(os.path.expanduser(d)):
+            dirs.append(d)
+    return dirs
+
 # Docker binary and timeouts.
 DOCKER_BIN = os.environ.get("DGXM_DOCKER", "docker")
 # Address other machines reach this hub at, e.g. http://spark1:8090 - needed when weights are copied

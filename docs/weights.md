@@ -64,7 +64,11 @@ register the parent and pick it, or point the model at the mount target.
 
 You rarely type paths. When the tab opens (or on **Refresh**) every host looks for model folders (with a
 `config.json` or weight files) and `.gguf` files in its `DGXM_MODEL_DIR` (default `~/models`, up to three
-levels deep) and the tab lists what it can add in the **Found on your hosts** box:
+levels deep) and the tab lists what it can add in the **Found on your hosts** box. LM Studio's model
+library (`~/.lmstudio/models`, or its older `~/.cache/lm-studio/models`) is searched in addition when it
+exists on that machine: its GGUFs appear per file (one entry per quantization, ready to mount into a
+llama.cpp recipe), its MLX model folders as folders. No setting needed; a custom LM Studio models dir can
+be scanned by adding it to `DGXM_MODEL_DIR`:
 
 - **"X is also on LocalPC"** - a model you already registered was found on another host: **Use** sets
   that host's path.

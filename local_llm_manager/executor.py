@@ -428,12 +428,15 @@ class LocalExecutor:
 
     async def check_models(self, items: list[dict[str, str]]) -> list[dict[str, Any]]:
         """Host-side existence check for resolved model targets (see resolve_model_target)."""
-        return [check_model_target(it, config.MODEL_DIRS) for it in items]
+        dirs = config.model_scan_dirs()
+        return [check_model_target(it, dirs) for it in items]
 
     async def scan_weights(self) -> dict[str, Any]:
-        """Model folders and .gguf files in this host's model dirs (DGXM_MODEL_DIR)."""
-        found = await asyncio.to_thread(scan_weight_dirs, config.MODEL_DIRS)
-        return {"dirs": config.MODEL_DIRS, "found": found}
+        """Model folders and .gguf files in this host's model dirs (DGXM_MODEL_DIR, plus LM Studio's
+        model library when this host has one)."""
+        dirs = config.model_scan_dirs()
+        found = await asyncio.to_thread(scan_weight_dirs, dirs)
+        return {"dirs": dirs, "found": found}
 
     async def start_transfer(self, kind: str, target: str, name: str = "",
                              share: Optional[dict] = None) -> dict[str, Any]:

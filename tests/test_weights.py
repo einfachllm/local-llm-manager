@@ -193,6 +193,7 @@ def test_discover_suggests_paths_on_other_hosts(setup, tmp_path, monkeypatch):
         (models / name).mkdir(parents=True)
         (models / name / "config.json").write_text("{}")
     monkeypatch.setattr(config, "MODEL_DIRS", [str(models)])  # hub and agent run in this process
+    monkeypatch.setattr(config, "LMSTUDIO_DIRS", [])  # hermetic even where LM Studio is installed
     w = weight(client, name="Nemotron VL", **{str(local): str(models / "NVIDIA-Nemotron-VL")})
 
     d = client.get("/api/weights/discover").json()

@@ -186,3 +186,61 @@ def test_scan_ignores_symlink_to_non_model_dir(tmp_path):
     (models / "not-a-model").symlink_to(other)
     found = scan_weight_dirs([str(models)])
     assert [f for f in found if f["kind"] == "dir"] == []
+
+
+# ---- LM Studio libraries (scanned in addition to DGXM_MODEL_DIR, see config.model_scan_dirs) ----
+
+def test_model_scan_dirs_adds_existing_lmstudio_dirs(monkeypatch, tmp_path):
+    current = tmp_path / "lmstudio" / "models"
+    legacy = tmp_path / "cache" / "lm-studio" / "models"
+    monkeypatch.setattr(config, "MODEL_DIRS", ["~/models"])
+    monkeypatch.setattr(config, "LMSTUDIO_DIRS", [str(current), str(legacy)])
+    assert config.model_scan_dirs() == ["~/models"]  # nothing on disk: nothing is added
+    current.mkdir(parents=True)
+    assert config.model_scan_dirs() == ["~/models", str(current)]
+    legacy.mkdir(parents=True)
+    assert config.model_scan_dirs() == ["~/models", str(current), str(legacy)]
+
+
+def test_model_scan_dirs_skips_lmstudio_dir_already_listed(monkeypatch, tmp_path):
+    lm = tmp_path / "lmstudio" / "models"
+    lm.mkdir(parents=True)
+    monkeypatch.setattr(config, "MODEL_DIRS", [str(lm), "~/models"])
+    monkeypatch.setattr(config, "LMSTUDIO_DIRS", [str(lm)])
+    assert config.model_scan_dirs() == [str(lm), "~/models"]
+
+
+def test_scan_finds_lmstudio_repos(tmp_path, monkeypatch):
+    """LM Studio stores GGUFs as <models>/<publisher>/<repo>/<file>.gguf. A repo folder with only .gguf
+    files lists each quantization as its own file entry (loose-gguf rule); an MLX repo (config.json +
+    .safetensors) lists as a folder."""
+    lm = tmp_path / "lmstudio"
+    repo = lm / "lmstudio-community" / "Meta-Llama-3.1-8B-Instruct-GGUF"
+    repo.mkdir(parents=True)
+    (repo / "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf").write_bytes(b"x" * 1024)
+    mlx = lm / "mlx-community" / "Llama-3.2-1B-Instruct-4bit"
+    mlx.mkdir(parents=True)
+    (mlx / "config.json").write_text("{}")
+    (mlx / "model.safetensors").write_bytes(b"x" * 2048)
+    (lm / "empty-publisher").mkdir()
+    monkeypatch.setattr(config, "MODEL_DIRS", [str(tmp_path / "models")])
+    monkeypatch.setattr(config, "LMSTUDIO_DIRS", [str(lm)])
+    found = scan_weight_dirs(config.model_scan_dirs())
+    assert sorted((f["kind"], f["name"]) for f in found) == [
+        ("dir", "Llama-3.2-1B-Instruct-4bit"),
+        ("file", "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"),
+    ]
+
+
+def test_check_models_finds_model_in_lmstudio_dir(monkeypatch, tmp_path):
+    lm = tmp_path / "lmstudio" / "models"
+    file = lm / "pub" / "Repo-GGUF" / "repo-q4_k_m.gguf"
+    file.parent.mkdir(parents=True)
+    file.write_bytes(b"x" * 1024)
+    monkeypatch.setattr(executor_mod, "_hf_cache_dir", lambda: tmp_path / "empty")
+    monkeypatch.setattr(config, "MODEL_DIRS", [])
+    monkeypatch.setattr(config, "LMSTUDIO_DIRS", [str(lm)])
+    ex = executor_mod.LocalExecutor.__new__(executor_mod.LocalExecutor)
+    [res] = asyncio.run(ex.check_models(
+        [{"kind": "local", "path": "pub/Repo-GGUF/repo-q4_k_m.gguf", "reference": "x"}]))
+    assert res["present"] is True and res["location"] == str(file)
