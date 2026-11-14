@@ -729,6 +729,8 @@ cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 </div>
 </div>
 </div>
+<p>Run the installers as your normal user, <strong>not with <code>sudo</code></strong>: they ask for it themselves where the
+service file needs it, and under sudo the service would run as root.</p>
 <h2 id="2-log-in">2. Log in<a class="headerlink" href="#2-log-in" title="Permanent link">&para;</a></h2>
 <p>Open <code>http://&lt;machine&gt;:8090</code> in a browser and log in as <strong>admin</strong> with the password from the installer
 (or the one you set in <code>.env</code>).</p>
