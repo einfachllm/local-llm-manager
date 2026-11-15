@@ -39,6 +39,26 @@ weights: Qwen3.8-27B-NVFP4   # the row's name in the Weights tab
 port: 8101
 ```
 
+**Several entries in one recipe (a model and its drafter):** select more than one row (Ctrl/Cmd-click in the
+editor, or a list under `weights:` in YAML). The **first** selected entry fills `{weights}`; every other is
+referenced by its name as `{weights:Name}`. Each is mounted wherever you write its placeholder, so the model
+and the drafter can live in two separate rows and still be mounted where the engine reads them:
+
+```yaml
+name: nemotron-3.5-super-vl
+framework: vllm
+weights:
+  - NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4          # first: fills {weights}
+  - NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4-LiLiCorr  # drafter: {weights:…}
+model: /models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
+volumes: |-
+  {weights:NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4}:/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4:ro
+  {weights:NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4-LiLiCorr}:/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4-LiLiCorr:ro
+```
+
+Every selected entry is checked on the recipe's host before a start (a missing drafter is refused with its
+name), and each keeps its own per-host path - so the recipe still moves between machines without edits.
+
 **GGUF in a folder (llama.cpp):** llama.cpp loads one `.gguf` file, but a Hugging Face download is a folder.
 When a `llamacpp` / `llamacpp-native` recipe's weights are a folder, the start picks the model file in it on
 that host: vision projectors (`mmproj-…`) are skipped and of a split model (`…-00001-of-00003.gguf`) the
@@ -51,14 +71,17 @@ host, or copying it to many, needs no edits** - as long as the model has a path 
 right away whether the weights are on the selected host, and a start is refused with a clear message when
 they are not.
 
-**A model and its drafter in one entry:** recipes like `qwen38-dflash.yaml` mount one folder and read the
-model *and* the drafter from subfolders of it (`model: /models/Qwen3.8-27B-NVFP4`, drafter
-`/models/Qwen3.8-27B-DFlash2`). The entry must then be the **parent** folder that contains both - not the
-model folder itself. "Search hosts" registers model folders, so a parent like `Qwen3.8-Models` is typed in
-once (e.g. `~/models`, or `~/models/qwen38` with the two folders inside). Picking the model's own entry
-instead mounts it one level too deep: the engine looks for `/models/Qwen3.8-27B-NVFP4` inside itself and
-crashes (SGLang: `Repo id must be in the form …`). The start is refused with that diagnosis and the fix -
-register the parent and pick it, or point the model at the mount target.
+**A model and its drafter:** the recommended way is two entries, one per folder, mounted with
+`{weights:Name}` as above (`nemotron-3.5-super-vl.yaml`). Alternatively, recipes like `qwen38-dflash.yaml`
+mount **one** folder and read the model *and* the drafter from subfolders of it (`model:
+/models/Qwen3.8-27B-NVFP4`, drafter `/models/Qwen3.8-27B-DFlash2`). That entry must then be the **parent**
+folder that contains both - not the model folder itself. "Search hosts" registers model folders, so a parent
+like `Qwen3.8-Models` is typed in once (e.g. `~/models`, or `~/models/qwen38` with the two folders inside).
+Picking the model's own entry instead mounts it one level too deep: the engine looks for
+`/models/Qwen3.8-27B-NVFP4` inside itself and crashes (SGLang: `Repo id must be in the form …`, vLLM/
+transformers: `Repo id must use alphanumeric chars …`). The start is refused with that diagnosis and the
+fix - select the model and drafter as two entries, or register the parent and pick it, or point the model
+at the mount target.
 
 ## Found on your hosts
 

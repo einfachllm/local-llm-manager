@@ -15,13 +15,13 @@ from typing import Any, AsyncIterator, Optional
 
 import httpx
 
-from .db import Database, canon_weight_path
+from .db import Database, canon_weight_path, weights_ids_of
 from .docker import Docker, split_image
 from .executor import (RUNNING_STATES, transport_of, ActionError, LocalExecutor, RemoteExecutor, agent_payload_recipe,
                        resolve_model_target, _volume_host_paths)
 from .processes import ProcessRunner
-from .recipes import (WEIGHTS, UnknownPlaceholderError, check_placeholders, fill_weights, model_mount,
-                      use_weights_mount, uses_weights)
+from .recipes import (UnknownPlaceholderError, check_placeholders, fill_weights, model_mount,
+                      is_weights_ref, use_weights_mount, uses_weights, weights_refs)
 
 log = logging.getLogger(__name__)
 
@@ -148,8 +148,15 @@ class Manager:
                                                   and x["id"] != recipe["id"] and x.get("copy_of") != recipe["id"]],
                                    "existing_copy": next((x["id"] for x in recipes if x["host_id"] == hid
                                                           and x.get("copy_of") == recipe["id"]), None)}
-            if recipe.get("weights_id"):
-                out["weights"] = await self.check_weight(recipe["weights_id"], hid)
+            ids = weights_ids_of(recipe)
+            if ids:
+                checks = []
+                for wid in ids:
+                    w = self.db.get_weight(wid)
+                    checks.append({**await self.check_weight(wid, hid), "name": w["name"] if w else str(wid)})
+                out["weights_all"] = checks
+                # One representative check for the simple display: the first problem, else the first.
+                out["weights"] = next((c for c in checks if c["state"] != "present"), checks[0])
             if repo:
                 try:
                     images = await self.executor_for(hid).images()
@@ -168,7 +175,7 @@ class Manager:
         for r in self.db.list_recipes():
             if r.get("kind", "model") != "model" or not (r.get("model") or "").strip():
                 continue
-            if r.get("weights_id") and uses_weights(r):
+            if weights_ids_of(r) and uses_weights(r):
                 continue  # on registered weights: the registry above it has their per-host paths
             target = resolve_model_target(r["model"], r.get("volumes", ""))
             ref = target["reference"]
@@ -213,11 +220,20 @@ class Manager:
 
     # ---- weights -------------------------------------------------------
 
+    def _weights_for(self, recipe: dict, host_id: int) -> list[dict[str, Any]]:
+        """The recipe's selected weights entries in order, each with its path on this host (empty when
+        it is not there): the first fills {weights}, the rest are matched by name for {weights:Name}."""
+        out: list[dict[str, Any]] = []
+        for wid in weights_ids_of(recipe):
+            w = self.db.get_weight(wid)
+            if w:
+                out.append({"name": w["name"], "path": self.db.weight_path(wid, host_id) or ""})
+        return out
+
     def _payload(self, recipe: dict) -> dict:
-        """What an executor gets: the recipe with {weights} filled in for its host (older agents need
-        nothing new for this, they only see the resolved paths)."""
-        path = self.db.weight_path(recipe.get("weights_id"), recipe["host_id"])
-        return agent_payload_recipe(fill_weights(recipe, path))
+        """What an executor gets: the recipe with its weights placeholders filled in for its host
+        (older agents need nothing new for this, they only see the resolved paths)."""
+        return agent_payload_recipe(fill_weights(recipe, self._weights_for(recipe, recipe["host_id"])))
 
     async def _check_paths(self, host_id: int, paths: list[str]) -> tuple[dict[str, dict], Optional[str]]:
         """path -> {present, location, expected} on one host, or ({}, error) when the host can't tell."""
@@ -314,7 +330,7 @@ class Manager:
         mounts = {}
         for r in recipes:
             m = model_mount(r.get("model", ""), r.get("volumes", ""))
-            if not m or WEIGHTS in m[1]:
+            if not m or is_weights_ref(m[1]):
                 raise ActionError(f"{r['name']}: its model is not mounted from a folder of its own "
                                   f"(a volume like ~/models/x:{r.get('model') or '/model'})", 422)
             mounts[r["id"]] = m
@@ -330,7 +346,9 @@ class Manager:
             elif _norm_path(locations[r["host_id"]]) != _norm_path(path):
                 raise ActionError(f"{r['name']} mounts {path}, but '{name}' is already at "
                                   f"{locations[r['host_id']]} on that host", 409)
-            self.db.update_recipe(r["id"], {**r, "volumes": use_weights_mount(r["volumes"], index), "weights_id": wid})
+            others = [x for x in weights_ids_of(r) if x != wid]
+            self.db.update_recipe(r["id"], {**r, "volumes": use_weights_mount(r["volumes"], index),
+                                            "weights_id": wid, "weights_ids": [wid] + others})
         return self.db.get_weight(wid)
 
     # ---- status --------------------------------------------------------
@@ -751,7 +769,7 @@ class Manager:
             if statuses[r["id"]]["status"] not in RUNNING_STATES:
                 continue
             payload = self._payload(r)
-            paths = [p for p in (self.db.weight_path(r.get("weights_id"), host_id),) if p]
+            paths = [p for p in (self.db.weight_path(wid, host_id) for wid in weights_ids_of(r)) if p]
             paths += list(_volume_host_paths(payload.get("volumes", "")).values())
             if r.get("runtime") == "process" and str(payload.get("model", "")).startswith(("/", "~")):
                 paths.append(payload["model"])
@@ -986,19 +1004,35 @@ class Manager:
         return text.split("\n", 1)[0]
 
     async def _require_weights(self, recipe: dict, fail) -> None:
-        """Refuse to start a recipe whose {weights} has no path on its host, or whose path is not there."""
+        """Refuse to start a recipe whose weights have no path on its host, or whose path is not there.
+        Every selected entry is checked - a model and its drafter can be two separate entries."""
         host = self._host_name(recipe["host_id"])
-        weight = self.db.get_weight(recipe["weights_id"]) if recipe.get("weights_id") else None
-        if weight is None:
-            fail(f"{recipe['name']} uses {{weights}} but has no weights selected: pick them in the recipe", 409)
-        check = await self.check_weight(weight["id"], recipe["host_id"])
-        if check["state"] == "unset":
-            fail(f"Weights '{weight['name']}' have no path on {host}: set it in the Weights tab", 409)
-        if check["state"] == "missing":
-            fail(f"Weights '{weight['name']}' not found on {host} at {check['location'] or check['path']}: "
-                 f"copy them there or fix the path in the Weights tab", 409)
-        # "unknown" (e.g. an agent too old to check): let the container report it.
-        if check["state"] == "present":
+        ids = weights_ids_of(recipe)
+        if not ids:
+            refs = weights_refs(recipe)
+            which = "{" + f"weights:{refs[0]}" + "}" if refs else "{weights}"
+            fail(f"{recipe['name']} uses {which} but has no weights selected: pick them in the recipe", 409)
+        weights = [self.db.get_weight(wid) for wid in ids]
+        if any(w is None for w in weights):
+            fail(f"{recipe['name']} selects weights that do not exist (any more): pick them again in the recipe", 409)
+        # A {weights:Name} reference must name one of the selected entries.
+        selected = {w["name"].strip().casefold() for w in weights}
+        for name in weights_refs(recipe):
+            if name.casefold() not in selected:
+                fail(f"{recipe['name']} references {{weights:{name}}}, but '{name}' is not among its selected "
+                     f"weights: pick that entry in the recipe (or fix the placeholder)", 409)
+        present = []
+        for weight in weights:
+            check = await self.check_weight(weight["id"], recipe["host_id"])
+            if check["state"] == "unset":
+                fail(f"Weights '{weight['name']}' have no path on {host}: set it in the Weights tab", 409)
+            if check["state"] == "missing":
+                fail(f"Weights '{weight['name']}' not found on {host} at {check['location'] or check['path']}: "
+                     f"copy them there or fix the path in the Weights tab", 409)
+            # "unknown" (e.g. an agent too old to check): let the container report it.
+            if check["state"] == "present":
+                present.append(weight)
+        for weight in present:
             await self._require_model_in_weights(recipe, weight, fail)
 
     async def _require_model_in_weights(self, recipe: dict, weight: dict, fail) -> None:

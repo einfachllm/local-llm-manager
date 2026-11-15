@@ -117,16 +117,21 @@ def _tags(value: Any) -> list[str]:
     return out
 
 
-def _find_weight(data: dict[str, Any], weights: list[dict[str, Any]]) -> tuple[Optional[dict[str, Any]], str]:
-    """The registered weights entry named by `weights`/`weights_id`, and the name given in the file."""
-    name = str(data.get("weights") or "").strip()
-    if name:
-        return next((w for w in weights if str(w.get("name", "")).lower() == name.lower()), None), name
-    if data.get("weights_id") not in (None, ""):
-        wanted = str(data["weights_id"]).strip()
-        found = next((w for w in weights if str(w.get("id")) == wanted), None)
-        return found, str((found or {}).get("name") or "")
-    return None, ""
+def _find_weights(data: dict[str, Any], weights: list[dict[str, Any]]
+                  ) -> tuple[list[Optional[dict[str, Any]]], list[str]]:
+    """The registered entries named by `weights` (one name or a list of names) or by `weights_id`, in
+    order, plus the names given in the file. A name that is not registered yields None in that slot."""
+    raw = data.get("weights")
+    if raw is None or raw == "" or raw == []:
+        if data.get("weights_id") not in (None, ""):
+            wanted = str(data["weights_id"]).strip()
+            found = next((w for w in weights if str(w.get("id")) == wanted), None)
+            return [found], [str((found or {}).get("name") or "")]
+        return [], []
+    names = raw if isinstance(raw, (list, tuple)) else [raw]
+    names = [str(n).strip() for n in names if str(n).strip()]
+    found = [next((w for w in weights if str(w.get("name", "")).lower() == n.lower()), None) for n in names]
+    return found, names
 
 
 def recipe_from_file(data: dict[str, Any], registered_weights: Optional[list[dict[str, Any]]] = None
@@ -156,11 +161,18 @@ def recipe_from_file(data: dict[str, Any], registered_weights: Optional[list[dic
     if color and color not in CARD_COLORS:
         raise RecipeFileError(f"color must be one of {', '.join(c for c in CARD_COLORS if c)} or empty")
 
-    weight, weights_name = _find_weight(data, registered_weights or [])
-    if data.get("weights") and weight is None:
-        warnings.append(f"Weights “{data['weights']}” are not registered on this manager: add them in the "
+    found, given_names = _find_weights(data, registered_weights or [])
+    multi = len(given_names) > 1
+    # The single-entry shorthand (implicit {weights} mount, omittable model) uses the first entry; with
+    # several entries the file spells out each {weights:Name} mount and the model itself.
+    weight = found[0] if (found and not multi) else None
+    weights_name = given_names[0] if (given_names and not multi) else ""
+    weights_ids = [w["id"] for w in found if w]
+    if data.get("weights") and any(w is None for w in found):
+        missing = ", ".join(n for n, w in zip(given_names, found) if w is None)
+        warnings.append(f"Weights “{missing}” are not registered on this manager: add them in the "
                         "Weights tab and pick them in the recipe.")
-    elif data.get("weights_id") not in (None, "") and weight is None:
+    elif data.get("weights_id") not in (None, "") and found and found[0] is None:
         warnings.append(f"Weights id {data['weights_id']} does not exist on this manager: pick the weights again.")
 
     def field(key: str) -> str:
@@ -201,7 +213,7 @@ def recipe_from_file(data: dict[str, Any], registered_weights: Optional[list[dic
             warnings.append(f"The model is not mounted from {{weights}}: add a volume like "
                             f"{WEIGHTS}:{model}:ro.")
 
-    if data.get("weights") and weight is None:
+    if data.get("weights") and weight is None and not multi:
         # The named entry is missing, but the model folder itself is registered: the classic trap is
         # picking that entry instead of the parent folder this recipe needs - the mount would sit one
         # level too deep and the engine would look for the model inside itself.
@@ -221,7 +233,8 @@ def recipe_from_file(data: dict[str, Any], registered_weights: Optional[list[dic
 
     name = str(data.get("name") or "").strip()
     if not name:
-        name = (weight or {}).get("name") or weights_name or model.rstrip("/").rsplit("/", 1)[-1]
+        name = ((weight or {}).get("name") or weights_name or (given_names[0] if given_names else "")
+                or model.rstrip("/").rsplit("/", 1)[-1])
     name = (name or "Imported recipe")[:100]
 
     container_port = _int(data.get("container_port"), "container_port", int(preset["container_port"]))
@@ -257,7 +270,8 @@ def recipe_from_file(data: dict[str, Any], registered_weights: Optional[list[dic
         "color": color,
         "pinned": _bool(data.get("pinned", False)),
         "kind": kind,
-        "weights_id": (weight or {}).get("id"),
+        "weights_id": weights_ids[0] if weights_ids else None,
+        "weights_ids": weights_ids,
     }
     return recipe, warnings
 
@@ -270,12 +284,13 @@ def _normalized(text: Any) -> str:
     return "\n".join(_lines(text))
 
 
-def compact_recipe(recipe: dict[str, Any], weights_name: Optional[str] = None) -> dict[str, Any]:
+def compact_recipe(recipe: dict[str, Any], weights_name: Any = None) -> dict[str, Any]:
     """The recipe as a compact file: everything that differs from its framework preset.
 
-    `weights_name` is the registered entry's name, exported as `weights:` instead of a
-    machine-specific id. The result is lossless for the manager: importing it again gives the
-    same recipe, with omitted fields filled from the preset.
+    `weights_name` is the registered entry's name (or a list of names, for a recipe that mounts several
+    entries - e.g. a model and its drafter), exported as `weights:` instead of machine-specific ids. The
+    result is lossless for the manager: importing it again gives the same recipe, with omitted fields
+    filled from the preset.
     """
     framework = str(recipe.get("framework") or "custom")
     if framework not in FRAMEWORKS:
@@ -284,6 +299,10 @@ def compact_recipe(recipe: dict[str, Any], weights_name: Optional[str] = None) -
     runtime = str(recipe.get("runtime") or preset["runtime"])
     name = str(recipe.get("name") or "Recipe")
     model = str(recipe.get("model") or "")
+    names = [weights_name] if isinstance(weights_name, str) else list(weights_name or [])
+    names = [n for n in names if n]
+    # The single-entry shorthand (implicit {weights} mount, omittable model) only applies to one entry.
+    weights_name = names[0] if len(names) == 1 else None
 
     out: dict[str, Any] = {"name": name}
     if recipe.get("description"):
@@ -319,7 +338,11 @@ def compact_recipe(recipe: dict[str, Any], weights_name: Optional[str] = None) -
     if int(recipe.get("container_port") or 0) != int(preset.get("container_port") or 0):
         out["container_port"] = recipe["container_port"]
 
-    if weights_name:
+    if len(names) > 1:
+        out["weights"] = names
+        if model:
+            out["model"] = model
+    elif weights_name:
         out["weights"] = weights_name
         if model and not omit_model:
             out["model"] = model

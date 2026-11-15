@@ -160,26 +160,71 @@ def substitute(template: str, recipe: dict[str, Any]) -> str:
 
 
 # Stands for the path of the recipe's registered weights on the host it runs on (Weights tab).
+# {weights} is the primary (first selected) entry; {weights:Name} a specific entry by its registered
+# name - so one recipe can mount several entries, e.g. a model and its drafter, each at its own path.
 WEIGHTS = "{weights}"
 WEIGHT_FIELDS = ("model", "volumes", "command", "args", "env")
+WEIGHTS_RE = re.compile(r"\{weights(?::([^{}]*))?\}")
+
+
+def is_weights_ref(value: str) -> bool:
+    """True when a volume's host side is a weights placeholder ({weights} or {weights:Name})."""
+    return bool(WEIGHTS_RE.fullmatch((value or "").strip()))
 
 
 def uses_weights(recipe: dict[str, Any]) -> bool:
-    return any(WEIGHTS in (recipe.get(f) or "") for f in WEIGHT_FIELDS)
+    return any(WEIGHTS_RE.search(recipe.get(f) or "") for f in WEIGHT_FIELDS)
 
 
-def fill_weights(recipe: dict[str, Any], path: Optional[str]) -> dict[str, Any]:
-    """A copy of the recipe with {weights} replaced by this host's path (left as is when there is none).
-    In command/args the path is shell-quoted: those fields are split into words later, so a path with
-    spaces must stay a single token. model/volumes/env take the raw path - model is quoted by substitute,
-    volumes/env are used line by line (quoting them would put literal quotes into the docker -v/-e value)."""
-    if not path or not uses_weights(recipe):
+def weights_refs(recipe: dict[str, Any]) -> list[str]:
+    """The named entries a recipe references as {weights:Name}, in order, de-duplicated. The bare
+    {weights} (the primary) is not a named reference and is not listed."""
+    out: list[str] = []
+    for f in WEIGHT_FIELDS:
+        for m in WEIGHTS_RE.finditer(recipe.get(f) or ""):
+            name = (m.group(1) or "").strip()
+            if name and name not in out:
+                out.append(name)
+    return out
+
+
+def fill_weights(recipe: dict[str, Any], weights: Any) -> dict[str, Any]:
+    """A copy of the recipe with its weights placeholders replaced by this host's paths (left as is
+    when an entry has no path there). `weights` is the recipe's selected entries in order, each a
+    {"name": …, "path": …} dict: the first is the primary that fills {weights}, the rest are matched
+    by name (case-insensitive) for {weights:Name}. A single path string (the primary) or None is also
+    accepted, for the single-weight callers. In command/args the path is shell-quoted: those fields are
+    split into words later, so a path with spaces must stay a single token. model/volumes/env take the
+    raw path - model is quoted by substitute, volumes/env are used line by line (quoting them would put
+    literal quotes into the docker -v/-e value)."""
+    if weights is None:
         return recipe
+    entries = [{"name": None, "path": weights}] if isinstance(weights, str) else list(weights)
+    if not entries or not uses_weights(recipe):
+        return recipe
+    primary = entries[0].get("path") or ""
+    by_name: dict[str, str] = {}
+    for e in entries:
+        nm = (e.get("name") or "").strip().casefold()
+        if nm and nm not in by_name:
+            by_name[nm] = e.get("path") or ""
+
+    def path_for(m: "re.Match") -> str:
+        name = (m.group(1) or "").strip()
+        return by_name.get(name.casefold(), "") if name else primary
+
     out = {**recipe}
     for f in WEIGHT_FIELDS:
         value = recipe.get(f) or ""
-        if WEIGHTS in value:
-            out[f] = value.replace(WEIGHTS, shlex.quote(path) if f in ("command", "args") else path)
+        if not WEIGHTS_RE.search(value):
+            continue
+        quote = f in ("command", "args")
+
+        def repl(m: "re.Match") -> str:
+            p = path_for(m)
+            return (shlex.quote(p) if quote else p) if p else m.group(0)
+
+        out[f] = WEIGHTS_RE.sub(repl, value)
     return out
 
 
@@ -492,8 +537,8 @@ def quick_recipe(base: dict[str, Any], *, name: str, weights: bool, model: str =
     Returns (recipe, notes for the user)."""
     r = {k: base.get(k) for k in ("runtime", "framework", "image", "command", "args", "env", "volumes",
                                   "docker_args", "gpus", "health_path", "container_port")}
-    r.update(name=name, kind="model", model=base.get("model") or "", weights_id=None, est_memory_gb=None,
-             tags=[], color="", pinned=False, description="")
+    r.update(name=name, kind="model", model=base.get("model") or "", weights_id=None, weights_ids=[],
+             est_memory_gb=None, tags=[], color="", pinned=False, description="")
     notes: list[str] = []
     docker = r["runtime"] == "docker"
     mount = model_mount(r["model"], r["volumes"] or "") if docker else None
@@ -535,7 +580,7 @@ def quick_recipe(base: dict[str, Any], *, name: str, weights: bool, model: str =
 COPY_OWN_FIELDS = ("name", "container_name", "host_id", "pinned")
 COPY_SYNC_FIELDS = ("description", "framework", "image", "model", "host_port", "container_port", "command",
                     "args", "env", "volumes", "docker_args", "gpus", "health_path", "est_memory_gb", "tags",
-                    "color", "runtime", "kind", "weights_id")
+                    "color", "runtime", "kind", "weights_id", "weights_ids")
 
 
 def synced_copy(copy: dict[str, Any], original: dict[str, Any]) -> dict[str, Any]:

@@ -1080,7 +1080,7 @@ function metricsSummary(r) {
 // it is mounted from and show that folder's name; the full path stays in the tooltip.
 function modelShown(r) {
   const model = r.model || "";
-  const ids = r.weights_id ? [r.weights_id] : [];
+  const ids = r.weights_ids ?? (r.weights_id ? [r.weights_id] : []);
   const ws = ids.map((id) => state.weights.find((x) => x.id === id)).filter(Boolean);
   if (ws.length) {
     const desc = ws.map((w) => {
@@ -1631,7 +1631,7 @@ async function startBusyLabel(r) {
 // Kept in sync with RecipeIn by tests/test_ui.py.
 const RECIPE_BODY_FIELDS = ["name", "description", "host_id", "runtime", "framework", "image", "model",
   "container_name", "host_port", "container_port", "command", "args", "env", "volumes", "docker_args",
-  "gpus", "health_path", "est_memory_gb", "tags", "color", "kind", "weights_id"];
+  "gpus", "health_path", "est_memory_gb", "tags", "color", "kind", "weights_id", "weights_ids"];
 function recipeBodyFrom(r, overrides = {}) {
   const body = { pinned: !!r.pinned };
   for (const f of RECIPE_BODY_FIELDS) body[f] = r[f];
@@ -2054,17 +2054,20 @@ function recipeFromForm() {
   data.est_memory_gb = data.est_memory_gb === "" ? null : Number(data.est_memory_gb);
   data.host_id = data.host_id ? Number(data.host_id) : null;
   data.tags = (data.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
-  data.weights_id = selectedWeightIds()[0] ?? null;
+  data.weights_ids = selectedWeightIds();
+  data.weights_id = data.weights_ids[0] ?? null;
   return data;
 }
 
-// The weights picker: read/write the selected entry ids (an ordered list, so the first one is primary).
+// The weights multi-select: read/write the ordered list of selected entry ids.
 function selectedWeightIds() {
   return [...$("#sel-weights").selectedOptions].map((o) => Number(o.value)).filter(Boolean);
 }
 function setSelectedWeightIds(ids) {
+  const sel = $("#sel-weights");
+  sel.multiple = true;  // index.html may still ship a single-select: JS enables multi-selection itself
   const want = new Set((ids || []).map(Number));
-  for (const o of $("#sel-weights").options) o.selected = want.has(Number(o.value));
+  for (const o of sel.options) o.selected = want.has(Number(o.value));
 }
 
 function fillRecipeForm(r) {
@@ -2074,10 +2077,10 @@ function fillRecipeForm(r) {
     renderFrameworkOptions(r.runtime, r.framework);
   }
   for (const el of recipeForm.elements) {
-    if (el.name === "weights_id") continue;  // weights picker: set the selection below
+    if (el.name === "weights_ids") continue;  // multi-select: set the selection below
     if (el.name && el.name in r) el.value = Array.isArray(r[el.name]) ? r[el.name].join(", ") : r[el.name] ?? "";
   }
-  setSelectedWeightIds(r.weights_id ? [r.weights_id] : []);
+  setSelectedWeightIds(r.weights_ids ?? (r.weights_id ? [r.weights_id] : []));
   syncRuntime();
   markSwatch();
 }
@@ -2502,6 +2505,7 @@ async function loadWeightsList() {
 
 function renderWeightOptions() {
   const sel = $("#sel-weights");
+  sel.multiple = true;  // the multi-select works even before index.html carries the attribute
   const cur = selectedWeightIds();
   sel.innerHTML = state.weights.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join("");
   setSelectedWeightIds(cur.filter((id) => state.weights.some((w) => w.id === id)));
@@ -2586,7 +2590,7 @@ async function updateWeightsStatus() {
       if (c.state === "present") rows.push(`<span class="ok">✓ ${label}</span> <code>${esc(c.path)}</code>`);
       else if (c.state === "unset") { rows.push(`<span class="bad">✗ ${label}</span> no path on ${host} – ${fix}`); worst = "bad"; }
       else if (c.state === "missing") { rows.push(`<span class="bad">✗ ${label}</span> not at <code>${esc(c.location || c.path)}</code> – copy there or ${fix}`); worst = "bad"; }
-      else { rows.push(`<span class="warn">? ${label}</span> ${host} could not check`); if (worst === "ok") worst = "warn"; }
+      else { rows.push(`<span class="warn">? ${label}</span> ${host} could not check <code>${esc(c.path)}</code>${c.error ? ` (${esc(blurHostText(c.error, hostById(hostId)?.url))})` : ""}`); if (worst === "ok") worst = "warn"; }
     } catch (e) {
       rows.push(`<span class="warn">? ${label}</span> ${esc(e.message)}`); if (worst === "ok") worst = "warn";
     }

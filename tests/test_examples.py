@@ -39,8 +39,10 @@ def recipes() -> dict[str, dict]:
         if f.suffix == ".sh":
             continue
         data = parse_recipe_file(f.read_text())
-        named = [str(data.get("weights") or "")]
-        known = [{"id": i + 1, "name": n, "source": "", "locations": {}} for i, n in enumerate(named) if n]
+        raw = data.get("weights")
+        named = raw if isinstance(raw, list) else [raw]
+        named = [str(n) for n in named if n]
+        known = [{"id": i + 1, "name": n, "source": "", "locations": {}} for i, n in enumerate(named)]
         recipe, warnings = recipe_from_file(data, known)
         recipe["_warnings"] = warnings
         out[f.name] = recipe
@@ -127,8 +129,8 @@ def test_no_other_example_sits_on_the_family_port():
 def test_a_model_named_by_weights_is_mounted_from_it():
     """`weights:` with a model outside the {weights} mount starts a container without its model."""
     for name, recipe in recipes().items():
-        if not recipe.get("weights_id"):
-            continue
+        if not recipe.get("weights_id") or len(recipe.get("weights_ids") or []) > 1:
+            continue  # several entries: covered by the named-mount test below
         model = str(recipe.get("model") or "")
         if not model.startswith("/"):  # native: {weights} is the model argument itself
             assert "{weights}" in model, f"{name}: native model {model!r} does not come from {{weights}}"
@@ -137,6 +139,21 @@ def test_a_model_named_by_weights_is_mounted_from_it():
                    if line.startswith("{weights}")]
         assert any(model == t.rstrip("/") or model.startswith(t.rstrip("/") + "/") for t in targets), \
             f"{name}: model {model!r} is not inside a {{weights}} mount ({targets})"
+
+
+def test_a_model_named_by_named_weights_is_mounted_from_it():
+    """The multi-weights version: the model sits inside a {weights:Name} mount of a selected entry."""
+    for name, recipe in recipes().items():
+        if len(recipe.get("weights_ids") or []) < 2:
+            continue
+        model = str(recipe.get("model") or "")
+        if not model.startswith("/"):
+            continue
+        # The host side {weights:Name} itself contains a colon: the container path starts at ":/".
+        targets = [line[line.index(":/") + 1:].split(":")[0] for line in lines_of(recipe, "volumes")
+                   if line.startswith("{weights:") and ":/" in line]
+        assert any(model == t.rstrip("/") or model.startswith(t.rstrip("/") + "/") for t in targets), \
+            f"{name}: model {model!r} is not inside a {{weights:Name}} mount ({targets})"
 
 
 def test_starter_scripts_in_the_folder_keep_every_important_line():
