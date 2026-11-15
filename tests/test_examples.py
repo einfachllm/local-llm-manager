@@ -204,14 +204,17 @@ def test_starter_scripts_really_import_into_valid_recipes():
 
 @pytest.mark.parametrize("name", ["qwen38-dflash.yaml", "qwen38-sglang.yaml", "qwen38-tensorfold.yaml"])
 def test_a_drafter_travels_with_its_model_instead_of_a_machines_home(name):
-    """Model and drafter come from one registered entry, so no example may name a user's home directory.
+    """The drafter is mounted from registered weights next to its model, never from a user's home
+    directory. Registered weights means a `{weights}` or `{weights:Name}` placeholder: an entry may
+    bring the drafter as its own row, so the mounts are not necessarily one shared folder.
     The TensorFold binary has no placeholder of its own: `/home/YOU/...` is the one path a user edits."""
     recipe = recipes()[name]
     text = " ".join(str(recipe.get(field) or "") for field in ("model", "args", "volumes", "command"))
     assert "/home/" not in text.replace("/home/YOU/", ""), f"{name} hardcodes one machine's home directory"
     assert "~/models" not in text, f"{name} names a model folder instead of the registered {{weights}}"
-    if recipe["runtime"] == "docker":  # model and drafter ride in one mount
-        assert any(l.startswith("{weights}") for l in lines_of(recipe, "volumes")), f"{name} mounts nothing from {{weights}}"
+    if recipe["runtime"] == "docker":  # model and drafter ride in registered-weights mounts
+        assert any(l.startswith("{weights}") or l.startswith("{weights:")
+                   for l in lines_of(recipe, "volumes")), f"{name} mounts nothing from registered weights"
     else:  # a native process gets the paths as arguments
         assert "{weights}" in str(recipe.get("model")), f"{name}: the model does not come from {{weights}}"
         assert "{weights}" in str(recipe.get("args")), f"{name}: the drafter is not under {{weights}}"
