@@ -4,6 +4,7 @@ __pycache__/
 data/
 .env
 .pytest_cache/
+*.log
 
 # Packaging and tooling
 build/
