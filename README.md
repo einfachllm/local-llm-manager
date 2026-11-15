@@ -65,6 +65,37 @@ silicon, or any Linux box - from any browser on your network:
 Model weights and Docker images must be on the machine that runs them. The manager can pull images and
 download / copy weights for you (Images and Weights tabs), or you put them there yourself.
 
+## Latest version changelog
+
+### Version 0.3.0
+
+- **Health findings:** the hub checks every host and names problems where you look anyway - a chip on the
+  recipe card (with the log line that shows why, and what usually helps), the Hosts graph, a ⚠/✖ count in
+  the top bar and an activity entry. Rules include a host that stopped answering, memory almost full, a hot
+  GPU, a KV cache that makes requests wait, and a failed or unusually slow start. Mute one for 24 h.
+- **Recipes by engine:** group by **Engine** (vLLM, SGLang, TensorFold, llama.cpp, MLX, Custom) or
+  **Host → Engine**, with engine and host filter chips and one badge colour per engine.
+- **Jobs survive a hub restart:** pull, download, copy and restart jobs are stored, and unfinished ones are
+  picked up again; copies resume from their `.part` files.
+- **Schedules across DST:** schedule times are the hub's wall clock everywhere and DST transitions are
+  handled - a repeated autumn time fires once, a missing spring time runs at the transition.
+- **Runs on any host:** the base Compose file no longer insists on NVIDIA or Tailscale (both are override
+  files), and the installers refuse `sudo`.
+- **In the UI:** install to the home screen, the hub's version in the sidebar, a connection-state badge,
+  and a Content-Security-Policy without inline scripts.
+
+### Version 0.2.0
+
+- **Recipes across the engines:** vLLM, SGLang, llama.cpp (Docker or native), MLX and TensorFold presets,
+  plus any image or binary as *Custom*; add one by pasting YAML or a start script / `docker run`.
+- **Weights management:** one model × host table that finds weights on every host by itself; download from
+  Hugging Face once, then copy machine to machine (SHA-256 checked, resumable).
+- **Hub and agents:** connect each machine with a token, or let it ask to join and approve matching join
+  codes; the Hosts graph maps the fleet with memory, GPU, temperatures and running models.
+- **Ports & endpoints:** live tokens/s, requests and KV-cache use for every running model.
+
+Full history: [CHANGELOG.md](./CHANGELOG.md)
+
 ## Use cases
 
 Who it is for:
