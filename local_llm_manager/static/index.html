@@ -43,49 +43,58 @@
 
       <main>
     <section id="tab-recipes" class="panel">
-      <div class="panel-head">
-        <h2>Recipes</h2>
-        <div class="sched-actions">
-          <button class="btn primary" id="btn-add-recipe" title="Paste a YAML recipe or a shell script (shortcut: i)">＋ Add recipe</button>
+      <div id="host-strip" class="host-strip" aria-label="Host health"></div>
+      <div class="dash-toolbar">
+        <div class="dash-search">
+          <span class="dash-search-ico" aria-hidden="true">⌕</span>
+          <input id="recipe-search" type="search" placeholder="Search name, model, engine, tag…" autocomplete="off">
+          <span class="key-hint" aria-hidden="true">/</span>
         </div>
+        <div class="seg kind-filter" id="recipe-kind" role="group" aria-label="Show">
+          <button type="button" data-kind="">All</button>
+          <button type="button" data-kind="model">🧠 Models</button>
+          <button type="button" data-kind="agent">🤖 Agents</button>
+        </div>
+        <div class="chips" id="status-filter" role="group" aria-label="Status"></div>
+        <select id="recipe-group" class="dash-select" aria-label="Group recipes">
+          <option value="">Group: none</option>
+          <option value="host">Group: host</option>
+          <option value="engine">Group: engine</option>
+          <option value="host-engine">Group: host → engine</option>
+          <option value="tag">Group: tag</option>
+        </select>
+        <select id="recipe-sort" class="dash-select" aria-label="Sort recipes">
+          <option value="name">Sort: name</option>
+          <option value="status">Sort: status</option>
+          <option value="port">Sort: port</option>
+          <option value="updated">Sort: edited</option>
+          <option value="vram">Sort: VRAM</option>
+          <option value="boot">Sort: boot time</option>
+          <option value="manual">Sort: custom (drag)</option>
+        </select>
+        <div class="seg" id="layout-seg" role="group" aria-label="Layout">
+          <button type="button" data-layout="cards" title="Card view">▦</button>
+          <button type="button" data-layout="list" title="List view">☰</button>
+        </div>
+        <button type="button" class="btn ghost small" id="btn-filters" aria-expanded="false" title="Host, engine and tag filters">⚲ Filters<span id="filter-count" class="filter-count hidden"></span></button>
+        <button type="button" class="btn ghost small" id="btn-save-view" title="Save the current search, filters and layout as a named view">☆ Save view</button>
+        <button class="btn primary" id="btn-add-recipe" title="Paste a YAML recipe or a shell script (shortcut: i)">＋ Add recipe</button>
       </div>
-      <div class="recipes-layout">
-        <div class="recipes-main">
-          <div class="pinned-section hidden">
-            <div class="pinned-head"><span class="pinned-icon">★</span> <span>Pinned (always on top)</span></div>
-            <div id="pinned-list"></div>
-          </div>
-          <div id="recipes"></div>
+      <div id="filter-pop" class="filter-pop hidden">
+        <div class="filter-pop-block" id="host-filter-block"><div class="rail-label">Host</div><div class="tag-filter" id="host-filter"></div></div>
+        <div class="filter-pop-block" id="engine-filter-block"><div class="rail-label">Engine</div><div class="tag-filter" id="engine-filter"></div></div>
+        <div class="filter-pop-block"><div class="rail-label">Tags</div><div class="tag-filter" id="tag-filter"></div></div>
+      </div>
+      <div id="saved-views" class="saved-views"></div>
+      <div id="bulk-bar" class="bulk-bar hidden"></div>
+      <div class="recipes-main">
+        <div class="pinned-section hidden">
+          <div class="pinned-head"><span class="pinned-icon">★</span> <span>Pinned (always on top)</span></div>
+          <div id="pinned-list"></div>
         </div>
-        <aside class="filter-rail" aria-label="Recipe filters">
-          <div class="toolbar">
-            <div class="seg kind-filter" id="recipe-kind" role="group" aria-label="Show">
-              <button type="button" data-kind="">All</button>
-              <button type="button" data-kind="model">🧠 Models</button>
-              <button type="button" data-kind="agent">🤖 Agents</button>
-            </div>
-            <input id="recipe-search" type="search" placeholder="Search name, model, host, image, tag…">
-          </div>
-          <div class="rail-label">Group</div>
-          <div class="tag-filter" id="recipe-group" role="group" aria-label="Group">
-            <button class="chip" data-group="">None</button>
-            <button class="chip" data-group="host">Host</button>
-            <button class="chip" data-group="engine">Engine</button>
-            <button class="chip" data-group="host-engine" title="Each host, its engines underneath">Host → Engine</button>
-            <button class="chip" data-group="tag" title="By each recipe's first tag">Tag</button>
-          </div>
-          <div class="rail-label">Sort</div>
-          <div class="tag-filter" id="recipe-sort" role="group" aria-label="Sort">
-            <button class="chip" data-sort="name">Name</button>
-            <button class="chip" data-sort="status" title="Running first">Status</button>
-            <button class="chip" data-sort="port">Port</button>
-            <button class="chip" data-sort="updated" title="Last edited first">Edited</button>
-          </div>
-          <div class="rail-block"><div class="rail-label">Host</div><div class="tag-filter" id="host-filter"></div></div>
-          <div class="rail-block"><div class="rail-label">Engine</div><div class="tag-filter" id="engine-filter"></div></div>
-          <div class="rail-label">Tags</div>
-          <div class="tag-filter" id="tag-filter"></div>
-        </aside>
+        <div id="serving-sec"></div>
+        <div id="recipes"></div>
+        <div id="dash-activity" class="dash-activity"></div>
       </div>
     </section>
 
@@ -487,6 +496,20 @@
         <button type="submit" class="btn primary">Save</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Recipe detail drawer (dashboard redesign) -->
+  <div class="drawer-scrim hidden" id="drawer-scrim"></div>
+  <aside class="drawer" id="drawer" aria-label="Recipe details"></aside>
+
+  <!-- Switch preview: what stops, what it frees, how long the boot takes, whether the endpoint stays -->
+  <dialog id="dlg-switch" class="dialog" aria-labelledby="switch-title">
+    <div class="dialog-head"><h3 id="switch-title">Switch</h3><button type="button" class="x" data-close>&times;</button></div>
+    <div class="switch-body" id="switch-body"></div>
+    <div class="dialog-foot">
+      <button type="button" class="btn ghost" data-close>Cancel</button>
+      <button type="button" class="btn primary" id="btn-switch-go">⇄ Switch now</button>
+    </div>
   </dialog>
 
   <datalist id="tag-list"></datalist>
