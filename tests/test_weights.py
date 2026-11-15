@@ -305,3 +305,102 @@ def test_a_symlinked_shard_does_not_double_the_weights_size(tmp_path):
 
     assert executor._size_gb(str(folder)) == 0.5
     assert [f["size_gb"] for f in executor.scan_weight_dirs([str(tmp_path / "models")])] == [0.5]
+
+
+# ---- several weights entries in one recipe (a model and its drafter) -----------------------------
+
+
+def test_two_weights_entries_mount_at_their_own_paths(client, fake_docker, tmp_path):
+    """The Nemotron case: model and drafter registered as two rows, each mounted where the engine reads
+    it - no shared parent folder needed, and the recipe stays portable."""
+    local = client.get("/api/hosts").json()[0]["id"]
+    model_dir, drafter_dir = tmp_path / "Nemotron-VL", tmp_path / "Nemotron-VL-LiLiCorr"
+    model_dir.mkdir()
+    drafter_dir.mkdir()
+    m = weight(client, name="Nemotron-VL", **{str(local): str(model_dir)})
+    d = weight(client, name="Nemotron-VL-LiLiCorr", **{str(local): str(drafter_dir)})
+    vols = ("{weights:Nemotron-VL}:/models/Nemotron-VL:ro\n"
+            "{weights:Nemotron-VL-LiLiCorr}:/models/Nemotron-VL-LiLiCorr:ro")
+    body = recipe_body(model="/models/Nemotron-VL", volumes=vols, weights_ids=[m["id"], d["id"]],
+                       args="--speculative-config '{\"method\":\"dflash\",\"model\":\"{weights:Nemotron-VL-LiLiCorr}\"}'")
+    r = client.post("/api/recipes", json=body).json()
+    assert r["weights_ids"] == [m["id"], d["id"]] and r["weights_id"] == m["id"]
+
+    cmd = client.post("/api/recipes/preview", json=body).json()["command"]
+    assert f"{model_dir}:/models/Nemotron-VL:ro" in cmd
+    assert f"{drafter_dir}:/models/Nemotron-VL-LiLiCorr:ro" in cmd
+    assert "{weights" not in cmd
+
+    assert client.post(f"/api/recipes/{r['id']}/start").status_code == 200
+    run = fake_docker.calls[-1]
+    assert f"{model_dir}:/models/Nemotron-VL:ro" in run
+    assert f"{drafter_dir}:/models/Nemotron-VL-LiLiCorr:ro" in run
+    # The drafter path inside the speculative-config JSON is filled too (it sits within one argv token).
+    run_text = " ".join(run)
+    assert str(drafter_dir) in run_text and "{weights" not in run_text
+
+
+def test_primary_weights_placeholder_is_the_first_selected(client, tmp_path):
+    local = client.get("/api/hosts").json()[0]["id"]
+    a = weight(client, name="A", **{str(local): str(tmp_path / "a")})
+    b = weight(client, name="B", **{str(local): str(tmp_path / "b")})
+    body = recipe_body(model="/model", volumes="{weights}:/model:ro\n{weights:B}:/drafter:ro",
+                       weights_ids=[a["id"], b["id"]])
+    cmd = client.post("/api/recipes/preview", json=body).json()["command"]
+    assert f"{tmp_path / 'a'}:/model:ro" in cmd and f"{tmp_path / 'b'}:/drafter:ro" in cmd
+
+
+def test_start_refuses_when_one_of_several_weights_is_missing(client, fake_docker, tmp_path):
+    local = client.get("/api/hosts").json()[0]["id"]
+    model_dir = tmp_path / "Model"
+    model_dir.mkdir()
+    m = weight(client, name="Model", **{str(local): str(model_dir)})
+    d = weight(client, name="Drafter", **{str(local): str(tmp_path / "absent")})  # not on disk
+    body = recipe_body(model="/models/Model",
+                       volumes="{weights:Model}:/models/Model:ro\n{weights:Drafter}:/models/Drafter:ro",
+                       weights_ids=[m["id"], d["id"]])
+    r = client.post("/api/recipes", json=body).json()
+    res = client.post(f"/api/recipes/{r['id']}/start")
+    assert res.status_code == 409, res.text
+    assert "Drafter" in res.json()["detail"] and "not found" in res.json()["detail"]
+    assert not fake_docker.calls
+
+
+def test_start_refuses_a_named_placeholder_that_is_not_selected(client, fake_docker, tmp_path):
+    local = client.get("/api/hosts").json()[0]["id"]
+    m = weight(client, name="Model", **{str(local): str(tmp_path)})
+    body = recipe_body(model="/model", volumes="{weights}:/model:ro\n{weights:Other}:/other:ro",
+                       weights_ids=[m["id"]])
+    r = client.post("/api/recipes", json=body).json()
+    res = client.post(f"/api/recipes/{r['id']}/start")
+    assert res.status_code == 409, res.text
+    assert "Other" in res.json()["detail"] and "not among its selected" in res.json()["detail"]
+    assert not fake_docker.calls
+
+
+def test_weights_list_counts_every_recipe_that_selects_an_entry(client, tmp_path):
+    local = client.get("/api/hosts").json()[0]["id"]
+    m = weight(client, name="Model", **{str(local): str(tmp_path / "m")})
+    d = weight(client, name="Drafter", **{str(local): str(tmp_path / "d")})
+    r = client.post("/api/recipes", json=recipe_body(model="/model", volumes="{weights:Model}:/model:ro",
+                                                     weights_ids=[m["id"], d["id"]])).json()
+    by_id = {w["id"]: w for w in client.get("/api/weights?check=false").json()["weights"]}
+    assert by_id[m["id"]]["recipe_ids"] == [r["id"]]
+    assert by_id[d["id"]]["recipe_ids"] == [r["id"]]  # the drafter is a non-primary selection
+
+
+def test_import_and_export_a_two_weights_recipe(client, tmp_path):
+    local = client.get("/api/hosts").json()[0]["id"]
+    m = weight(client, name="Model", **{str(local): str(tmp_path / "m")})
+    d = weight(client, name="Drafter", **{str(local): str(tmp_path / "d")})
+    text = ("name: nemotron\nframework: vllm\nweights:\n  - Model\n  - Drafter\n"
+            "model: /models/Model\nvolumes: |-\n"
+            "  {weights:Model}:/models/Model:ro\n  {weights:Drafter}:/models/Drafter:ro\n")
+    draft = client.post("/api/recipes/import", json={"text": text}).json()
+    assert draft["warnings"] == []
+    assert draft["recipe"]["weights_ids"] == [m["id"], d["id"]]
+    # Export round-trips the list of names.
+    exported = client.post("/api/recipes/export", json={**draft["recipe"], "host_port": 8100}).text
+    assert "- Model" in exported and "- Drafter" in exported
+    again = client.post("/api/recipes/import", json={"text": exported}).json()
+    assert again["recipe"]["weights_ids"] == [m["id"], d["id"]]

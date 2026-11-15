@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     pinned          INTEGER NOT NULL DEFAULT 0,
     kind            TEXT NOT NULL DEFAULT 'model',
     weights_id      INTEGER,
+    weights_ids     TEXT NOT NULL DEFAULT '[]',
     copy_of         INTEGER,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
@@ -132,12 +133,13 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 # Stored in SQLite's user_version pragma so a future migration pass can tell which databases
 # already have the current layout. Bump when the schema (not just a column) changes.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 RECIPE_FIELDS = (
     "name", "description", "framework", "image", "model", "container_name", "host_port",
     "container_port", "command", "args", "env", "volumes", "docker_args", "gpus",
-    "health_path", "est_memory_gb", "tags", "color", "runtime", "host_id", "pinned", "kind", "weights_id",
+    "health_path", "est_memory_gb", "tags", "color", "runtime", "host_id", "pinned", "kind",
+    "weights_id", "weights_ids",
 )
 
 # Columns added after the first release, created on existing databases at startup.
@@ -154,6 +156,9 @@ MIGRATIONS = {
     ("recipes", "kind"): "ALTER TABLE recipes ADD COLUMN kind TEXT NOT NULL DEFAULT 'model'",
     # Registered weights (Weights tab) whose per-host path fills {weights}; NULL = none.
     ("recipes", "weights_id"): "ALTER TABLE recipes ADD COLUMN weights_id INTEGER",
+    # All selected weights, ordered (JSON list of ids): the first fills {weights}, the rest are
+    # referenced by name as {weights:Name} - e.g. a model and its drafter as two entries.
+    ("recipes", "weights_ids"): "ALTER TABLE recipes ADD COLUMN weights_ids TEXT NOT NULL DEFAULT '[]'",
     # The recipe this one is a copy of on another host ("Copy to hosts"); NULL = an original. Not in
     # RECIPE_FIELDS: editing a copy keeps the link, set_copy_of() changes it.
     ("recipes", "copy_of"): "ALTER TABLE recipes ADD COLUMN copy_of INTEGER",
@@ -217,6 +222,26 @@ RECIPE_DEFAULTS = {
 }
 
 
+def weights_ids_of(data: dict[str, Any]) -> list[int]:
+    """The ordered weights ids of a recipe input: an explicit `weights_ids` list wins, otherwise the
+    single `weights_id` (older callers). De-duplicated, falsy/non-numeric entries dropped, order kept -
+    the first is the primary that fills {weights}, the rest are named {weights:Name} references."""
+    ids = data.get("weights_ids")
+    if ids is None:
+        ids = [data.get("weights_id")]
+    out: list[int] = []
+    seen: set[int] = set()
+    for x in ids or []:
+        try:
+            x = int(x)
+        except (TypeError, ValueError):
+            continue
+        if x and x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
 def _recipe_values(data: dict[str, Any]) -> tuple:
     # Tags are stored as a comma-separated string and exposed as a list.
     def value(field: str) -> Any:
@@ -225,9 +250,12 @@ def _recipe_values(data: dict[str, Any]) -> tuple:
             return RECIPE_DEFAULTS[field]
         return v
 
+    ids = weights_ids_of(data)
     return tuple(
         (1 if value("pinned") else 0) if f == "pinned"
         else ",".join(normalize_tags(value(f))) if f == "tags"
+        else json.dumps(ids) if f == "weights_ids"
+        else (ids[0] if ids else None) if f == "weights_id"
         else value(f)
         for f in RECIPE_FIELDS
     )
@@ -236,6 +264,17 @@ def _recipe_values(data: dict[str, Any]) -> tuple:
 def _recipe_out(row: dict, local_host_id: int) -> dict:
     row["tags"] = normalize_tags(row.get("tags"))
     row["host_id"] = row.get("host_id") or local_host_id
+    # weights_ids is authoritative; keep weights_id (the primary) in sync for the many single-weight
+    # readers. An old row may only have weights_id set - derive the list from it.
+    try:
+        ids = [int(x) for x in json.loads(row.get("weights_ids") or "[]")]
+    except (TypeError, ValueError, json.JSONDecodeError):
+        ids = []
+    ids = [x for x in ids if x]
+    if not ids and row.get("weights_id"):
+        ids = [int(row["weights_id"])]
+    row["weights_ids"] = ids
+    row["weights_id"] = ids[0] if ids else None
     return row
 
 
@@ -260,6 +299,11 @@ class Database:
                 existing = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
                 if column not in existing:
                     self._conn.execute(sql)
+            # Recipes from before multi-weights only have weights_id: carry it into weights_ids.
+            for r in self._conn.execute("SELECT id, weights_id FROM recipes "
+                                        "WHERE weights_id IS NOT NULL AND (weights_ids IS NULL OR weights_ids = '[]')"):
+                self._conn.execute("UPDATE recipes SET weights_ids = ? WHERE id = ?",
+                                   (json.dumps([r["weights_id"]]), r["id"]))
             # One row per model whatever the case: UNIQUE on the column is case-sensitive, so
             # "qwen3.8" could sit next to "Qwen3.8" - and list_weights sorts NOCASE, which puts the
             # two right beside each other. Skipped (with the old rows left alone) when a database
@@ -483,10 +527,10 @@ class Database:
         """Every registered weights entry with `locations` {host_id: path} and the ids of the recipes using it."""
         weights = self._query("SELECT * FROM weights ORDER BY name COLLATE NOCASE")
         locs = self._query("SELECT * FROM weight_locations")
-        users = self._query("SELECT id, weights_id FROM recipes WHERE weights_id IS NOT NULL")
+        users = self._query("SELECT id, weights_id, weights_ids FROM recipes")
         for w in weights:
             w["locations"] = {l["host_id"]: l["path"] for l in locs if l["weight_id"] == w["id"]}
-            w["recipe_ids"] = [r["id"] for r in users if r["weights_id"] == w["id"]]
+            w["recipe_ids"] = [r["id"] for r in users if w["id"] in weights_ids_of(r)]
         return weights
 
     def get_weight(self, weight_id: int) -> Optional[dict]:

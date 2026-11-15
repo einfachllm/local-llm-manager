@@ -34,6 +34,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The concept, rendered views and a 36-check live verification script live in `ux-redesign/`.
 
 ### Added
+- **A recipe can use several weights entries - a model and its drafter as two rows.** Select more than one
+  entry in the recipe editor (or a list under `weights:` in a recipe file): the first fills `{weights}`, every
+  other is referenced by name as `{weights:Name}` and mounted wherever the engine reads it. Each entry keeps
+  its own per-host path, so the recipe stays portable, and a start checks every selected entry (a missing
+  drafter is refused with its name). The `nemotron-3.5-super-vl.yaml` example now uses it; the single
+  parent-folder approach (e.g. `qwen38-dflash.yaml`) still works. Existing recipes are migrated automatically.
 - **LM Studio libraries show up in the Weights tab.** Every host also scans LM Studio's model library
   (`~/.lmstudio/models`, or its older `~/.cache/lm-studio/models`) when it exists: GGUFs appear per file
   (one entry per quantization, ready to mount into a llama.cpp recipe), MLX model folders as folders.

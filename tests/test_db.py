@@ -151,7 +151,26 @@ def test_db_path_default_is_cwd_relative(monkeypatch, tmp_path):
 
 def test_schema_version_is_recorded(tmp_path):
     db = Database(tmp_path / "m.db")
-    assert db._conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 1
+    assert db._conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 2
+
+
+def test_weights_ids_backfilled_from_weights_id_on_open(tmp_path):
+    """A database from before multi-weights only has weights_id: opening it carries that into
+    weights_ids, and reads keep weights_id (the primary) in sync with the list."""
+    path = tmp_path / "m.db"
+    db = Database(path)
+    rid = db.create_recipe({"name": "x", "container_name": "x", "framework": "vllm", "image": "i",
+                            "host_port": 8000, "container_port": 8000, "weights_id": 7})
+    # Simulate an old row: only weights_id set, weights_ids still the empty default.
+    db._conn.execute("UPDATE recipes SET weights_ids = '[]' WHERE id = ?", (rid,))
+    db._conn.commit()
+    db2 = Database(path)  # re-open runs the backfill
+    r = db2.get_recipe(rid)
+    assert r["weights_ids"] == [7] and r["weights_id"] == 7
+    # An explicit multi-selection round-trips and keeps the primary as the first id.
+    db2.update_recipe(rid, {**r, "weights_ids": [3, 7]})
+    r = db2.get_recipe(rid)
+    assert r["weights_ids"] == [3, 7] and r["weights_id"] == 3
 
 
 def test_ping_and_counts(tmp_path):

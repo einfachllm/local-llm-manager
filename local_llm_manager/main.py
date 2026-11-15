@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from . import __version__, config, system
-from .db import Database, WeightExists, canon_weight_path, normalize_tags
+from .db import Database, WeightExists, canon_weight_path, normalize_tags, weights_ids_of
 from .docker import Docker
 from .importer import ScriptImportError, import_script
 from .recipefile import RecipeFileError, compact_recipe, dump_recipe_file, parse_recipe_file, recipe_from_file
@@ -71,7 +71,23 @@ class RecipeIn(BaseModel):
     color: str = ""
     pinned: bool = False
     kind: str = "model"
-    weights_id: Optional[int] = None  # a registered weights entry; its per-host path fills {weights}
+    weights_id: Optional[int] = None  # the primary registered weights entry; its path fills {weights}
+    weights_ids: Optional[list[int]] = None  # all selected entries, ordered; the rest fill {weights:Name}
+
+    @model_validator(mode="after")
+    def normalize_weights(self):
+        # weights_ids is canonical; keep weights_id (the primary) in sync. Older callers send only
+        # weights_id. An explicit empty list clears the selection.
+        if self.weights_ids is None:
+            self.weights_ids = [self.weights_id] if self.weights_id else []
+        ids, seen = [], set()
+        for x in self.weights_ids:
+            if x and x not in seen:
+                seen.add(x)
+                ids.append(x)
+        self.weights_ids = ids
+        self.weights_id = ids[0] if ids else None
+        return self
 
     @field_validator("kind")
     @classmethod
@@ -863,8 +879,9 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
     def recipe_data(body: RecipeIn) -> dict:
         data = body.model_dump()
         data["host_id"] = get_host_or_404(body.host_id)["id"] if body.host_id else db.local_host_id()
-        if body.weights_id is not None and not db.get_weight(body.weights_id):
-            raise HTTPException(422, "The selected weights do not exist (any more)")
+        for wid in body.weights_ids or []:
+            if not db.get_weight(wid):
+                raise HTTPException(422, "The selected weights do not exist (any more)")
         return data
 
     @app.post("/api/recipes", status_code=201)
@@ -886,7 +903,7 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             # The running container/process keeps the settings it was started with: changing them
             # here would silently diverge from what runs. Metadata stays editable.
             for field in ("host_port", "container_port", "command", "args", "image", "env", "volumes",
-                          "docker_args", "gpus", "model", "weights_id", "framework", "runtime"):
+                          "docker_args", "gpus", "model", "weights_id", "weights_ids", "framework", "runtime"):
                 if old.get(field) != data.get(field):
                     raise HTTPException(409, f"Stop the model before changing {field} "
                                              "(the running container keeps the old settings)")
@@ -1134,6 +1151,7 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
             else:
                 weight = db.get_weight(db.create_weight(wname, "", {host_id: path}))
         data["weights_id"] = weight["id"] if weight else None
+        data["weights_ids"] = [weight["id"]] if weight else []
         return {"recipe": db.get_recipe(db.create_recipe(data)), "command": command, "notes": notes}
 
     @app.post("/api/recipes/preview")
@@ -1141,9 +1159,15 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
         recipe = body.model_dump()
         if recipe_id is not None:
             recipe["id"] = recipe_id  # an edited recipe's label, as `start` would set it
-        # {weights} as it would be filled on the recipe's host (still shown as {weights} when unset there).
+        # {weights} / {weights:Name} as they would be filled on the recipe's host (still shown as the
+        # placeholder when an entry has no path there).
         host_id = body.host_id or db.local_host_id()
-        recipe = fill_weights(recipe, db.weight_path(body.weights_id, host_id))
+        entries = []
+        for wid in body.weights_ids or []:
+            w = db.get_weight(wid)
+            if w:
+                entries.append({"name": w["name"], "path": db.weight_path(wid, host_id) or ""})
+        recipe = fill_weights(recipe, entries)
         # The preview shows what a start would run - including its refusals (CORE-06, UI-08).
         try:
             check_placeholders(recipe)
@@ -1204,8 +1228,8 @@ def create_app(db: Optional[Database] = None, docker: Optional[Docker] = None,
 
     def export_text(recipe: dict[str, Any], fmt: str) -> str:
         try:
-            weight = db.get_weight(recipe.get("weights_id"))
-            data = compact_recipe(recipe, weight["name"] if weight else None)
+            names = [w["name"] for w in (db.get_weight(wid) for wid in weights_ids_of(recipe)) if w]
+            data = compact_recipe(recipe, names)
             return dump_recipe_file(data, fmt)
         except RecipeFileError as e:
             raise HTTPException(422, str(e))

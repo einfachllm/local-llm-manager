@@ -1631,7 +1631,7 @@ async function startBusyLabel(r) {
 // Kept in sync with RecipeIn by tests/test_ui.py.
 const RECIPE_BODY_FIELDS = ["name", "description", "host_id", "runtime", "framework", "image", "model",
   "container_name", "host_port", "container_port", "command", "args", "env", "volumes", "docker_args",
-  "gpus", "health_path", "est_memory_gb", "tags", "color", "kind", "weights_id"];
+  "gpus", "health_path", "est_memory_gb", "tags", "color", "kind", "weights_id", "weights_ids"];
 function recipeBodyFrom(r, overrides = {}) {
   const body = { pinned: !!r.pinned };
   for (const f of RECIPE_BODY_FIELDS) body[f] = r[f];

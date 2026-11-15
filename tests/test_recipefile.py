@@ -208,7 +208,9 @@ def test_published_yaml_examples_are_valid_recipe_files():
     for path in files:
         data = parse_recipe_file(path.read_text())
         assert data is not None, path.name
-        weights = [{"id": 1, "name": data["weights"]}] if data.get("weights") else []
+        raw = data.get("weights")
+        named = raw if isinstance(raw, list) else [raw]
+        weights = [{"id": i + 1, "name": n} for i, n in enumerate(named) if n]
         recipe, warnings = recipe_from_file(data, weights)
         assert warnings == [], path.name
         assert recipe["framework"] in FRAMEWORKS
