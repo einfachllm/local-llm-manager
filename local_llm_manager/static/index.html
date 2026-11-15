@@ -274,8 +274,9 @@
         </div>
         <label class="span2 docker-only">Docker image<input name="image"><small id="image-status" class="port-hint"></small></label>
         <label class="span2">Model <small id="model-hint">HF id or path inside the container</small><input name="model" placeholder="org/model-name"></label>
-        <label class="span2">Weights <small>registered in the Weights tab; their path on this recipe's host fills <code>{weights}</code></small>
-          <select name="weights_id" id="sel-weights"></select>
+        <label class="span2">Weights <small>registered in the Weights tab; their path on this recipe's host fills <code>{weights}</code>.
+          Select several (Ctrl/Cmd-click) to mount a model and its drafter as separate entries – the first fills <code>{weights}</code>, the others <code>{weights:Name}</code>.</small>
+          <select name="weights_ids" id="sel-weights" multiple size="4"></select>
           <small id="weights-status" class="port-hint"></small></label>
         <label><span id="name-label">Container name</span><input name="container_name" placeholder="derived from name"></label>
         <label class="docker-only">GPUs (--gpus)<input name="gpus" placeholder="all"></label>
