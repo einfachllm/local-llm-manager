@@ -2064,8 +2064,10 @@ function selectedWeightIds() {
   return [...$("#sel-weights").selectedOptions].map((o) => Number(o.value)).filter(Boolean);
 }
 function setSelectedWeightIds(ids) {
+  const sel = $("#sel-weights");
+  sel.multiple = true;  // index.html may still ship a single-select: JS enables multi-selection itself
   const want = new Set((ids || []).map(Number));
-  for (const o of $("#sel-weights").options) o.selected = want.has(Number(o.value));
+  for (const o of sel.options) o.selected = want.has(Number(o.value));
 }
 
 function fillRecipeForm(r) {
@@ -2503,6 +2505,7 @@ async function loadWeightsList() {
 
 function renderWeightOptions() {
   const sel = $("#sel-weights");
+  sel.multiple = true;  // the multi-select works even before index.html carries the attribute
   const cur = selectedWeightIds();
   sel.innerHTML = state.weights.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join("");
   setSelectedWeightIds(cur.filter((id) => state.weights.some((w) => w.id === id)));
@@ -2587,7 +2590,7 @@ async function updateWeightsStatus() {
       if (c.state === "present") rows.push(`<span class="ok">✓ ${label}</span> <code>${esc(c.path)}</code>`);
       else if (c.state === "unset") { rows.push(`<span class="bad">✗ ${label}</span> no path on ${host} – ${fix}`); worst = "bad"; }
       else if (c.state === "missing") { rows.push(`<span class="bad">✗ ${label}</span> not at <code>${esc(c.location || c.path)}</code> – copy there or ${fix}`); worst = "bad"; }
-      else { rows.push(`<span class="warn">? ${label}</span> ${host} could not check`); if (worst === "ok") worst = "warn"; }
+      else { rows.push(`<span class="warn">? ${label}</span> ${host} could not check <code>${esc(c.path)}</code>${c.error ? ` (${esc(blurHostText(c.error, hostById(hostId)?.url))})` : ""}`); if (worst === "ok") worst = "warn"; }
     } catch (e) {
       rows.push(`<span class="warn">? ${label}</span> ${esc(e.message)}`); if (worst === "ok") worst = "warn";
     }

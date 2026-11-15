@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from local_llm_manager.db import Database, SCHEMA_VERSION, WeightExists
+from local_llm_manager.db import Database, SCHEMA_VERSION, WeightExists, weights_ids_of
 
 
 def _old_iso(days: int) -> str:
@@ -171,6 +171,23 @@ def test_weights_ids_backfilled_from_weights_id_on_open(tmp_path):
     db2.update_recipe(rid, {**r, "weights_ids": [3, 7]})
     r = db2.get_recipe(rid)
     assert r["weights_ids"] == [3, 7] and r["weights_id"] == 3
+
+
+def test_weights_ids_of_parses_raw_db_rows(tmp_path):
+    """list_weights feeds raw rows to weights_ids_of: weights_ids is the stored JSON string there.
+    Iterating the string itself read '[12]' as the ids 1 and 2 (wrong usage counts, delete guard
+    bypassed for any id >= 10)."""
+    assert weights_ids_of({"weights_ids": "[12, 3, 12]", "weights_id": 12}) == [12, 3]
+    assert weights_ids_of({"weights_ids": "[]", "weights_id": 12}) == []  # explicit empty list clears
+    assert weights_ids_of({"weights_id": 12}) == [12]  # old row without the column: fall back
+    assert weights_ids_of({"weights_ids": "not json", "weights_id": 12}) == [12]  # unusable: fall back
+    assert weights_ids_of({"weights_ids": '"12"', "weights_id": 12}) == [12]  # a JSON scalar is not a list
+    db = Database(tmp_path / "m.db")
+    rid = db.create_recipe({"name": "x", "container_name": "x", "framework": "vllm", "image": "i",
+                            "host_port": 8000, "container_port": 8000, "weights_ids": [12, 13]})
+    raw = db._query("SELECT id, weights_id, weights_ids FROM recipes WHERE id = ?", (rid,))[0]
+    assert isinstance(raw["weights_ids"], str)  # really the raw-row shape list_weights sees
+    assert weights_ids_of(raw) == [12, 13]
 
 
 def test_ping_and_counts(tmp_path):

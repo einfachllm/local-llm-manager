@@ -354,9 +354,14 @@ def seed_examples(db: Database) -> None:
         return
     if data is None:
         return
-    name = str(data.get("weights") or "").strip()
-    if name and not any(str(w["name"]).lower() == name.lower() for w in db.list_weights()):
-        db.create_weight(name, "", {})
+    raw = data.get("weights")
+    # `weights:` may name one entry or a list (model + drafter); register each, never str(list).
+    names = [str(n).strip() for n in (raw if isinstance(raw, (list, tuple)) else [raw]) if str(n or "").strip()]
+    existing = {str(w["name"]).lower() for w in db.list_weights()}
+    for name in names:
+        if name.lower() not in existing:
+            db.create_weight(name, "", {})
+            existing.add(name.lower())
     recipe, _ = recipe_from_file(data, db.list_weights())
     recipe["host_id"] = db.local_host_id()
     db.create_recipe(recipe)

@@ -389,6 +389,25 @@ def test_weights_list_counts_every_recipe_that_selects_an_entry(client, tmp_path
     assert by_id[d["id"]]["recipe_ids"] == [r["id"]]  # the drafter is a non-primary selection
 
 
+def test_in_use_weights_with_ids_over_nine_refuse_deletion(client, tmp_path):
+    """Regression: raw DB rows store weights_ids as a JSON string; iterating its characters made
+    '[12]' count as the ids 1 and 2, so an in-use id >= 10 deleted with 204 (guard bypassed) while
+    an unused id 1 was refused with 409."""
+    local = client.get("/api/hosts").json()[0]["id"]
+    entries = [weight(client, name=f"W{i}", **{str(local): str(tmp_path / f"w{i}")}) for i in range(1, 13)]
+    m, d = entries[10], entries[11]
+    assert m["id"] >= 10 and d["id"] >= 10
+    r = client.post("/api/recipes", json=recipe_body(model="/model", volumes="{weights}:/model:ro",
+                                                     weights_ids=[m["id"], d["id"]])).json()
+    by_id = {w["id"]: w for w in client.get("/api/weights?check=false").json()["weights"]}
+    assert by_id[m["id"]]["recipe_ids"] == [r["id"]]
+    assert by_id[d["id"]]["recipe_ids"] == [r["id"]]
+    assert by_id[entries[0]["id"]]["recipe_ids"] == []  # id 1: unused, not a phantom '[1…' character
+    assert client.delete(f"/api/weights/{m['id']}").status_code == 409  # in use: refused, not 204
+    assert client.delete(f"/api/weights/{d['id']}").status_code == 409
+    assert client.delete(f"/api/weights/{entries[0]['id']}").status_code == 204  # unused: allowed
+
+
 def test_import_and_export_a_two_weights_recipe(client, tmp_path):
     local = client.get("/api/hosts").json()[0]["id"]
     m = weight(client, name="Model", **{str(local): str(tmp_path / "m")})

@@ -74,6 +74,16 @@ console.log(JSON.stringify({ pin_weights: pin.weights_id, pin_pinned: pin.pinned
     assert out == {"pin_weights": 7, "pin_pinned": True, "tag_weights": 7, "tag_image": "new:2"}
 
 
+def test_weights_select_is_multi_select(app_js):
+    """index.html ships a single-select #sel-weights until its own PR lands: the weights_ids JS must
+    enable `multiple` itself, or only one entry is selectable and setSelectedWeightIds keeps just the
+    last id - an edit+save of an imported multi-recipe would silently truncate weights_ids."""
+    for fn in ("setSelectedWeightIds", "renderWeightOptions"):
+        m = re.search(r"function %s\([^)]*\)\s*\{(.*?)\n\}" % fn, app_js, re.S)
+        assert m, f"{fn} not found in app.js"
+        assert re.search(r"sel\.multiple\s*=\s*true\s*;", m.group(1)), f"{fn} must set sel.multiple = true"
+
+
 # ---- B-09 / TIME-01: one-shot schedule times must not drift between hub and browser zones ------
 
 HUBS = [("CET (UTC+01:00)", "+01:00"), ("IST (UTC+05:30)", "+05:30"), ("EST (UTC-05:00)", "-05:00")]
