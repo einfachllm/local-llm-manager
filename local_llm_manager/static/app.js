@@ -27,12 +27,19 @@ async function api(path, opts = {}) {
   return data;
 }
 
-function toast(msg, kind = "") {
+function toast(msg, kind = "", action = null) {
   const el = document.createElement("div");
   el.className = `toast ${kind}`;
   el.textContent = msg;
+  if (action) {
+    const b = document.createElement("button");
+    b.className = "toast-act";
+    b.textContent = action.label;
+    b.addEventListener("click", () => { el.remove(); action.fn(); });
+    el.appendChild(b);
+  }
   $("#toasts").appendChild(el);
-  setTimeout(() => el.remove(), kind === "bad" ? 9000 : 4500);
+  setTimeout(() => el.remove(), kind === "bad" || action ? 9000 : 4500);
 }
 
 // One submit at a time per form: a double click must not create two schedules or two transfer jobs.
@@ -247,6 +254,7 @@ async function loadHosts() {
     pollOk();
   } catch { pollFailed(); return; }
   renderHostsStrip();
+  renderHostStrip();
   renderHostOptions();
   renderJoinRequests();
   if (state.tab === "hosts") renderHosts();
@@ -328,6 +336,115 @@ function renderHostsStrip() {
 
 $("#hosts-strip").addEventListener("click", () => $('.tab[data-tab="hosts"]').click());
 
+/* ---- memory fit: the number every start / switch decision depends on ----
+ * est_memory_gb when set; otherwise the engine's memory fraction (--gpu-memory-utilization for
+ * vLLM, --mem-fraction-static for SGLang) times the host's total memory. Native engines without
+ * such a flag report null: the UI then makes no fit claim and the backend's own check decides. */
+const CARD_COLOR_HEX = { green: "#22c58b", teal: "#2cc4c9", blue: "#4f8cff", purple: "#a77bf3",
+  pink: "#ec6fb4", orange: "#f2884b", yellow: "#f0c93a", red: "#ef5b5b" };
+function estFootprint(r) {
+  if (kindOf(r) === "agent") return null;
+  if (r.est_memory_gb) return r.est_memory_gb;
+  const total = hostById(r.host_id)?.system?.memory?.total_gb;
+  if (!total) return null;
+  const m = (r.args || "").match(/--gpu-memory-utilization(?:=|\s+)([\d.]+)/)
+    || (r.args || "").match(/--mem-fraction-static(?:=|\s+)([\d.]+)/);
+  return m ? Math.round(total * parseFloat(m[1])) : null;
+}
+const hostFreeGb = (h) => h?.online ? (h.system?.memory?.available_gb ?? null) : null;
+const runningModelsOn = (hostId) => state.recipes.filter((r) => r.host_id === hostId && kindOf(r) === "model" && RUNNING.includes(r.status));
+function fitInfo(r) {
+  const est = estFootprint(r);
+  const free = hostFreeGb(hostById(r.host_id));
+  if (est == null || free == null) return { primary: "start", cls: "", text: "" };
+  if (est <= free + 0.5) return { primary: "start", cls: "ok", text: `Fits now — ${free.toFixed(1)} GB free, needs ~${est} GB` };
+  const others = runningModelsOn(r.host_id);
+  if (others.length) {
+    const freed = others.reduce((a, o) => a + (estFootprint(o) ?? 0), 0);
+    return { primary: "switch", cls: "swap", text: `Switch stops ${others.map((o) => recipeTitle(o)).join(", ")}${freed ? ` → frees ~${freed} GB` : ""}` };
+  }
+  return { primary: "start", cls: "warn", text: `Needs ~${est} GB but only ${free.toFixed(1)} GB free` };
+}
+// Same served model on the same host, other engines: one decision with several engine options.
+function variantsOf(r) {
+  const served = servedName(r);
+  if (!served || kindOf(r) !== "model") return [];
+  return state.recipes.filter((x) => x.id !== r.id && kindOf(x) === "model" && x.host_id === r.host_id && servedName(x) === served);
+}
+const segColor = (r) => CARD_COLOR_HEX[r.color] || `var(--eng-${engineOf(r)})`;
+
+/* ---- host command strip: the machine's state, big enough to decide by ---- */
+function nextScheduleHtml() {
+  const enabled = (state.schedules || []).filter((s) => s.enabled && s.next_run);
+  if (!enabled.length) return "";
+  const next = [...enabled].sort((a, b) => String(a.next_run).localeCompare(String(b.next_run)))[0];
+  return `<div class="hs-next"><div class="k">Next schedule</div><b>${esc(fmtTime(next.next_run))}</b> ${esc(next.name)}</div>`;
+}
+function renderHostStrip() {
+  const box = $("#host-strip");
+  if (!box) return;
+  box.innerHTML = state.hosts.map((h) => {
+    if (!h.online) {
+      return `<div class="hs-card offline" data-host="${h.id}">
+        <div class="hs-host"><span class="hs-name"><span class="hs-dot"></span>${esc(maskAddr(h.name))} ${healthBadge(h)}</span>
+          <span class="hs-plat bad">${esc(blurHostText(h.error || "offline", h.url))}</span></div>
+        <div class="hs-actions"><button type="button" class="btn small ghost" data-hs="recheck">Check again</button></div></div>`;
+    }
+    const m = h.system?.memory;
+    const gpus = (h.system?.gpus || []).filter((g) => g);
+    const gpu = gpus[0];
+    const mine = state.recipes.filter((r) => r.host_id === h.id && kindOf(r) === "model");
+    const running = mine.filter((r) => RUNNING.includes(r.status));
+    const total = m?.total_gb ?? 0;
+    const free = m?.available_gb ?? 0;
+    // Segment per running model; without an estimate, share the measured usage equally.
+    const segs = total ? running.map((r) => {
+      const v = estFootprint(r) ?? (m.used_gb / running.length);
+      return `<span class="vram-seg" style="width:${Math.min(100, v / total * 100).toFixed(2)}%;background:${segColor(r)}"
+        title="${esc(recipeTitle(r))} · ~${Math.round(v)} GB (estimated)"></span>`;
+    }).join("") : "";
+    const legend = running.map((r) => `<span><i style="background:${segColor(r)}"></i>${esc(recipeTitle(r))} <b>~${estFootprint(r) ?? Math.round(m.used_gb / running.length)} GB</b></span>`).join("")
+      + `<span><i style="background:var(--panel-2);border:1px solid var(--border-strong)"></i><b class="hs-free${free < total * 0.1 ? " low" : ""}">${free.toFixed(1)} GB free</b></span>`;
+    const util = gpus.map((g) => g.utilization).filter((v) => typeof v === "number");
+    const temps = gpus.map((g) => g.temperature).filter((v) => typeof v === "number");
+    const u = util.length ? Math.round(util.reduce((a, b) => a + b, 0) / util.length) : null;
+    const t = temps.length ? Math.max(...temps) : null;
+    const stats = [
+      u != null ? `<div class="hs-stat"><span class="v">${u}%</span><span class="k">GPU${gpus.length > 1 ? " avg" : ""}</span></div>` : "",
+      t != null ? `<div class="hs-stat"><span class="v ${tempClass(t)}">${Math.round(t)}°</span><span class="k">GPU °C</span></div>` : "",
+      gpu?.power_w != null ? `<div class="hs-stat"><span class="v">${Math.round(gpu.power_w)} W</span><span class="k">Power</span></div>` : "",
+      cpuTemp(h) != null ? `<div class="hs-stat"><span class="v ${tempClass(cpuTemp(h))}">${Math.round(cpuTemp(h))}°</span><span class="k">CPU °C</span></div>` : "",
+    ].join("");
+    const platform = h.info ? `${PLATFORM[h.info.platform] ?? h.info.platform} · ${h.info.machine}` : "";
+    return `<div class="hs-card" data-host="${h.id}">
+      <div class="hs-host">
+        <button type="button" class="hs-name" data-hs="open" title="Open the Hosts tab"><span class="hs-dot"></span>${esc(maskAddr(h.name))} ${healthBadge(h)}</button>
+        <span class="hs-plat">${esc(platform)}${platform ? " · " : ""}${mine.length} model${mine.length === 1 ? "" : "s"} · ${running.length} running${h.is_local ? " · this machine" : ""}</span>
+      </div>
+      <div class="hs-vram">
+        <div class="hs-vram-lbl"><span>${gpus.length ? "GPU memory" : "Memory"}${h.info?.platform === "linux" && gpus.length ? " (unified)" : ""}</span>
+          <span><b>${m ? m.used_gb.toFixed(1) : "?"} / ${total} GB</b> · <span class="hs-free${free < total * 0.1 ? " low" : ""}">${free.toFixed(1)} GB free</span></span></div>
+        <div class="vram-bar">${segs}</div>
+        <div class="vram-legend">${legend}</div>
+      </div>
+      <div class="hs-stats">${stats}</div>
+      ${nextScheduleHtml()}
+    </div>`;
+  }).join("");
+}
+$("#host-strip").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("[data-hs]");
+  if (!b) return;
+  if (b.dataset.hs === "open") { $('.tab[data-tab="hosts"]').click(); return; }
+  if (b.dataset.hs === "recheck") {
+    const id = Number(b.closest("[data-host]").dataset.host);
+    state.busy.set(`host-${id}`, "Checking…");
+    await loadHosts();
+    state.busy.delete(`host-${id}`);
+    renderHostStrip();
+  }
+});
+
 /* ---------------- blur toggle (top bar) ---------------- */
 
 function renderBlurToggle() {
@@ -344,6 +461,9 @@ $("#btn-blur").addEventListener("click", () => {
   try { localStorage.setItem("llm.blur", state.blur ? "1" : "0"); } catch { /* ignore */ }
   renderBlurToggle();
   renderHostsStrip();
+  renderHostStrip();
+  if (drawerId != null) renderDrawer();
+  loadDashActivity();
   renderHostOptions();
   renderRecipes();
   if (state.tab === "hosts") renderHosts();
@@ -703,7 +823,7 @@ async function loadRecipes() {
     recordMetrics(state.recipes);
     if (watchStarts(state.recipes)) await loadStartTimes();  // a boot just finished
     renderRecipes();
-    if (state.hosts.length) renderHostsStrip();  // its health badges count the recipes' findings
+    if (state.hosts.length) { renderHostsStrip(); renderHostStrip(); }  // health badges + VRAM segments follow the recipes
     if (state.tab === "hosts") { renderTopology(); renderPorts(); }
   } catch (e) {
     if (seq !== recipesSeq) return;
@@ -715,14 +835,16 @@ async function loadRecipes() {
 /* ---------------- recipe list: filter, sort, group ---------------- */
 
 const VIEW_KEY = "dgxm.recipeView";
-const view = { search: "", tags: [], sort: "name", group: "", host: "", kind: "", collapsed: {} };
+const view = { search: "", tags: [], sort: "name", group: "", host: "", kind: "", status: "", layout: "cards", order: [], collapsed: {} };
 try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || "{}")); } catch { /* storage unavailable */ }
 if (typeof view.group === "boolean") view.group = view.group ? "tag" : "";  // older saved views
-delete view.layout;  // the rows/tiles toggle was removed; drop it from older saved views too
+if (!["cards", "list"].includes(view.layout)) view.layout = "cards";  // older "rows"/"tiles" toggles
+if (!Array.isArray(view.order)) view.order = [];
 const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* ignore */ } };
 
 const RUNNING = ["ready", "loading", "starting"];
 const STATUS_ORDER = { ready: 0, loading: 1, starting: 2, failed: 3, stopped: 4, offline: 5 };
+state.bulk = new Set();  // list view: selected recipe ids for bulk stop / delete
 
 /* Start-duration history (server-measured trigger→ready) and a live timer while a model boots. */
 state.startTimes = {};                       // recipe id -> [seconds, newest first]
@@ -747,6 +869,8 @@ function tickStartElapsed() {
   }
 }
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+// Median measured trigger→ready time for a recipe (null until it has booted once).
+function bootMedian(r) { const h = state.startTimes[r.id]; return h?.length ? median(h.slice(0, 8)) : null; }
 function fmtDur(s) {
   s = Math.round(s);
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s` : `${Math.floor(s / 3600)}h ${Math.round(s % 3600 / 60)}m`;
@@ -757,6 +881,9 @@ const SORTS = {
   status: (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || byName(a, b),
   port: (a, b) => a.host_port - b.host_port || byName(a, b),
   updated: (a, b) => (b.updated_at || "").localeCompare(a.updated_at || "") || byName(a, b),
+  vram: (a, b) => (estFootprint(b) ?? -1) - (estFootprint(a) ?? -1) || byName(a, b),
+  boot: (a, b) => (bootMedian(a) ?? 1e9) - (bootMedian(b) ?? 1e9) || byName(a, b),
+  manual: (a, b) => (view.order.indexOf(a.id) + 1 || 1e9) - (view.order.indexOf(b.id) + 1 || 1e9) || byName(a, b),
 };
 
 function allTags() {
@@ -771,6 +898,8 @@ function visibleRecipes() {
   return state.recipes.filter((r) => {
     if (view.host && String(r.host_id) !== view.host) return false;
     if (view.kind && kindOf(r) !== view.kind) return false;
+    if (view.status === "running" && !RUNNING.includes(r.status)) return false;
+    if (view.status === "stopped" && RUNNING.includes(r.status)) return false;
     if (view.engine && (kindOf(r) === "agent" || engineOf(r) !== view.engine)) return false;
     const tags = (r.tags || []).map((t) => t.toLowerCase());
     if (!want.every((t) => tags.includes(t))) return false;
@@ -801,8 +930,15 @@ function engineBadge(r) {
 
 function renderToolbar() {
   $$("#recipe-kind button").forEach((b) => b.classList.toggle("on", b.dataset.kind === view.kind));
-  $$("#recipe-group button").forEach((b) => b.classList.toggle("on", b.dataset.group === (view.group || "")));
-  $$("#recipe-sort button").forEach((b) => b.classList.toggle("on", b.dataset.sort === view.sort));
+  $("#recipe-group").value = view.group || "";
+  $("#recipe-sort").value = SORTS[view.sort] ? view.sort : "name";
+  $$("#layout-seg button").forEach((b) => b.classList.toggle("on", b.dataset.layout === view.layout));
+  const run = state.recipes.filter((r) => RUNNING.includes(r.status)).length;
+  const chip = (val, label, n) => `<button type="button" class="chip${view.status === val ? " on" : ""}" data-status="${val}">${label}${n != null ? ` <span>${n}</span>` : ""}</button>`;
+  $("#status-filter").innerHTML = chip("", "Any status") + chip("running", "● Running", run) + chip("stopped", "○ Stopped", state.recipes.length - run);
+  const nFilters = (view.host ? 1 : 0) + (view.engine ? 1 : 0) + view.tags.length;
+  $("#filter-count").textContent = nFilters || "";
+  $("#filter-count").classList.toggle("hidden", !nFilters);
   const tags = allTags();
   // Drop filters for tags that no longer exist.
   const known = new Set(tags.map(([t]) => t.toLowerCase()));
@@ -815,6 +951,19 @@ function renderToolbar() {
   $("#tag-list").innerHTML = tags.map(([t]) => `<option value="${esc(t)}">`).join("");
   renderEngineFilter();
   renderHostFilter();
+  renderSavedViews();
+}
+
+/* Named views: the current search, filters, grouping, sort and layout under one chip. */
+const SAVED_VIEWS_KEY = "dgxm.savedViews";
+let savedViews = [];
+try { savedViews = JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY) || "[]"); if (!Array.isArray(savedViews)) savedViews = []; } catch { savedViews = []; }
+const persistSavedViews = () => { try { localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(savedViews)); } catch { /* ignore */ } };
+function renderSavedViews() {
+  $("#saved-views").innerHTML = savedViews.length
+    ? `<span>Saved views:</span>` + savedViews.map((v, i) =>
+      `<button type="button" class="chip" data-sv="${i}" title="Apply this view">${esc(v.name)}<span class="sv-x" data-sv-del="${i}" title="Remove this view">✕</span></button>`).join("")
+    : "";
 }
 
 // Chips with counts: one per engine family in use (models only), and one per host.
@@ -830,14 +979,14 @@ function renderEngineFilter() {
   $("#engine-filter").innerHTML = chip("", "All", models.length, run(models))
     + used.map((e) => { const l = models.filter((r) => engineOf(r) === e); return chip(e, ENGINE_LABEL[e], l.length, run(l)); }).join("");
   // A single engine has nothing to filter; with two or more the block is worth its space.
-  $("#engine-filter").closest(".rail-block").classList.toggle("hidden", used.length < 2);
+  $("#engine-filter-block").classList.toggle("hidden", used.length < 2);
 }
 function renderHostFilter() {
   if (view.host && !state.hosts.some((h) => String(h.id) === view.host)) view.host = "";
   const chip = (id, label, n) => `<button class="chip${(view.host || "") === id ? " on" : ""}" data-host-filter="${id}">${esc(label)} <span>${n}</span></button>`;
   $("#host-filter").innerHTML = chip("", "All", state.recipes.length)
     + state.hosts.map((h) => chip(String(h.id), maskAddr(h.name), state.recipes.filter((r) => r.host_id === h.id).length)).join("");
-  $("#host-filter").closest(".rail-block").classList.toggle("hidden", !multiHost());
+  $("#host-filter-block").classList.toggle("hidden", !multiHost());
 }
 
 function fmtTps(v) { return v >= 100 ? Math.round(v).toLocaleString() : +v.toFixed(1); }
@@ -948,8 +1097,13 @@ function modelShown(r) {
   return { label: model || "–", title: model };
 }
 // The name clients send as "model" (vLLM/SGLang --served-model-name), when the recipe sets one.
+// TensorFold spells the same thing --name.
 function servedName(r) {
-  return (r.args || "").match(/(?:^|\s)--served-model-name(?:=|\s+)(\S+)/)?.[1]?.replace(/^['"]|['"]$/g, "") || "";
+  const a = r.args || "";
+  const clean = (s) => s?.replace(/^['"]|['"]$/g, "") ?? "";
+  return clean(a.match(/(?:^|\s)--served-model-name(?:=|\s+)(\S+)/)?.[1])
+    || (engineOf(r) === "tensorfold" ? clean(a.match(/(?:^|\s)--name(?:=|\s+)(\S+)/)?.[1]) : "")
+    || "";
 }
 // "vllm/vllm-openai:nightly-3f1bcfd8…" → short enough for a card, full in the tooltip.
 function imageShort(image) {
@@ -1025,51 +1179,36 @@ function cardHtml(r) {
   const busy = state.busy.has(r.id);
   const busyLabel = state.busy.get(r.id) ?? "Working…";
   const running = RUNNING.includes(r.status);
-  const fw = state.meta?.frameworks[r.framework]?.label ?? r.framework;
-  const url = `http://${endpointHost(r.host_id)}:${r.host_port}`;
-  const active = new Set(view.tags.map((t) => t.toLowerCase()));
-  // Optional startup estimate: median of the recent measured trigger→ready times.
-  const hist = state.startTimes[r.id] || [];
-  const med = hist.length ? median(hist.slice(0, 8)) : null;
+  const fit = kindOf(r) === "model" && !running ? fitInfo(r) : null;
+  const vars = variantsOf(r);
+  const est = estFootprint(r);
+  const med = bootMedian(r);
   const booting = !busy && (r.status === "starting" || r.status === "loading");
-  let startInfo = "";
+  const served = servedName(r);
+  const active = new Set(view.tags.map((t) => t.toLowerCase()));
+  let bootLine = "";
   if (booting) {
     const elapsed = (Date.now() - (startWatch.get(r.id) ?? Date.now())) / 1000;
-    startInfo = `<span class="start-live mono" title="Time since the start was triggered">⏳ ${fmtDur(elapsed)}</span>`
-      + (med ? `<span class="start-hint mono" title="Median time to ready over the last ${Math.min(hist.length, 8)} start${hist.length > 1 ? "s" : ""}">/ ~${fmtDur(med)}</span>`
-        + `<span class="bar eta-bar" title="Elapsed vs. typical startup time"><span class="${elapsed > med * 1.5 ? "bar-fill warn" : "bar-fill"}" style="width:${Math.min(100, Math.round(elapsed / med * 100))}%"></span></span>` : "");
-  } else if (med && !running) {
-    startInfo = `<span class="start-hint mono" title="Median time from Start to ready (last ${Math.min(hist.length, 8)} start${hist.length > 1 ? "s" : ""})">⏱ ~${fmtDur(med)}</span>`;
+    bootLine = `<div class="bootline"><span class="start-live mono" title="Time since the start was triggered">⏳ ${fmtDur(elapsed)}</span>`
+      + (med ? `<span class="start-hint mono" title="Median time to ready over the last starts">/ ~${fmtDur(med)}</span>`
+        + `<span class="bar eta-bar" title="Elapsed vs. typical startup time"><span class="${elapsed > med * 1.5 ? "bar-fill warn" : "bar-fill"}" style="width:${Math.min(100, Math.round(elapsed / med * 100))}%"></span></span>` : "")
+      + `</div>`;
   }
-  const actions = `
-          ${running
-            ? `<button class="btn small stop" data-act="stop" ${busy ? "disabled" : ""}>Stop</button>
-               <button class="btn small" data-act="restart" ${busy ? "disabled" : ""}>Restart</button>`
-            : `<button class="btn small go" data-act="start" ${busy ? "disabled" : ""}>Start</button>
-               <button class="btn small" data-act="switch" ${busy ? "disabled" : ""} title="Stop all other models on this host, free its memory, then start this one">Switch to</button>`}
-          <span class="actions-gap"></span>
-          <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>
-          <button class="btn small ghost" data-act="edit">Edit</button>
-          <button class="btn small ghost icon" data-act="duplicate" title="Duplicate" aria-label="Duplicate">⧉</button>
-          ${multiHost() ? `<button class="btn small ghost icon" data-act="copyto" title="Copy to other hosts – kept in sync with this one" aria-label="Copy to other hosts">⇉</button>` : ""}
-          <button class="btn small ghost danger icon" data-act="delete" ${running ? "disabled" : ""} title="${running ? "Stop it before deleting" : "Delete"}" aria-label="Delete">🗑</button>`;
-  const endpoint = (running ? `<a href="${esc(url)}/v1/models" target="_blank" rel="noopener">${esc(maskEndpoint(url))}/v1</a>`
-    : `<span class="muted">${esc(maskEndpoint(url))}/v1</span>`)
-    + `<button class="copy-mini" data-act="copy" title="Copy the endpoint">copy</button>`;
-  const model = modelShown(r);
-  const served = servedName(r);
+  const primary = busy ? `<button class="btn small" disabled>${esc(busyLabel)}</button>`
+    : running ? `<button class="btn small stop" data-act="stop">■ Stop</button>`
+    : fit?.primary === "switch" ? `<button class="btn small primary" data-act="switch" title="Stop all other models on this host, free its memory, then start this one">⇄ Switch to</button>`
+    : `<button class="btn small go" data-act="start">▶ Start</button>`;
   const facts = [
-    ["Model", `<span title="${esc(model.title)}">${esc(model.label)}</span>`],
-    served && served !== model.label && served !== r.model ? ["Served as", `<code>${esc(served)}</code>`] : null,
-    ["Endpoint", endpoint],
-    r.runtime === "docker" && r.image ? ["Image", `<span title="${esc(r.image)}">${esc(imageShort(r.image))}</span>`] : null,
-    r.est_memory_gb ? ["Memory", `~${r.est_memory_gb} GB`] : null,
-    copiesFact(r),
-    r.container ? [r.runtime === "process" ? "Process" : "Container",
-      `<span title="${esc(r.container_name)}">${esc(r.container.status)}</span>`] : null,
-  ].filter(Boolean);
+    est != null ? `<span title="Estimated VRAM footprint${r.est_memory_gb ? "" : " (from the engine's memory fraction)"}">⛁ <b>~${est} GB</b></span>` : "",
+    med ? `<span title="Median time from Start to ready (last ${Math.min((state.startTimes[r.id] || []).length, 8)} start${(state.startTimes[r.id] || []).length > 1 ? "s" : ""})">⏱ <b>~${fmtDur(med)}</b></span>` : "",
+    `<span title="Host port">:<b>${r.host_port}</b></span>`,
+    r.runtime === "process" ? `<span title="Native process, no Docker">⚙ native</span>` : "",
+  ].filter(Boolean).join("");
+  const servedChip = vars.length
+    ? `<span class="served-chip" title="Same served model on ${vars.length + 1} engines – open the card to switch between them">⇄ <b>${esc(served)}</b> · ${vars.length + 1} engines</span>`
+    : served && served !== r.name ? `<span class="served-chip">serves <b>${esc(served)}</b></span>` : "";
   return `
-      <article class="card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
+      <article class="card lib-card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0" draggable="${view.sort === "manual"}">
         <div class="card-head">
           <div class="card-title">${esc(recipeTitle(r))}</div>
           <div class="card-head-right">
@@ -1077,15 +1216,61 @@ function cardHtml(r) {
             ${engineBadge(r)}
           </div>
         </div>
-        ${multiHost() && !groupedByHost() ? `<div class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</div>` : ""}
-        <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>${startInfo}${findingChips(r.findings)}</div>
-        ${r.tags?.length ? `<div class="card-tags">${r.tags.map((t) =>
-          `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}</div>` : ""}
-        ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ""}
-        <dl class="kv">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
-        ${metricsHtml(r)}
+        <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>
+          ${multiHost() && !groupedByHost() ? `<span class="card-host" title="Runs on this host">⌂ ${esc(maskAddr(hostName(r.host_id)))}</span>` : ""}
+          ${findingChips(r.findings)}</div>
+        ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : `<div class="card-desc" title="${esc(modelShown(r).title)}">${esc(modelShown(r).label)}</div>`}
+        ${facts ? `<div class="card-facts">${facts}</div>` : ""}
+        ${bootLine || (fit?.text ? `<div class="fit-line ${fit.cls}"><span>${fit.primary === "switch" ? "⇄" : fit.cls === "ok" ? "✓" : "⚠"}</span><span>${esc(fit.text)}</span></div>` : "")}
         ${findingDetails(r.findings)}
-        <div class="actions">${actions}</div>
+        <div class="card-actions">${primary}<button class="btn small ghost" data-act="more" title="More actions" aria-label="More actions">⋯</button></div>
+        <div class="card-foot">
+          ${(r.tags || []).map((t) => `<button class="chip small ${active.has(t.toLowerCase()) ? "on" : ""}" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join("")}
+          ${servedChip}
+        </div>
+      </article>`;
+}
+
+/* Running models get one wide row: endpoint to copy, live metrics, and the stop/restart controls.
+ * Status becomes structure (a "Now serving" section), not just a border colour. */
+function servingCardHtml(r) {
+  const busy = state.busy.has(r.id);
+  const busyLabel = state.busy.get(r.id) ?? "Working…";
+  const booting = !busy && (r.status === "starting" || r.status === "loading");
+  const med = bootMedian(r);
+  const url = endpointUrl(r);
+  const model = modelShown(r);
+  const served = servedName(r);
+  let boot = "";
+  if (booting) {
+    const elapsed = (Date.now() - (startWatch.get(r.id) ?? Date.now())) / 1000;
+    boot = `<div class="bootline"><span class="start-live mono" title="Time since the start was triggered">⏳ ${fmtDur(elapsed)}</span>`
+      + (med ? `<span class="start-hint mono">/ ~${fmtDur(med)}</span>`
+        + `<span class="bar eta-bar" title="Elapsed vs. typical startup time"><span class="${elapsed > med * 1.5 ? "bar-fill warn" : "bar-fill"}" style="width:${Math.min(100, Math.round(elapsed / med * 100))}%"></span></span>` : "")
+      + `</div>`;
+  }
+  const endpoint = `<div class="endpoint-box">${r.status === "ready"
+    ? `<a href="${esc(url)}/models" target="_blank" rel="noopener" title="Open the model list">${esc(maskEndpoint(url))}</a>`
+    : `<code>${esc(maskEndpoint(url))}</code>`}
+    <button class="copy-mini" data-act="copy" title="Copy the endpoint">copy</button></div>`;
+  const actions = busy ? `<button class="btn small" disabled>${esc(busyLabel)}</button>`
+    : booting ? `${boot}<button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button>`
+    : `<button class="btn small stop" data-act="stop">■ Stop</button>
+       <div class="row2"><button class="btn small" data-act="restart">↺ Restart</button><button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button></div>
+       <button class="btn small ghost" data-act="more">⋯ More</button>`;
+  return `
+      <article class="card serving-card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
+        <div>
+          <div class="sv-title"><span class="card-title">${esc(recipeTitle(r))}</span>${engineBadge(r)}
+            <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin" : "Pin to top"}">${r.pinned ? "★" : "☆"}</button></div>
+          <div class="sv-sub">${esc(model.label)}${served && served !== model.label ? ` · serves <code>${esc(served)}</code>` : ""}${multiHost() ? ` · ⌂ ${esc(maskAddr(hostName(r.host_id)))}` : ""}</div>
+          <div class="sv-status"><span class="pill ${busy ? "busy" : r.status}">${busy ? busyLabel : STATUS_LABEL[r.status] ?? r.status}</span>
+            ${findingChips(r.findings)}
+            ${r.status === "ready" && r.container?.status ? `<span>${esc(r.container.status)}</span>` : ""}</div>
+          ${endpoint}
+        </div>
+        <div class="sv-metrics">${metricsHtml(r) || `<div class="card-metrics idle mono">💤 waiting for metrics…</div>`}${sparkline(r.id, true)}</div>
+        <div class="sv-actions">${actions}</div>
       </article>`;
 }
 
@@ -1164,32 +1349,99 @@ function kindsHtml(items, hostId = "") {
 
 function renderRecipes() {
   renderToolbar();
+  renderBulkBar();
+  const servingSec = $("#serving-sec");
   if (!state.recipes.length) {
-    $("#recipes").innerHTML = `<div class="empty">No recipes yet. Click “Add recipe”.</div>`;
+    $("#recipes").innerHTML = `<div class="empty">No recipes yet. Click “＋ Add recipe”.</div>`;
     $("#pinned-list").innerHTML = "";
+    servingSec.innerHTML = "";
     const ps = $("#pinned-list").closest(".pinned-section");
     if (ps) ps.classList.add("hidden");
     return;
   }
   const list = visibleRecipes();
+  // Pinned: always on top, as compact cards (a running pinned recipe keeps its Stop button there).
   const pinned = list.filter((r) => r.pinned);
   const rest = list.filter((r) => !r.pinned);
-  // Pinned section: always on top, as cards. Hide the whole section when nothing is pinned.
   const pinnedSection = $("#pinned-list").closest(".pinned-section");
   if (pinnedSection) pinnedSection.classList.toggle("hidden", !pinned.length);
   $("#pinned-list").innerHTML = pinned.length
-    ? `<div class="grid">${pinned.map((r) => cardHtml(r)).join("")}</div>`
+    ? `<div class="grid">${pinned.map((r) => RUNNING.includes(r.status) && kindOf(r) === "model" ? servingCardHtml(r) : cardHtml(r)).join("")}</div>`
     : "";
-  // Remaining recipes: grouped or flat.
+  // List view: one dense, sortable table with bulk selection instead of cards.
+  if (view.layout === "list") {
+    servingSec.innerHTML = "";
+    $("#recipes").innerHTML = list.length ? listViewHtml(list) : `<div class="empty">No recipe matches the current filter.</div>`;
+    if (drawerId != null) renderDrawer();
+    return;
+  }
+  // Now serving: running models as wide rows with the endpoint and live metrics up front.
+  const serving = rest.filter((r) => RUNNING.includes(r.status));
+  const stopped = rest.filter((r) => !RUNNING.includes(r.status));
+  servingSec.innerHTML = serving.length ? `
+    <div class="dash-sec-head"><h2>Now serving</h2><span class="cnt">${serving.length} live · endpoint${serving.length > 1 ? "s" : ""} ready to copy</span></div>
+    ${serving.map((r) => kindOf(r) === "agent" ? agentCardHtml(r) : servingCardHtml(r)).join("")}` : "";
   let html = "";
   if (!view.kind && rest.length < 3 && !rest.some((r) => kindOf(r) === "agent")) {
     html += `<div class="agent-empty">🤖 No agents yet. To add one (e.g. a Hermes gateway), use “Add recipe” with
       <code>kind: agent</code> in a YAML recipe.</div>`;
   }
-  $("#recipes").innerHTML = html + (rest.length ? (view.group ? groupedHtml(rest) : kindsHtml(rest)) : "");
-  if (!rest.length && !pinned.length) {
-    $("#recipes").innerHTML = `<div class="empty">No recipe matches the current filter.</div>`;
-  }
+  const libHead = stopped.length ? `<div class="dash-sec-head"><h2>Model library</h2><span class="cnt">${stopped.length} not running</span>
+    <span class="hint">${view.sort === "manual" ? "drag cards to reorder" : "click a card for details · ⋯ for actions"}</span></div>` : "";
+  $("#recipes").innerHTML = html + (stopped.length
+    ? libHead + (view.group ? groupedHtml(stopped) : plainCardsHtml(stopped))
+    : (list.length ? "" : `<div class="empty">No recipe matches the current filter.</div>`));
+  if (drawerId != null) renderDrawer();
+}
+
+/* Dense table: every recipe once, sortable columns, bulk selection, primary action per row. */
+function listViewHtml(list) {
+  const mark = (k) => view.sort === k ? " ▾" : "";
+  const allChecked = list.length && list.every((r) => state.bulk.has(r.id));
+  return `<div class="table-wrap"><table class="list-view">
+    <thead><tr>
+      <th><input type="checkbox" id="bulk-all" title="Select all shown" ${allChecked ? "checked" : ""}></th>
+      <th data-sort="name">Name${mark("name")}</th>
+      <th data-sort="status">Status${mark("status")}</th>
+      <th>Serves</th>
+      <th data-sort="vram">VRAM${mark("vram")}</th>
+      <th data-sort="boot">Boot${mark("boot")}</th>
+      <th data-sort="port">Port${mark("port")}</th>
+      <th>Endpoint</th><th></th>
+    </tr></thead>
+    <tbody>${list.map((r) => {
+      const running = RUNNING.includes(r.status);
+      const busy = state.busy.has(r.id);
+      const fit = kindOf(r) === "model" && !running ? fitInfo(r) : null;
+      const est = estFootprint(r);
+      const med = bootMedian(r);
+      const primary = busy ? `<button class="btn small" disabled>${esc(state.busy.get(r.id))}</button>`
+        : running ? `<button class="btn small stop" data-act="stop">■ Stop</button>`
+        : fit?.primary === "switch" ? `<button class="btn small primary" data-act="switch">⇄ Switch</button>`
+        : `<button class="btn small go" data-act="start">▶ Start</button>`;
+      return `<tr data-id="${r.id}" class="${running ? "running" : ""}">
+        <td><input type="checkbox" data-bulk="${r.id}" ${state.bulk.has(r.id) ? "checked" : ""} title="Select"></td>
+        <td><span class="nm">${esc(recipeTitle(r))} ${engineBadge(r)}</span></td>
+        <td><span class="pill ${busy ? "busy" : r.status}">${busy ? esc(state.busy.get(r.id)) : STATUS_LABEL[r.status] ?? r.status}</span></td>
+        <td class="mono">${esc(servedName(r) || "–")}</td>
+        <td class="mono">${est != null ? `~${est} GB` : "–"}</td>
+        <td class="mono">${med ? `~${fmtDur(med)}` : "–"}</td>
+        <td class="mono">${r.host_port}</td>
+        <td class="mono ep">${running ? esc(maskEndpoint(endpointUrl(r))) : "–"} ${running ? `<button class="copy-mini" data-act="copy" title="Copy the endpoint">copy</button>` : ""}</td>
+        <td style="white-space:nowrap">${primary} <button class="btn small ghost" data-act="more" title="More actions">⋯</button></td>
+      </tr>`;
+    }).join("")}</tbody></table></div>`;
+}
+
+function renderBulkBar() {
+  const bar = $("#bulk-bar");
+  const n = state.bulk.size;
+  const show = n > 0 && view.layout === "list";
+  bar.classList.toggle("hidden", !show);
+  bar.innerHTML = show ? `<b>${n} selected</b>
+    <button type="button" class="btn small stop" data-bulk-act="stop">■ Stop</button>
+    <button type="button" class="btn small ghost danger" data-bulk-act="delete">🗑 Delete</button>
+    <button type="button" class="btn small ghost" data-bulk-act="clear" style="margin-left:auto">Clear</button>` : "";
 }
 
 // Group by host, or by each recipe's first tag (e.g. the model name); every recipe appears once, and
@@ -1272,18 +1524,47 @@ $("#tag-filter").addEventListener("click", (ev) => {
   if (chip) toggleTagFilter(chip.dataset.tag);
 });
 $("#recipe-search").addEventListener("input", (ev) => { view.search = ev.target.value; saveView(); renderRecipes(); });
-$("#recipe-sort").addEventListener("click", (ev) => {
-  const b = ev.target.closest("button[data-sort]");
+$("#recipe-sort").addEventListener("change", (ev) => { view.sort = ev.target.value; saveView(); renderRecipes(); });
+$("#recipe-group").addEventListener("change", (ev) => { view.group = ev.target.value; saveView(); renderRecipes(); });
+$("#status-filter").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-status]");
   if (!b) return;
-  view.sort = b.dataset.sort;
+  view.status = b.dataset.status;
   saveView();
   renderRecipes();
 });
-$("#recipe-group").addEventListener("click", (ev) => {
-  const b = ev.target.closest("button[data-group]");
+$("#layout-seg").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-layout]");
   if (!b) return;
-  view.group = b.dataset.group;
+  view.layout = b.dataset.layout;
+  state.bulk.clear();
   saveView();
+  renderRecipes();
+});
+$("#btn-filters").addEventListener("click", () => {
+  const pop = $("#filter-pop");
+  const open = pop.classList.toggle("hidden") === false;
+  $("#btn-filters").setAttribute("aria-expanded", String(open));
+});
+$("#btn-save-view").addEventListener("click", () => {
+  const name = prompt("Name this view (current search, filters, grouping, sort and layout):", "My view");
+  if (!name?.trim()) return;
+  savedViews.push({ name: name.trim(), view: JSON.parse(JSON.stringify(view)) });
+  persistSavedViews();
+  renderSavedViews();
+  toast(`Saved view “${name.trim()}”`, "ok");
+});
+$("#saved-views").addEventListener("click", (ev) => {
+  const del = ev.target.closest("[data-sv-del]");
+  if (del) { savedViews.splice(Number(del.dataset.svDel), 1); persistSavedViews(); renderSavedViews(); return; }
+  const b = ev.target.closest("[data-sv]");
+  if (!b) return;
+  const v = savedViews[Number(b.dataset.sv)];
+  if (!v) return;
+  Object.assign(view, JSON.parse(JSON.stringify(v.view)));
+  state.bulk.clear();
+  saveView();
+  $("#recipe-search").value = view.search;
   renderRecipes();
 });
 $("#recipe-kind").addEventListener("click", (ev) => {
@@ -1311,13 +1592,13 @@ $("#recipe-search").value = view.search;
 if (!SORTS[view.sort]) view.sort = "name";  // e.g. the former "framework" sort
 if (!["host", "engine", "host-engine", "tag"].includes(view.group)) view.group = "";
 
-async function runAction(key, path, okMsg, busyLabel = "Working…") {
+async function runAction(key, path, okMsg, busyLabel = "Working…", opts = {}) {
   state.busy.set(key, busyLabel);
   renderRecipes();
   if (state.tab === "hosts") renderTopology();
   try {
     const res = await api(path, { method: "POST" });
-    toast(okMsg ?? res?.message ?? "Done", "ok");
+    if (!opts.silent) toast(okMsg ?? res?.message ?? "Done", "ok", opts.undo ?? null);
     return true;
   } catch (e) {
     toast(e.message, "bad");
@@ -1354,6 +1635,8 @@ function recipeBodyFrom(r, overrides = {}) {
 
 $("#recipes").addEventListener("click", handleRecipeCardsClick);
 $("#pinned-list").addEventListener("click", handleRecipeCardsClick);
+$("#serving-sec").addEventListener("click", handleRecipeCardsClick);
+$("#drawer").addEventListener("click", handleRecipeCardsClick);
 async function handleRecipeCardsClick(ev) {
   const head = ev.target.closest(".group-title");
   if (head) {
@@ -1372,66 +1655,385 @@ async function handleRecipeCardsClick(ev) {
     renderRecipes();
     return;
   }
-  const chip = ev.target.closest(".card [data-tag]");
+  const chip = ev.target.closest(".card [data-tag], .drawer [data-tag]");
   if (chip) { toggleTagFilter(chip.dataset.tag); return; }
   const btn = ev.target.closest("button[data-act]");
-  if (!btn) return;
-  const id = Number(btn.closest(".card").dataset.id);
-  const r = state.recipes.find((x) => x.id === id);
-  const act = btn.dataset.act;
-  if (act === "start") {
-    const res = await runAction(id, `/api/recipes/${id}/start`, null, await startBusyLabel(r));
-    if (res instanceof Error && /memory/i.test(res.message) && confirm(`${blurHostText(res.message)}\n\nStart anyway?`)) {
-      await runAction(id, `/api/recipes/${id}/start?force=true`, null, "Starting…");
+  if (btn) {
+    const holder = btn.closest("[data-id]");
+    if (!holder) return;
+    const id = Number(holder.dataset.id);
+    const r = state.recipes.find((x) => x.id === id);
+    if (!r) return;
+    const act = btn.dataset.act;
+    if (act === "start") {
+      const res = await runAction(id, `/api/recipes/${id}/start`, null, await startBusyLabel(r));
+      if (res instanceof Error && /memory/i.test(res.message) && confirm(`${blurHostText(res.message)}\n\nStart anyway?`)) {
+        await runAction(id, `/api/recipes/${id}/start?force=true`, null, "Starting…");
+      }
+    } else if (act === "stop") {
+      const ok = await runAction(id, `/api/recipes/${id}/stop`, null, "Stopping…", { silent: true });
+      if (ok === true) toast(`Stopped “${recipeTitle(r)}”`, "ok", {
+        label: "Undo", fn: async () => { await runAction(id, `/api/recipes/${id}/start`, `Started “${recipeTitle(r)}” again`, await startBusyLabel(r)); },
+      });
+    } else if (act === "restart") {
+      await runAction(id, `/api/recipes/${id}/restart`, null, "Restarting…");
+    } else if (act === "switch") {
+      openSwitchDialog(r);
+    } else if (act === "more") {
+      openOverflowMenu(btn, r);
+    } else if (act === "logs") {
+      openLogs(r);
+    } else if (act === "mute" || act === "unmute") {
+      await muteFinding(btn.dataset.key, act === "mute");
+    } else if (act === "finding") {
+      btn.closest("[data-id]")?.querySelector(".hf-box")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    } else if (act === "edit") {
+      openRecipeEditor(r);
+    } else if (act === "copy") {
+      const ep = endpointUrl(r);
+      try { await navigator.clipboard.writeText(ep); toast("Endpoint copied", "ok"); }
+      catch { prompt("Copy the endpoint:", ep); }
+    } else if (act === "duplicate") {
+      await duplicateRecipe(r);
+    } else if (act === "copyto") {
+      openCopyTo(r);
+    } else if (act === "sync") {
+      await syncCopies(r.id);
+    } else if (act === "unlink") {
+      if (!confirm(`Unlink “${recipeTitle(r)}” from its original? It keeps its settings, and syncing no longer changes it.`)) return;
+      try { await api(`/api/recipes/${id}/unlink`, { method: "POST" }); await loadRecipes(); } catch (e) { toast(e.message, "bad"); }
+    } else if (act === "pin") {
+      try {
+        await api(`/api/recipes/${id}`, { method: "PUT", body: recipeBodyFrom(r, { pinned: !r.pinned }) });
+        await loadRecipes();
+      } catch (e) { toast(e.message, "bad"); }
+    } else if (act === "delete") {
+      await deleteRecipe(r);
     }
-  } else if (act === "stop") {
-    await runAction(id, `/api/recipes/${id}/stop`, null, "Stopping…");
-  } else if (act === "restart") {
-    await runAction(id, `/api/recipes/${id}/restart`, null, "Restarting…");
-  } else if (act === "switch") {
-    if (confirm(`Stop all other models, free memory and start “${recipeTitle(r)}”?`)) {
-      const label = await startBusyLabel(r);
-      await runAction(id, `/api/recipes/${id}/switch`, null, label === "Pulling image…" ? label : "Switching…");
-    }
-  } else if (act === "logs") {
-    openLogs(r);
-  } else if (act === "mute" || act === "unmute") {
-    await muteFinding(btn.dataset.key, act === "mute");
-  } else if (act === "finding") {
-    btn.closest(".card")?.querySelector(".hf-box")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  } else if (act === "edit") {
-    openRecipeEditor(r);
-  } else if (act === "copy") {
-    const ep = endpointUrl(r);
-    try { await navigator.clipboard.writeText(ep); toast("Endpoint copied", "ok"); }
-    catch { prompt("Copy the endpoint:", ep); }
-  } else if (act === "duplicate") {
-    try {
-      const copy = await api(`/api/recipes/${id}/duplicate`, { method: "POST" });
-      await loadRecipes();
-      openRecipeEditor(copy);
-    } catch (e) { toast(e.message, "bad"); }
-  } else if (act === "copyto") {
-    openCopyTo(r);
-  } else if (act === "sync") {
-    await syncCopies(r.id);
-  } else if (act === "unlink") {
-    if (!confirm(`Unlink “${recipeTitle(r)}” from its original? It keeps its settings, and syncing no longer changes it.`)) return;
-    try { await api(`/api/recipes/${id}/unlink`, { method: "POST" }); await loadRecipes(); } catch (e) { toast(e.message, "bad"); }
-  } else if (act === "pin") {
-    try {
-      await api(`/api/recipes/${id}`, { method: "PUT", body: recipeBodyFrom(r, { pinned: !r.pinned }) });
-      await loadRecipes();
-    } catch (e) { toast(e.message, "bad"); }
-  } else if (act === "delete") {
-    if (!confirm(`Delete recipe “${recipeTitle(r)}”? Schedules using it are deleted too.`)) return;
-    try {
-      await api(`/api/recipes/${id}`, { method: "DELETE" });
-      toast("Recipe deleted", "ok");
-      loadRecipes();
-    } catch (e) { toast(e.message, "bad"); }
+    return;
+  }
+  // Click on the card / row body itself: open the detail drawer (buttons and links keep their job).
+  const body = ev.target.closest(".card, tr[data-id]");
+  if (body && !ev.target.closest("#drawer, input, select, textarea, a, button, label")) {
+    openDrawer(Number(body.dataset.id));
   }
 }
+
+async function duplicateRecipe(r) {
+  try {
+    const copy = await api(`/api/recipes/${r.id}/duplicate`, { method: "POST" });
+    await loadRecipes();
+    openRecipeEditor(copy);
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+// Delete with an Undo that re-creates the recipe from its full body (schedules are gone for good —
+// the confirm says so).
+async function deleteRecipe(r) {
+  if (!confirm(`Delete recipe “${recipeTitle(r)}”? Schedules using it are deleted too.`)) return;
+  try {
+    const body = recipeBodyFrom(r);
+    await api(`/api/recipes/${r.id}`, { method: "DELETE" });
+    if (drawerId === r.id) closeDrawer();
+    loadRecipes();
+    toast("Recipe deleted", "ok", {
+      label: "Undo", fn: async () => {
+        try { await api("/api/recipes", { method: "POST", body }); await loadRecipes(); toast("Recipe restored", "ok"); }
+        catch (e) { toast(e.message, "bad"); }
+      },
+    });
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+/* List view: sortable headers, select-all, per-row checkboxes. */
+$("#recipes").addEventListener("click", (ev) => {
+  const th = ev.target.closest("th[data-sort]");
+  if (th) { view.sort = th.dataset.sort; saveView(); renderRecipes(); return; }
+  if (ev.target.id === "bulk-all") {
+    const list = visibleRecipes();
+    if (ev.target.checked) list.forEach((r) => state.bulk.add(r.id)); else state.bulk.clear();
+    renderRecipes();
+    return;
+  }
+  const cb = ev.target.closest("input[data-bulk]");
+  if (cb) {
+    const id = Number(cb.dataset.bulk);
+    if (cb.checked) state.bulk.add(id); else state.bulk.delete(id);
+    renderBulkBar();
+    const all = $("#bulk-all");
+    if (all) all.checked = visibleRecipes().every((r) => state.bulk.has(r.id));
+  }
+});
+
+$("#bulk-bar").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("[data-bulk-act]");
+  if (!b) return;
+  const act = b.dataset.bulkAct;
+  const sel = state.recipes.filter((r) => state.bulk.has(r.id));
+  if (act === "clear") { state.bulk.clear(); renderRecipes(); return; }
+  if (act === "stop") {
+    const running = sel.filter((r) => RUNNING.includes(r.status));
+    if (!running.length) { toast("Nothing running in the selection", "bad"); return; }
+    try {
+      await Promise.all(running.map((r) => api(`/api/recipes/${r.id}/stop`, { method: "POST" })));
+      state.bulk.clear();
+      await loadRecipes(); loadHosts();
+      toast(`Stopped ${running.length} recipe${running.length > 1 ? "s" : ""}`, "ok", {
+        label: "Undo", fn: async () => {
+          for (const r of running) await api(`/api/recipes/${r.id}/start`, { method: "POST" }).catch(() => { /* best effort */ });
+          await loadRecipes(); loadHosts();
+        },
+      });
+    } catch (e) { toast(e.message, "bad"); await loadRecipes(); }
+  } else if (act === "delete") {
+    if (!confirm(`Delete ${sel.length} recipe${sel.length > 1 ? "s" : ""}? Schedules using them are deleted too.`)) return;
+    const bodies = sel.map((r) => recipeBodyFrom(r));
+    try {
+      await Promise.all(sel.map((r) => api(`/api/recipes/${r.id}`, { method: "DELETE" })));
+      state.bulk.clear();
+      if (sel.some((r) => r.id === drawerId)) closeDrawer();
+      await loadRecipes();
+      toast(`Deleted ${sel.length} recipe${sel.length > 1 ? "s" : ""}`, "ok", {
+        label: "Undo", fn: async () => {
+          for (const body of bodies) await api("/api/recipes", { method: "POST", body }).catch(() => { /* best effort */ });
+          await loadRecipes();
+        },
+      });
+    } catch (e) { toast(e.message, "bad"); await loadRecipes(); }
+  }
+});
+
+/* ---------------- detail drawer ----------------
+ * Cards stay compact because depth is one click away: facts, variants of the same served model,
+ * live metrics, findings and every action. "Edit" opens the full recipe editor (preview, import,
+ * export included) rather than a second, weaker form. */
+let drawerId = null;
+function openDrawer(id) {
+  drawerId = id;
+  renderDrawer();
+  $("#drawer").classList.add("show");
+  $("#drawer-scrim").classList.remove("hidden");
+}
+function closeDrawer() {
+  drawerId = null;
+  $("#drawer").classList.remove("show");
+  $("#drawer-scrim").classList.add("hidden");
+}
+$("#drawer-scrim").addEventListener("click", closeDrawer);
+
+function renderDrawer() {
+  const box = $("#drawer");
+  const r = state.recipes.find((x) => x.id === drawerId);
+  if (!r) { if (drawerId != null) closeDrawer(); return; }
+  const scroll = $(".drawer-body", box)?.scrollTop ?? 0;
+  const busy = state.busy.has(r.id);
+  const running = RUNNING.includes(r.status);
+  const fit = kindOf(r) === "model" && !running ? fitInfo(r) : null;
+  const vars = variantsOf(r);
+  const model = modelShown(r);
+  const served = servedName(r);
+  const url = endpointUrl(r);
+  const est = estFootprint(r);
+  const med = bootMedian(r);
+  const facts = [
+    ["Model", `<span title="${esc(model.title)}">${esc(model.label)}</span>`],
+    served ? ["Served as", `<code>${esc(served)}</code>`] : null,
+    ["Engine", `${esc(state.meta?.frameworks[r.framework]?.label ?? r.framework)}${r.runtime === "process" ? " · native process" : " · Docker"}`],
+    r.runtime === "docker" && r.image ? ["Image", `<span title="${esc(r.image)}">${esc(imageShort(r.image))}</span>`] : null,
+    ["Port", `<span class="mono">${r.host_port}</span>`],
+    est != null ? ["Est. VRAM", `~${est} GB${r.est_memory_gb ? "" : " (from the engine's memory fraction)"}`] : null,
+    med ? ["Typical boot", `~${fmtDur(med)} · median of recent starts`] : null,
+    multiHost() ? ["Host", esc(maskAddr(hostName(r.host_id)))] : null,
+    copiesFact(r),
+    r.container ? [r.runtime === "process" ? "Process" : "Container", `<span title="${esc(r.container_name)}">${esc(r.container.status)}</span>`] : null,
+    r.tags?.length ? ["Tags", r.tags.map((t) => `<button class="chip small" data-tag="${esc(t)}" title="Filter by this tag">${esc(t)}</button>`).join(" ")] : null,
+  ].filter(Boolean);
+  const primary = busy ? `<button class="btn" disabled>${esc(state.busy.get(r.id))}</button>`
+    : running ? `<button class="btn stop" data-act="stop">■ Stop</button><button class="btn" data-act="restart">↺ Restart</button>`
+    : fit?.primary === "switch" ? `<button class="btn primary" data-act="switch">⇄ Switch to</button>`
+    : `<button class="btn go" data-act="start">▶ Start</button>`;
+  box.dataset.id = r.id;
+  box.innerHTML = `
+    <div class="drawer-head"><span class="card-title">${esc(recipeTitle(r))}</span>${engineBadge(r)}
+      <button type="button" class="x" id="drawer-close" aria-label="Close details">&times;</button></div>
+    <div class="drawer-body">
+      <div class="dsec">
+        <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? esc(state.busy.get(r.id)) : STATUS_LABEL[r.status] ?? r.status}</span>${findingChips(r.findings)}</div>
+        ${r.description ? `<p class="card-desc" style="margin:0">${esc(r.description)}</p>` : ""}
+        ${fit?.text ? `<div class="fit-line ${fit.cls}"><span>${fit.primary === "switch" ? "⇄" : fit.cls === "ok" ? "✓" : "⚠"}</span><span>${esc(fit.text)}</span></div>` : ""}
+        ${findingDetails(r.findings)}
+      </div>
+      <div class="dsec"><h4>Endpoint</h4>
+        <div class="endpoint-box">${r.status === "ready"
+          ? `<a href="${esc(url)}/models" target="_blank" rel="noopener">${esc(maskEndpoint(url))}</a>`
+          : `<code>${esc(maskEndpoint(url))}</code>`}
+          <button class="copy-mini" data-act="copy" title="Copy the endpoint">copy</button></div>
+        ${!running ? `<span class="logs-hint">Available once the recipe is running.</span>` : ""}
+      </div>
+      <div class="dsec"><h4>Facts</h4><dl class="kv">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></div>
+      ${vars.length ? `<div class="dsec"><h4>Variants — same served model “${esc(served)}”</h4>
+        ${[r, ...vars].map((v) => `<div class="variant-row ${v.id === r.id ? "current" : ""}">
+          <span class="vname">${esc(recipeTitle(v))}</span>${engineBadge(v)}<span class="vport mono">:${v.host_port}</span>
+          ${v.id === r.id ? `<span class="ok" style="font-size:11px">this one</span>`
+            : RUNNING.includes(v.status) ? `<span class="pill ready" style="font-size:10.5px">running</span>`
+            : `<button class="btn small primary" data-switch-to="${v.id}" title="Stop the others and start this variant">⇄ Switch</button>`}
+        </div>`).join("")}
+        <span class="logs-hint">One model, several engines. Variants on the same port keep client URLs unchanged.</span></div>` : ""}
+      ${running ? `<div class="dsec"><h4>Live metrics</h4>${metricsHtml(r) || `<span class="logs-hint">waiting for metrics…</span>`}</div>` : ""}
+      <div class="dsec"><h4>Logs</h4>
+        <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled title=\"No logs yet (never started / host offline)\""} style="align-self:flex-start">Open logs →</button></div>
+    </div>
+    <div class="drawer-foot">${primary}
+      <button class="btn ghost" data-act="edit">✎ Edit</button>
+      <button class="btn ghost" data-act="duplicate">⧉ Duplicate</button>
+      ${multiHost() ? `<button class="btn ghost" data-act="copyto" title="Copy to other hosts – kept in sync">⇉ Copy to hosts</button>` : ""}
+      <button class="btn ghost danger" data-act="delete" ${running ? "disabled title=\"Stop it before deleting\"" : ""} style="margin-left:auto" aria-label="Delete">🗑</button>
+    </div>`;
+  $(".drawer-body", box).scrollTop = scroll;
+  $("#drawer-close").addEventListener("click", closeDrawer);
+  $$("[data-switch-to]", box).forEach((b) => b.addEventListener("click", () => {
+    const v = state.recipes.find((x) => x.id === Number(b.dataset.switchTo));
+    if (v) openSwitchDialog(v);
+  }));
+}
+
+/* ---------------- switch preview ----------------
+ * The old confirm() asked one question; this shows the whole deal: what stops, what it frees,
+ * how long the boot takes, and whether client apps keep their endpoint. */
+let pendingSwitch = null;
+function openSwitchDialog(r) {
+  pendingSwitch = r;
+  const others = runningModelsOn(r.host_id).filter((x) => x.id !== r.id);
+  const h = hostById(r.host_id);
+  const total = h?.system?.memory?.total_gb ?? 0;
+  const used = h?.system?.memory?.used_gb ?? 0;
+  const freed = others.reduce((a, o) => a + (estFootprint(o) ?? 0), 0);
+  const est = estFootprint(r);
+  const med = bootMedian(r);
+  const served = servedName(r);
+  const sameEp = !!served && others.some((o) => o.host_port === r.host_port && servedName(o) === served);
+  const seg = (v, color) => total ? `<span class="vram-seg" style="width:${Math.min(100, v / total * 100).toFixed(1)}%;background:${color}"></span>` : "";
+  const beforeSegs = others.map((o) => seg(estFootprint(o) ?? used / others.length, segColor(o))).join("");
+  $("#switch-title").textContent = `Switch to ${recipeTitle(r)}?`;
+  $("#switch-body").innerHTML = `
+    <ol class="switch-steps">
+      ${others.length ? `<li><span class="n">1</span><span>Stop <b>${others.map((o) => esc(recipeTitle(o))).join(", ")}</b>${freed ? ` — frees ~${freed} GB of memory` : ""}</span></li>
+      <li><span class="n">2</span><span>Drop the page cache so the weights load cleanly</span></li>
+      <li><span class="n">3</span><span>Start <b>${esc(recipeTitle(r))}</b>${med ? ` — ready in <b>~${fmtDur(med)}</b> (median of recent starts)` : ""}</span></li>`
+      : `<li><span class="n">1</span><span>Start <b>${esc(recipeTitle(r))}</b>${med ? ` — ready in <b>~${fmtDur(med)}</b> (median of recent starts)` : ""}</span></li>`}
+    </ol>
+    ${total ? `<div class="mem-compare">
+      <div class="row"><span class="lab">Now</span><div class="vram-bar">${beforeSegs}</div><span class="val">${used.toFixed(1)} / ${total} GB</span></div>
+      ${est != null ? `<div class="row"><span class="lab">After</span><div class="vram-bar">${seg(est, segColor(r))}</div><span class="val">~${est} / ${total} GB</span></div>
+      <div class="row"><span class="lab"></span><span class="headroom">✓ ~${Math.max(0, total - est).toFixed(1)} GB headroom after the switch (estimated)</span></div>` : ""}
+    </div>` : ""}
+    ${sameEp
+      ? `<div class="ep-note same">⇄ <span><b>Endpoint unchanged.</b> ${esc(recipeTitle(r))} serves <code>${esc(served)}</code> on port ${r.host_port} — client apps keep the same base URL <code>${esc(maskEndpoint(endpointUrl(r)))}</code> once it is ready.</span></div>`
+      : `<div class="ep-note new">→ <span>Endpoint after the switch: <code>${esc(maskEndpoint(endpointUrl(r)))}</code>${served ? ` (serves <code>${esc(served)}</code>)` : ""}. Update your clients, or pick a variant that shares the port.</span></div>`}`;
+  $("#dlg-switch").showModal();
+}
+$("#btn-switch-go").addEventListener("click", async () => {
+  const r = pendingSwitch;
+  pendingSwitch = null;
+  $("#dlg-switch").close();
+  if (!r) return;
+  const before = runningModelsOn(r.host_id).filter((x) => x.id !== r.id);
+  const label = await startBusyLabel(r);
+  const ok = await runAction(r.id, `/api/recipes/${r.id}/switch`, null, label === "Pulling image…" ? label : "Switching…", { silent: true });
+  if (ok === true) toast(`Switching to “${recipeTitle(r)}”`, "ok", before.length ? {
+    label: "Undo", fn: () => runAction(before[0].id, `/api/recipes/${before[0].id}/switch`, `Switching back to “${recipeTitle(before[0])}”`, "Switching back…"),
+  } : null);
+});
+
+/* ---------------- overflow menu: one primary action on the card, the rest here ---------------- */
+function closeOverflowMenu() { $("#overflow-menu")?.remove(); }
+function openOverflowMenu(anchor, r) {
+  closeOverflowMenu();
+  const running = RUNNING.includes(r.status);
+  const m = document.createElement("div");
+  m.className = "overflow-menu";
+  m.id = "overflow-menu";
+  m.innerHTML = `
+    <button type="button" data-m="logs" ${r.container ? "" : "disabled"}>≣ Logs</button>
+    <button type="button" data-m="edit">✎ Edit recipe</button>
+    <button type="button" data-m="duplicate">⧉ Duplicate</button>
+    ${multiHost() ? `<button type="button" data-m="copyto">⇉ Copy to hosts</button>` : ""}
+    <button type="button" data-m="pin">${r.pinned ? "★ Unpin" : "☆ Pin to top"}</button>
+    <hr><button type="button" data-m="delete" class="danger" ${running ? "disabled title=\"Stop it before deleting\"" : ""}>🗑 Delete${running ? " (stop first)" : ""}</button>`;
+  document.body.appendChild(m);
+  const rect = anchor.getBoundingClientRect();
+  m.style.top = `${Math.max(8, Math.min(window.innerHeight - m.offsetHeight - 8, rect.bottom + 4))}px`;
+  m.style.left = `${Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, rect.right - m.offsetWidth))}px`;
+  m.addEventListener("click", async (ev) => {
+    const b = ev.target.closest("[data-m]");
+    if (!b || b.disabled) return;
+    closeOverflowMenu();
+    const act = b.dataset.m;
+    if (act === "logs") openLogs(r);
+    else if (act === "edit") openRecipeEditor(r);
+    else if (act === "duplicate") await duplicateRecipe(r);
+    else if (act === "copyto") openCopyTo(r);
+    else if (act === "pin") {
+      try { await api(`/api/recipes/${r.id}`, { method: "PUT", body: recipeBodyFrom(r, { pinned: !r.pinned }) }); await loadRecipes(); }
+      catch (e) { toast(e.message, "bad"); }
+    } else if (act === "delete") await deleteRecipe(r);
+  });
+  setTimeout(() => document.addEventListener("click", closeOverflowMenu, { once: true }), 0);
+}
+
+/* ---------------- inline activity strip: cause and effect on one screen ---------------- */
+async function loadDashActivity() {
+  try {
+    const events = await api("/api/events?limit=4");
+    const box = $("#dash-activity");
+    box.innerHTML = events.length ? `<h2>Recent activity</h2><ul>${events.map((e) => `
+      <li><time>${esc(fmtClock(new Date(e.ts)))}</time>
+        <span title="${esc(blurHostText(e.message || e.action))}"><b>${esc(blurHostText(e.target || e.source))}</b> ${esc(blurHostText(e.message || e.action))}</span>
+        ${e.source !== "health" ? `<span class="${e.ok ? "ok" : "bad"}">${e.ok ? "✓" : "✗"}</span>` : ""}</li>`).join("")}
+      </ul><button type="button" class="more" id="dash-activity-more">View all activity →</button>` : "";
+    $("#dash-activity-more")?.addEventListener("click", () => $('.tab[data-tab="activity"]').click());
+  } catch { /* keep the last strip */ }
+}
+
+/* ---------------- drag to reorder (Sort: custom) ---------------- */
+let dragId = null;
+document.addEventListener("dragstart", (ev) => {
+  const c = ev.target.closest?.(".card[draggable='true']");
+  if (!c) return;
+  dragId = Number(c.dataset.id);
+  c.classList.add("dragging");
+  ev.dataTransfer.effectAllowed = "move";
+  try { ev.dataTransfer.setData("text/plain", String(dragId)); } catch { /* some browsers require this */ }
+});
+document.addEventListener("dragend", () => {
+  $$(".card.dragging, .card.drag-over").forEach((c) => c.classList.remove("dragging", "drag-over"));
+  dragId = null;
+});
+document.addEventListener("dragover", (ev) => {
+  const c = ev.target.closest?.(".card[draggable='true']");
+  if (!c || dragId == null) return;
+  ev.preventDefault();
+  c.classList.add("drag-over");
+});
+document.addEventListener("dragleave", (ev) => { ev.target.closest?.(".card")?.classList.remove("drag-over"); });
+document.addEventListener("drop", (ev) => {
+  const c = ev.target.closest?.(".card[draggable='true']");
+  if (!c || dragId == null) return;
+  ev.preventDefault();
+  const target = Number(c.dataset.id);
+  if (target !== dragId) {
+    const ids = state.recipes.map((r) => r.id);
+    const order = view.order.filter((id) => ids.includes(id));
+    for (const id of ids) if (!order.includes(id)) order.push(id);
+    order.splice(order.indexOf(dragId), 1);
+    order.splice(order.indexOf(target), 0, dragId);
+    view.order = order;
+    saveView();
+    renderRecipes();
+    toast("Order updated", "ok");
+  }
+  dragId = null;
+});
 
 /* ---------------- recipe editor ---------------- */
 
@@ -3391,12 +3993,21 @@ document.addEventListener("keydown", (ev) => {
     if (btn) { btn.click(); ev.preventDefault(); }
     return;
   }
+  if (card && (ev.key === "Enter" || ev.key === " ")) { openDrawer(Number(card.dataset.id)); ev.preventDefault(); return; }
   if (TAB_KEYS[k]) { $(`.tab[data-tab="${TAB_KEYS[k]}"]`).click(); ev.preventDefault(); return; }
   if (k === "/") { $('.tab[data-tab="recipes"]').click(); $("#recipe-search").focus(); ev.preventDefault(); return; }
   if (k === "i" && state.tab === "recipes") { $("#btn-add-recipe").click(); ev.preventDefault(); return; }
   if (k === "t") { $("#btn-theme").click(); return; }
   if (k === "b") { $("#btn-blur").click(); return; }
-  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · i add a recipe · arrows move between cards · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
+  if (k === "?") { toast("Shortcuts: 1–6 tabs · / search · i add a recipe · arrows move between cards · Enter details · s start, x stop, r restart, l logs, e edit on the focused card · t theme · b blur"); return; }
+});
+// Esc peels the top layer: overflow menu, drawer, filter popover (dialogs handle their own Esc).
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape" || document.querySelector("dialog[open]")) return;
+  closeOverflowMenu();
+  if (drawerId != null) closeDrawer();
+  $("#filter-pop").classList.add("hidden");
+  $("#btn-filters").setAttribute("aria-expanded", "false");
 });
 
 /* ---------------- boot ---------------- */
@@ -3415,9 +4026,11 @@ async function boot() {
   await loadHosts();
   await loadWeightsList();
   await loadStartTimes();
+  try { state.schedules = await api("/api/schedules"); } catch { /* the strip then shows no next run */ }
   await loadRecipes();
+  loadDashActivity();
   resumeJobs();
-  setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); resumeJobs(); if (state.tab === "activity") loadEvents(); } }, 5000);
+  setInterval(() => { if (!document.hidden) { loadRecipes(); loadHosts(); resumeJobs(); if (state.tab === "activity") loadEvents(); if (state.tab === "recipes") { loadDashActivity(); api("/api/schedules").then((s) => { state.schedules = s; }).catch(() => { /* keep last */ }); } } }, 5000);
   // Back from sleep or another tab: catch up at once (also restarts the job poll after network errors).
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { resumeJobs(); pollJobs(); } });
   window.addEventListener("online", () => { resumeJobs(); pollJobs(); });

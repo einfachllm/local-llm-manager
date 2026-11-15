@@ -6,6 +6,34 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **The Recipes tab is now a dashboard: the machine's state first, then what runs, then the library.**
+  A host command strip shows GPU/unified memory as a bar segmented per running model with the free GB in
+  plain sight, plus GPU load, temperature, power and the next scheduled run. Running models get a wide
+  "Now serving" row with the copyable endpoint and live metrics; stopped models become compact cards that
+  state their VRAM footprint (from `est_memory_gb`, or the engine's `--gpu-memory-utilization` /
+  `--mem-fraction-static` fraction when unset), median boot time and port. The primary button follows the
+  memory math: **Start** when the model fits in free memory, **Switch to** when it must free some first.
+- **Switching shows the whole deal before it happens.** The switch preview lists what stops and how much
+  memory that frees, the boot estimate, before/after memory bars, and — when the new recipe serves the same
+  model on the same port — a green "endpoint unchanged" note, so client apps keep their base URL. Stop,
+  switch and delete offer **Undo** in the toast (delete re-creates the recipe; its schedules stay deleted,
+  as the confirm says).
+- **One toolbar instead of the filter rail.** Search, Models/Agents, status chips with counts, group and
+  sort selects, a card/list layout toggle and a Filters popover (host, engine, tags) share one line; the
+  250 px rail is gone. Named **saved views** remember a whole filter set. The list view is a dense sortable
+  table with multi-select and bulk stop/delete. "Sort: custom" enables drag-to-reorder.
+- **Click a card for a detail drawer:** full facts, health findings, live metrics, logs, and the recipe's
+  **variants** — other engines serving the same model on the same host (TensorFold's `--name` counts as a
+  served name too) — with one-click switching between them. Edit opens the full recipe editor as before.
+  Card actions collapse to one primary button plus a ⋯ menu; Delete sits away from Edit and stays disabled
+  while running.
+- **Recent activity sits under the grid** (last four events, two-line clamp, full text on hover), so cause
+  and effect stay on one screen. Keyboard: Enter/Space opens the focused card's drawer, Esc closes drawer,
+  menu and popover. All existing tabs, dialogs, shortcuts, blur/theme and multi-host behaviour are unchanged.
+  The concept, rendered views and a 36-check live verification script live in `ux-redesign/`.
+
+
 ### Added
 - **LM Studio libraries show up in the Weights tab.** Every host also scans LM Studio's model library
   (`~/.lmstudio/models`, or its older `~/.cache/lm-studio/models`) when it exists: GGUFs appear per file

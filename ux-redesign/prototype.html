@@ -1,0 +1,1103 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local LLM Manager — Dashboard concept</title>
+<style>
+/* ============ palette: derived from the app's navy DNA, pushed further ============ */
+:root{
+  --bg:#0a0f1c; --bg-glow:rgba(79,140,255,.07);
+  --panel:#101828; --panel-2:#16213a; --panel-3:#1c2a49;
+  --border:#22304e; --border-2:#33456e;
+  --text:#e6ebf5; --muted:#8d99b5; --faint:#5d6a89;
+  --accent:#4f8cff; --accent-2:#7fb0ff;
+  --green:#22c58b; --green-bg:rgba(34,197,139,.12);
+  --amber:#f0b429; --amber-bg:rgba(240,180,41,.12);
+  --red:#ef5b5b; --red-bg:rgba(239,91,91,.12);
+  --vllm:#6aa5ff; --sglang:#b78cff; --tensorfold:#34d399; --llamacpp:#f0b429; --agent:#2cc4c9;
+  --c-blue:#4f8cff; --c-teal:#2dd4bf; --c-pink:#f472b6; --c-slate:#7c8db5;
+  --shadow:0 10px 30px rgba(2,6,18,.5);
+  --radius:12px;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#eef2f9; --bg-glow:rgba(43,111,224,.06);
+  --panel:#ffffff; --panel-2:#f0f4fb; --panel-3:#e2eaf7;
+  --border:#d4ddec; --border-2:#a9bcdd;
+  --text:#17233b; --muted:#5a6a8a; --faint:#8b98b5;
+  --accent:#2b6fe0; --accent-2:#1d5bc4;
+  --green:#0f9d6c; --green-bg:rgba(15,157,108,.10);
+  --amber:#a97a0a; --amber-bg:rgba(176,122,13,.12);
+  --red:#d64545; --red-bg:rgba(214,69,69,.10);
+  --vllm:#2b6fe0; --sglang:#7d50d6; --tensorfold:#0e9f6e; --llamacpp:#a97a0a; --agent:#0e8f94;
+  --shadow:0 10px 26px rgba(30,50,90,.14);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--bg); color:var(--text);
+  font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  background-image:radial-gradient(1100px 480px at 78% -10%,var(--bg-glow),transparent 60%);
+  background-attachment:fixed;
+}
+.mono,code,pre{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select,textarea{font:inherit;color:inherit}
+::selection{background:rgba(79,140,255,.35)}
+*{scrollbar-width:thin;scrollbar-color:var(--border-2) transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:6px;border:2px solid var(--bg)}
+::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+
+/* ============ frame ============ */
+.shell{display:grid;grid-template-columns:216px minmax(0,1fr);min-height:100vh}
+.sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:14px;
+  padding:18px 12px;background:var(--panel);border-right:1px solid var(--border);z-index:30}
+.brand{font-weight:800;font-size:17px;padding:2px 10px;letter-spacing:.01em}
+.brand b{color:var(--accent)}
+.brand small{display:block;font-weight:500;font-size:11px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+.nav{display:flex;flex-direction:column;gap:3px}
+.nav button{display:flex;align-items:center;gap:10px;background:none;border:0;color:var(--muted);
+  padding:9px 12px;border-radius:9px;text-align:left;width:100%}
+.nav button:hover{color:var(--text);background:var(--panel-2)}
+.nav button.active{background:var(--panel-3);color:var(--text);box-shadow:inset 3px 0 0 var(--accent)}
+.nav .ico{width:18px;text-align:center;opacity:.9}
+.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border);padding-top:14px}
+.side-foot button{background:none;border:1px solid var(--border);color:var(--muted);padding:8px 12px;border-radius:9px;text-align:left;font-size:12.5px}
+.side-foot button:hover{color:var(--text);border-color:var(--border-2)}
+.side-foot button.on{color:var(--text);border-color:var(--accent);background:var(--panel-2)}
+.main{min-width:0;display:flex;flex-direction:column}
+.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;
+  padding:12px 26px;background:color-mix(in srgb,var(--panel) 86%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.topbar h1{font-size:16px;margin:0;font-weight:700}
+.topbar .sub{color:var(--faint);font-size:12.5px}
+.hamburger{display:none;background:none;border:1px solid var(--border);border-radius:8px;padding:5px 10px}
+.conn{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+.conn i{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+.content{padding:22px 26px 40px;max-width:1660px;width:100%;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+
+/* ============ buttons ============ */
+.btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border-2);background:var(--panel-2);
+  padding:7px 14px;border-radius:9px;font-weight:600;font-size:13px;transition:transform .12s,background .15s,border-color .15s,box-shadow .15s;white-space:nowrap}
+.btn:hover{border-color:var(--accent);transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn.primary{background:linear-gradient(135deg,var(--accent),#3b6fe0);border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(79,140,255,.3)}
+.btn.primary:hover{box-shadow:0 6px 18px rgba(79,140,255,.45)}
+.btn.go{background:var(--green-bg);border-color:color-mix(in srgb,var(--green) 55%,transparent);color:var(--green)}
+.btn.stop{background:var(--red-bg);border-color:color-mix(in srgb,var(--red) 55%,transparent);color:var(--red)}
+.btn.ghost{background:transparent;border-color:var(--border);color:var(--muted);font-weight:500}
+.btn.ghost:hover{color:var(--text)}
+.btn.danger{color:var(--red)}
+.btn.small{padding:5px 11px;font-size:12.5px;border-radius:8px}
+.btn.icon{padding:5px 9px}
+.iconbtn{background:none;border:0;color:var(--faint);padding:4px 7px;border-radius:7px;font-size:14px;line-height:1}
+.iconbtn:hover{color:var(--text);background:var(--panel-3)}
+.iconbtn.on{color:var(--amber)}
+
+/* ============ host command strip ============ */
+.hoststrip{display:grid;grid-template-columns:auto minmax(260px,1fr) auto auto;gap:22px;align-items:center;
+  background:linear-gradient(180deg,var(--panel-2),var(--panel));border:1px solid var(--border);border-radius:var(--radius);
+  padding:16px 20px;position:relative;overflow:hidden;animation:rise .5s both}
+.hoststrip::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;
+  background:linear-gradient(90deg,var(--accent),var(--sglang),var(--tensorfold),transparent)}
+.hs-host{display:flex;flex-direction:column;gap:3px;min-width:170px}
+.hs-host .name{font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px}
+.hs-host .name i{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 9px var(--green);animation:pulse 2.4s infinite}
+.hs-host .plat{color:var(--faint);font-size:11.5px}
+.hs-vram{min-width:0}
+.hs-vram .lbl{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--muted);margin-bottom:6px}
+.hs-vram .lbl b{color:var(--text);font-size:13.5px}
+.hs-vram .lbl .free{color:var(--green);font-weight:700}
+.vrambar{height:14px;border-radius:7px;background:var(--panel-3);overflow:hidden;display:flex;border:1px solid var(--border)}
+.vrambar .seg{height:100%;transition:width .6s cubic-bezier(.2,.8,.2,1);position:relative}
+.vrambar .seg+.seg{border-left:2px solid var(--bg)}
+.vramlegend{display:flex;gap:12px;flex-wrap:wrap;margin-top:7px;font-size:11.5px;color:var(--muted)}
+.vramlegend span{display:inline-flex;align-items:center;gap:6px}
+.vramlegend i{width:8px;height:8px;border-radius:3px;display:inline-block}
+.hs-stats{display:flex;gap:18px}
+.stat{display:flex;flex-direction:column;gap:1px;min-width:64px}
+.stat .v{font-size:17px;font-weight:700;font-family:ui-monospace,Menlo,monospace}
+.stat .k{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.07em}
+.hs-next{border-left:1px solid var(--border);padding-left:20px;max-width:232px}
+.hs-next .k{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px}
+.hs-next .v{font-size:12.5px;color:var(--muted)}
+.hs-next .v b{color:var(--text)}
+
+/* ============ toolbar ============ */
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;animation:rise .5s .06s both}
+.search{flex:1 1 240px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);
+  border-radius:10px;padding:8px 13px;min-width:200px}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(79,140,255,.15)}
+.search input{flex:1;background:none;border:0;outline:0;color:var(--text);font-size:13px;min-width:0}
+.search input::placeholder{color:var(--faint)}
+.search .key{font-size:10.5px;color:var(--faint);border:1px solid var(--border);border-radius:5px;padding:1px 6px}
+.seg{display:inline-flex;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px}
+.seg button{border:0;background:none;color:var(--muted);padding:6px 12px;border-radius:8px;font-size:12.5px;font-weight:600}
+.seg button.on{background:var(--panel-3);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.25)}
+.chips{display:inline-flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--border);background:var(--panel);color:var(--muted);border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600}
+.chip:hover{border-color:var(--border-2);color:var(--text)}
+.chip.on{background:var(--panel-3);border-color:var(--accent);color:var(--accent-2)}
+.chip .n{opacity:.65;font-weight:500;margin-left:4px}
+select.sel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-size:12.5px;color:var(--muted);outline:0}
+select.sel:hover{border-color:var(--border-2)}
+.views-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--faint)}
+.views-row .chip{padding:4px 10px}
+.views-row .chip .x{margin-left:6px;opacity:.6}
+
+/* ============ sections ============ */
+.sec-head{display:flex;align-items:baseline;gap:12px;margin:2px 0 10px}
+.sec-head h2{margin:0;font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.sec-head .cnt{font-size:12px;color:var(--faint)}
+.sec-head .hint{margin-left:auto;font-size:12px;color:var(--faint)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(305px,1fr));gap:14px}
+
+/* ============ serving (running) card ============ */
+.serving-card{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) auto;gap:22px;align-items:center;
+  background:linear-gradient(120deg,color-mix(in srgb,var(--green) 7%,var(--panel)),var(--panel) 55%);
+  border:1px solid color-mix(in srgb,var(--green) 40%,var(--border));border-radius:var(--radius);
+  padding:18px 22px;box-shadow:var(--shadow);animation:rise .5s .1s both;position:relative;overflow:hidden}
+.serving-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--green)}
+.sv-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sv-title .dot{width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green);animation:pulse 2s infinite}
+.sv-title h3{margin:0;font-size:17px;font-weight:700}
+.sv-sub{color:var(--muted);font-size:12.5px;margin-top:5px}
+.sv-status{display:flex;gap:8px;align-items:center;margin-top:9px;flex-wrap:wrap}
+.endpoint{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--border);
+  border-radius:9px;padding:8px 12px;margin-top:10px;max-width:430px}
+.endpoint code{font-size:12.5px;color:var(--accent-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.endpoint .copy{margin-left:auto}
+.sv-metrics{display:flex;flex-direction:column;gap:8px;min-width:0}
+.sv-metrics .row{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.sv-metrics .row b{color:var(--text);font-family:ui-monospace,Menlo,monospace}
+.spark{width:100%;height:38px;display:block}
+.sv-actions{display:flex;flex-direction:column;gap:8px;align-items:stretch;min-width:118px}
+.sv-actions .row2{display:flex;gap:8px}
+.sv-actions .row2 .btn{flex:1;justify-content:center}
+
+/* ============ pills & badges ============ */
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;border-radius:999px;padding:3px 11px;letter-spacing:.02em}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.ready{color:var(--green);background:var(--green-bg)}
+.pill.stopped{color:var(--muted);background:var(--panel-3)}
+.pill.starting{color:var(--amber);background:var(--amber-bg)}
+.pill.starting::before{animation:pulse 1s infinite}
+.pill.error{color:var(--red);background:var(--red-bg)}
+.pill.busy{color:var(--accent-2);background:rgba(79,140,255,.14)}
+.badge{font-size:10px;font-weight:800;letter-spacing:.08em;border-radius:6px;padding:3px 8px;text-transform:uppercase}
+.badge.vllm{color:var(--vllm);background:color-mix(in srgb,var(--vllm) 14%,transparent)}
+.badge.sglang{color:var(--sglang);background:color-mix(in srgb,var(--sglang) 14%,transparent)}
+.badge.tensorfold{color:var(--tensorfold);background:color-mix(in srgb,var(--tensorfold) 14%,transparent)}
+.badge.llamacpp{color:var(--llamacpp);background:color-mix(in srgb,var(--llamacpp) 14%,transparent)}
+.badge.agent{color:var(--agent);background:color-mix(in srgb,var(--agent) 14%,transparent)}
+.tag{font-size:11px;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:2px 8px;background:none}
+.tag:hover{color:var(--accent-2);border-color:var(--accent)}
+
+/* ============ compact library card ============ */
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:15px 16px 13px;
+  display:flex;flex-direction:column;gap:9px;position:relative;overflow:hidden;cursor:pointer;max-width:760px;
+  transition:transform .15s,border-color .15s,box-shadow .15s;animation:rise .45s both;animation-delay:calc(var(--i)*45ms)}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--rc,var(--c-slate));opacity:.85}
+.card:hover{transform:translateY(-2px);border-color:var(--border-2);box-shadow:var(--shadow)}
+.card.dragging{opacity:.4}
+.card.dragover{border-color:var(--accent);border-style:dashed}
+.card-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card-head .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.dot.ready{background:var(--green);box-shadow:0 0 8px var(--green)}
+.dot.stopped{background:var(--faint)}
+.dot.starting{background:var(--amber);animation:pulse 1s infinite}
+.dot.error{background:var(--red)}
+.card-head h3{margin:0;font-size:14.5px;font-weight:700;flex:1;min-width:0;overflow-wrap:anywhere}
+.card-desc{color:var(--muted);font-size:12px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.8em}
+.card-facts{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);border-top:1px solid var(--border);padding-top:9px}
+.card-facts b{color:var(--text);font-family:ui-monospace,Menlo,monospace;font-weight:600}
+.card-facts span{display:inline-flex;gap:5px;align-items:center;white-space:nowrap}
+.fit{font-size:11.5px;border-radius:8px;padding:6px 10px;display:flex;gap:7px;align-items:center;line-height:1.35}
+.fit.ok{color:var(--green);background:var(--green-bg)}
+.fit.swap{color:var(--accent-2);background:rgba(79,140,255,.10)}
+.fit.warn{color:var(--amber);background:var(--amber-bg)}
+.finding{font-size:11.5px;color:var(--amber);background:var(--amber-bg);border-radius:8px;padding:6px 10px;display:flex;gap:7px;align-items:flex-start;line-height:1.35}
+.card-actions{display:flex;gap:8px;align-items:center;margin-top:auto}
+.card-actions .btn.primary,.card-actions .btn.go{flex:1;justify-content:center}
+.card-foot{display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-height:20px}
+.served-chip{font-size:11px;color:var(--faint);font-family:ui-monospace,Menlo,monospace;margin-left:auto;display:inline-flex;gap:5px;align-items:center}
+.served-chip b{color:var(--muted);font-weight:600}
+.bootline{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--amber)}
+.bootline .bar{flex:1;height:5px;border-radius:3px;background:var(--panel-3);overflow:hidden}
+.bootline .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--amber),var(--green));border-radius:3px;transition:width .5s}
+
+/* overflow menu */
+.menu{position:absolute;z-index:60;background:var(--panel-2);border:1px solid var(--border-2);border-radius:10px;
+  box-shadow:var(--shadow);padding:5px;display:flex;flex-direction:column;min-width:172px;animation:pop .12s both}
+.menu button{display:flex;gap:9px;align-items:center;background:none;border:0;text-align:left;padding:8px 11px;border-radius:7px;font-size:12.5px;color:var(--text)}
+.menu button:hover{background:var(--panel-3)}
+.menu button.danger{color:var(--red)}
+.menu hr{border:0;border-top:1px solid var(--border);margin:4px 6px}
+
+/* ============ agent row ============ */
+.agent-row{display:flex;gap:14px;align-items:center;background:var(--panel);border:1px solid var(--border);
+  border-left:3px solid var(--agent);border-radius:var(--radius);padding:13px 18px;cursor:pointer;animation:rise .4s both}
+.agent-row:hover{border-color:var(--border-2)}
+.agent-row .aico{font-size:20px}
+.agent-row .amain{flex:1;min-width:0}
+.agent-row h3{margin:0;font-size:14px;display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.agent-row .asub{color:var(--muted);font-size:12px;margin-top:3px}
+
+/* ============ list view ============ */
+.tablewrap{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:auto;animation:rise .4s both}
+table.list{width:100%;border-collapse:collapse;font-size:12.5px;min-width:900px}
+table.list th{position:sticky;top:0;background:var(--panel-2);color:var(--faint);text-transform:uppercase;font-size:10.5px;letter-spacing:.08em;
+  text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+table.list th:hover{color:var(--text)}
+table.list td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap}
+table.list tr:last-child td{border-bottom:0}
+table.list tbody tr{cursor:pointer;transition:background .12s}
+table.list tbody tr:hover{background:var(--panel-2)}
+table.list tr.running{box-shadow:inset 3px 0 0 var(--green)}
+table.list .nm{font-weight:700;font-size:13px;display:flex;gap:8px;align-items:center}
+table.list .mono{font-size:12px;color:var(--muted)}
+table.list .ep{color:var(--accent-2)}
+.bulkbar{display:flex;gap:10px;align-items:center;background:var(--panel-3);border:1px solid var(--accent);
+  border-radius:10px;padding:8px 14px;font-size:12.5px;animation:pop .15s both}
+
+/* ============ activity strip ============ */
+.activity{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px 18px;animation:rise .5s .2s both}
+.activity h2{margin:0 0 8px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+.activity ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.activity li{display:flex;gap:12px;font-size:12px;color:var(--muted);align-items:baseline}
+.activity li time{color:var(--faint);font-family:ui-monospace,Menlo,monospace;font-size:11px;flex:none;width:44px}
+.activity li b{color:var(--text);font-weight:600}
+.activity .more{margin-left:auto;background:none;border:0;color:var(--accent-2);font-size:12px;padding:0}
+
+/* ============ drawer ============ */
+.scrim{position:fixed;inset:0;background:rgba(4,8,18,.55);backdrop-filter:blur(2px);z-index:40;opacity:0;pointer-events:none;transition:opacity .2s}
+.scrim.show{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:460px;max-width:94vw;background:var(--panel);border-left:1px solid var(--border-2);
+  z-index:50;transform:translateX(102%);transition:transform .25s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;box-shadow:var(--shadow)}
+.drawer.show{transform:none}
+.drawer-head{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--border)}
+.drawer-head h3{margin:0;font-size:16px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drawer-body{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:16px}
+.drawer-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap}
+.dsec{display:flex;flex-direction:column;gap:8px}
+.dsec>h4{margin:0;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+.kv{display:grid;grid-template-columns:112px 1fr;gap:6px 12px;font-size:12.5px;margin:0}
+.kv dt{color:var(--faint)}
+.kv dd{margin:0;color:var(--text);word-break:break-word}
+.kv dd.mono{font-size:12px}
+.variant{display:flex;align-items:center;gap:10px;background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:9px 12px}
+.variant .vname{flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow-wrap:anywhere}
+.variant.current{border-color:var(--green)}
+.logsbox{background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:11px;line-height:1.55;
+  color:var(--muted);max-height:170px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+.logsbox .ok{color:var(--green)} .logsbox .warn{color:var(--amber)}
+details.edit summary{cursor:pointer;color:var(--accent-2);font-size:12.5px;font-weight:600}
+.editform{display:flex;flex-direction:column;gap:9px;margin-top:10px}
+.editform label{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--faint)}
+.editform input,.editform textarea{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12.5px;color:var(--text);outline:0}
+.editform input:focus,.editform textarea:focus{border-color:var(--accent)}
+
+/* ============ dialogs ============ */
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--border-2);border-radius:14px;box-shadow:var(--shadow);
+  padding:0;max-width:min(560px,94vw);width:560px}
+dialog.wide{width:720px;max-width:min(720px,94vw)}
+dialog::backdrop{background:rgba(4,8,18,.6);backdrop-filter:blur(3px)}
+.dlg-head{display:flex;align-items:center;gap:10px;padding:16px 22px;border-bottom:1px solid var(--border)}
+.dlg-head h3{margin:0;font-size:15.5px;flex:1}
+.dlg-body{padding:18px 22px;display:flex;flex-direction:column;gap:14px;max-height:70vh;overflow-y:auto}
+.dlg-foot{display:flex;gap:9px;justify-content:flex-end;padding:14px 22px;border-top:1px solid var(--border)}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0}
+.steps li{display:flex;gap:13px;padding:9px 0;position:relative;font-size:13px;color:var(--muted)}
+.steps li b{color:var(--text)}
+.steps li .n{flex:none;width:24px;height:24px;border-radius:50%;background:var(--panel-3);border:1px solid var(--border-2);
+  display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:var(--accent-2)}
+.steps li:not(:last-child)::after{content:"";position:absolute;left:12px;top:36px;bottom:-4px;width:1px;background:var(--border-2)}
+.mem-compare{display:flex;flex-direction:column;gap:8px;background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:13px 15px}
+.mem-compare .row{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--muted)}
+.mem-compare .row .lab{width:52px;flex:none}
+.mem-compare .vrambar{flex:1;height:11px}
+.mem-compare .row .val{width:110px;text-align:right;font-family:ui-monospace,Menlo,monospace;flex:none}
+.ep-note{display:flex;gap:9px;font-size:12.5px;border-radius:9px;padding:10px 13px;line-height:1.45}
+.ep-note.same{color:var(--green);background:var(--green-bg)}
+.ep-note.new{color:var(--accent-2);background:rgba(79,140,255,.1)}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.form-grid label{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--faint)}
+.form-grid label.span2{grid-column:span 2}
+.form-grid input,.form-grid select,.form-grid textarea{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;color:var(--text);outline:0}
+.form-grid input:focus,.form-grid select:focus,.form-grid textarea:focus{border-color:var(--accent)}
+
+/* ============ toasts ============ */
+#toasts{position:fixed;right:22px;bottom:22px;z-index:90;display:flex;flex-direction:column;gap:9px;max-width:380px}
+.toast{display:flex;gap:11px;align-items:center;background:var(--panel-2);border:1px solid var(--border-2);border-radius:11px;
+  padding:11px 15px;font-size:12.5px;box-shadow:var(--shadow);animation:toastin .25s both}
+.toast.out{animation:toastout .25s both}
+.toast .tico{font-size:15px}
+.toast.ok .tico{color:var(--green)} .toast.warn .tico{color:var(--amber)} .toast.err .tico{color:var(--red)}
+.toast button{background:none;border:0;color:var(--accent-2);font-weight:700;font-size:12.5px;padding:2px 4px}
+.empty{background:var(--panel);border:1px dashed var(--border-2);border-radius:var(--radius);padding:34px;text-align:center;color:var(--muted);font-size:13px}
+.empty b{color:var(--text)}
+.group-head{display:flex;align-items:center;gap:9px;margin:14px 0 9px;font-size:13px;font-weight:700;color:var(--muted)}
+.group-head .cnt{font-weight:500;font-size:12px;color:var(--faint)}
+
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes toastin{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes toastout{to{opacity:0;transform:translateY(8px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ============ responsive ============ */
+@media (max-width:1360px){.hoststrip{grid-template-columns:auto minmax(220px,1fr) auto}.hs-next{display:none}}
+@media (max-width:1100px){.serving-card{grid-template-columns:1fr}.sv-actions{flex-direction:row;flex-wrap:wrap}.hoststrip{grid-template-columns:1fr;gap:14px}.hs-stats{justify-content:flex-start}}
+@media (max-width:900px){
+  .shell{grid-template-columns:1fr}
+  .sidebar{position:fixed;left:0;top:0;bottom:0;width:230px;transform:translateX(-102%);transition:transform .22s}
+  .sidebar.open{transform:none}
+  .hamburger{display:block}
+  .content{padding:16px 14px 34px}
+  .topbar{padding:10px 14px}
+}
+@media (max-width:700px){.topbar{flex-wrap:wrap;row-gap:8px}.topbar .sub{display:none}.conn{font-size:11px}}
+@media (max-width:560px){.grid{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.form-grid label.span2{grid-column:span 1}.drawer{width:100vw;max-width:100vw}.hs-vram .lbl{flex-wrap:wrap;gap:4px}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">Local LLM <b>Manager</b><small>dashboard concept · v0.4</small></div>
+    <nav class="nav" aria-label="Sections">
+      <button class="active"><span class="ico">▦</span> Dashboard</button>
+      <button data-other="Schedules"><span class="ico">◷</span> Schedules</button>
+      <button data-other="Activity"><span class="ico">≣</span> Activity</button>
+      <button data-other="Hosts"><span class="ico">⌂</span> Hosts</button>
+      <button data-other="Images"><span class="ico">🐳</span> Images</button>
+      <button data-other="Weights"><span class="ico">⚖</span> Weights</button>
+    </nav>
+    <div class="side-foot">
+      <button id="btn-blur" aria-pressed="false">🙈 Blur addresses</button>
+      <button id="btn-theme">🌙 Dark</button>
+      <button id="btn-reset" title="Restore the seeded demo data">↺ Reset demo data</button>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button class="hamburger" id="btn-nav" aria-label="Open menu">☰</button>
+      <h1>Dashboard</h1><span class="sub">gpu-workstation</span>
+      <div class="conn"><i></i> live · polled 2 s ago</div>
+      <button class="btn primary" id="btn-add">＋ Add recipe</button>
+    </header>
+    <div class="content">
+      <section class="hoststrip" id="hoststrip" aria-label="Host health"></section>
+      <section class="toolbar" id="toolbar" aria-label="Filters"></section>
+      <div class="views-row" id="views-row"></div>
+      <div id="bulkbar-slot"></div>
+      <section id="serving-sec"></section>
+      <section id="library-sec"></section>
+      <section class="activity" id="activity" aria-label="Recent activity"></section>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Recipe details"></aside>
+
+<dialog id="dlg-switch"><div id="switch-body"></div></dialog>
+<dialog id="dlg-confirm"><div id="confirm-body"></div></dialog>
+<dialog id="dlg-add" class="wide"><div id="add-body"></div></dialog>
+<dialog id="dlg-logs" class="wide"><div id="logs-body"></div></dialog>
+<div id="toasts" aria-live="polite"></div>
+
+<script>
+"use strict";
+/* ================= seeded demo data — mirrors the real manager.db ================= */
+const TOTAL = 130.6, HOST_IP = "192.168.1.50", HOST_NAME = "gpu-workstation";
+const ENGINES = {vllm:{label:"vLLM"},sglang:{label:"SGLang"},tensorfold:{label:"TensorFold"},llamacpp:{label:"llama.cpp"}};
+const COLORS = {blue:"var(--c-blue)",teal:"var(--c-teal)",pink:"var(--c-pink)",slate:"var(--c-slate)"};
+const KEY = "llm-dash-concept-v1";
+const now = Date.now();
+function seed(){return {
+  recipes:[
+    {id:3,name:"nemotron-3.5-super-vl",kind:"model",engine:"vllm",model:"NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",extra:"+ LiLiCorr drafter",
+     served:"nemotron-3.5-super-vl",port:8100,image:"vllm/vllm-openai:v0.32.0",runtime:"docker",desc:"120B vision-language MoE, NVFP4, DFlash speculative decoding",
+     tags:[],color:"slate",est:106,boot:658,status:"stopped",pinned:false,exit:"Exited (137) · 1 h ago",
+     findings:["Last exit was code 137 (OOM kill). Lower --gpu-memory-utilization from 0.75 or stop other models first."],updated:now-3600e3,hist:[]},
+    {id:5,name:"qwen3.8-dflash",kind:"model",engine:"vllm",model:"Qwen3.8-27B-NVFP4",extra:"+ DFlash2 drafter",
+     served:"qwen3.8",port:8101,image:"vllm/vllm-openai:v0.33.0",runtime:"docker",desc:"Qwen3.8-27B-NVFP4 with the DFlash2 drafter via vLLM — speculative decoding",
+     tags:["qwen3.8","dflash2"],color:"blue",est:112,boot:500,status:"stopped",pinned:false,exit:"Exited (0) · 52 m ago",findings:[],updated:now-3120e3,hist:[]},
+    {id:7,name:"qwen3.8-sglang",kind:"model",engine:"sglang",model:"Qwen3.8-27B-NVFP4",extra:"+ DFlash2 drafter",
+     served:"qwen3.8",port:8101,image:"lmsysorg/sglang:v0.5.23",runtime:"docker",desc:"Qwen3.8-27B-NVFP4 with the DFlash2 drafter via SGLang — speculative decoding",
+     tags:["qwen3.8","dflash2"],color:"teal",est:115,boot:461,status:"ready",pinned:true,vram:115.1,since:now-48*60e3,exit:"",findings:[],updated:now-2900e3,
+     hist:Array.from({length:40},()=>0)},
+    {id:6,name:"tensorfold-qwen38-27b",kind:"model",engine:"tensorfold",model:"Qwen3.8-27B-NVFP4",extra:"+ DFlash2 drafter",
+     served:"qwen3.8",port:8102,image:"",runtime:"process",desc:"Qwen3.8-27B-NVFP4 with the DFlash2 drafter, native TensorFold CUDA engine",
+     tags:["qwen3.8"],color:"pink",est:64,boot:95,status:"stopped",pinned:false,exit:"Stopped · 2 h ago",findings:[],updated:now-7200e3,hist:[]},
+  ],
+  events:[
+    {t:now-48*60e3,who:"qwen3.8-sglang",what:"ready in 7 m 41 s",kind:"ok"},
+    {t:now-56*60e3,who:"qwen3.8-dflash",what:"stopped (switch to sglang)",kind:"act"},
+    {t:now-63*60e3,who:"system",what:"page cache dropped · 118 GB freed",kind:"act"},
+    {t:now-3600e3,who:"nemotron-3.5-super-vl",what:"exited (137) — OOM kill",kind:"warn"},
+  ],
+  views:[], order:[3,5,7,6],
+  prefs:{theme:"dark",blur:false,view:"cards",kind:"",status:"",group:"",sort:"status",q:""},
+  nextSched:{time:"22:00",label:"switch → qwen3.8-dflash",days:"weekdays"}
+};}
+let db;
+try{db=JSON.parse(localStorage.getItem(KEY))||seed();}catch(e){db=seed();}
+if(!db.recipes)db=seed();
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(db));}catch(e){}};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtDur=s=>{s=Math.round(s);const m=Math.floor(s/60);return m?`${m}m ${String(s%60).padStart(2,"0")}s`:`${s}s`;};
+const fmtUp=ms=>{const m=Math.floor(ms/60e3);return m<60?`${m} m`:`${Math.floor(m/60)} h ${m%60} m`;};
+const fmtTime=t=>new Date(t).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+const RUNNING=r=>r.status==="ready"||r.status==="starting";
+const usedVram=()=>db.recipes.filter(r=>r.kind==="model"&&RUNNING(r)).reduce((a,r)=>a+(r.status==="ready"?(r.vram??r.est):r.est*bootFrac(r)),0);
+const freeVram=()=>Math.max(0,TOTAL-usedVram());
+const bootFrac=r=>r.startAt?Math.min(1,(Date.now()-r.startAt)/r.bootDemo):0;
+const endpoint=r=>`http://${db.prefs.blur?"••••••":HOST_IP}:${r.port}/v1`;
+const variantsOf=r=>db.recipes.filter(x=>x.kind==="model"&&x.served===r.served&&x.id!==r.id);
+const byId=id=>db.recipes.find(r=>r.id===id);
+let drawerId=null, menuFor=null, bulk=new Set(), logTimer=null;
+
+/* ================= toasts ================= */
+function toast(msg,{kind="ok",undo=null,timeout=5200}={}){
+  const el=document.createElement("div");el.className=`toast ${kind}`;
+  el.innerHTML=`<span class="tico">${kind==="ok"?"✓":kind==="warn"?"⚠":"✕"}</span><span>${msg}</span>`;
+  if(undo){const b=document.createElement("button");b.textContent="Undo";b.onclick=()=>{undo();el.remove();};el.appendChild(b);}
+  $("#toasts").appendChild(el);
+  setTimeout(()=>{el.classList.add("out");setTimeout(()=>el.remove(),260);},timeout);
+}
+function logEvent(who,what,kind="act"){db.events.unshift({t:Date.now(),who,what,kind});db.events=db.events.slice(0,40);}
+
+/* ================= actions (simulated backend) ================= */
+function snapshot(){return JSON.parse(JSON.stringify(db.recipes.map(r=>({id:r.id,status:r.status,vram:r.vram,since:r.since,startAt:r.startAt}))));}
+function restore(snap){for(const s of snap){const r=byId(s.id);if(r)Object.assign(r,s);}save();renderAll();}
+function startRecipe(r){
+  if(r.est>freeVram()+0.5){openSwitch(r);return;}
+  r.status="starting";r.startAt=Date.now();r.bootDemo=6000;r.hist=Array.from({length:40},()=>0);
+  logEvent(r.name,"start triggered");save();renderAll();
+  toast(`Starting <b>${esc(r.name)}</b> — ready in ~${fmtDur(r.boot)} <span style="color:var(--faint)">(demo: time compressed)</span>`,{kind:"warn"});
+}
+function finishBoot(r){
+  r.status="ready";r.vram=r.est;r.since=Date.now();r.startAt=null;r.exit="";
+  logEvent(r.name,`ready in ${fmtDur(r.boot)}`,"ok");save();renderAll();
+  toast(`<b>${esc(r.name)}</b> is ready at <code>${esc(endpoint(r))}</code>`);
+}
+function stopRecipe(r,{silent=false}={}){
+  const snap=snapshot();
+  r.status="stopped";r.vram=0;r.since=null;r.startAt=null;r.exit="Stopped · just now";
+  logEvent(r.name,"stopped");save();renderAll();
+  if(!silent)toast(`Stopped <b>${esc(r.name)}</b> — ${(r.vram||r.est).toFixed(0)} GB freed`,{undo:()=>{restore(snap);logEvent(r.name,"stop undone");save();renderAll();}});
+}
+function restartRecipe(r){
+  r.status="starting";r.startAt=Date.now();r.bootDemo=4500;r.vram=0;
+  logEvent(r.name,"restart triggered");save();renderAll();
+}
+function doSwitch(target){
+  const snap=snapshot();
+  const others=db.recipes.filter(x=>x.kind==="model"&&RUNNING(x)&&x.id!==target.id);
+  others.forEach(o=>{o.status="stopped";o.vram=0;o.since=null;o.startAt=null;o.exit="Stopped · just now (switch)";logEvent(o.name,"stopped (switch)");});
+  logEvent("system","page cache dropped");
+  target.status="starting";target.startAt=Date.now();target.bootDemo=6500;target.hist=Array.from({length:40},()=>0);
+  logEvent(target.name,"start triggered (switch)");save();renderAll();
+  toast(`Switching to <b>${esc(target.name)}</b> — ready in ~${fmtDur(target.boot)}`,{kind:"warn",
+    undo:()=>{restore(snap);logEvent(target.name,"switch undone");save();renderAll();}});
+}
+function deleteRecipe(r){
+  const snap=JSON.parse(JSON.stringify(db.recipes));const ev=[...db.events];
+  db.recipes=db.recipes.filter(x=>x.id!==r.id);db.order=db.order.filter(id=>id!==r.id);
+  if(drawerId===r.id)closeDrawer();
+  logEvent(r.name,"deleted");save();renderAll();
+  toast(`Deleted <b>${esc(r.name)}</b>`,{kind:"err",undo:()=>{db.recipes=snap;db.events=ev;save();renderAll();}});
+}
+function duplicateRecipe(r){
+  const c=JSON.parse(JSON.stringify(r));
+  c.id=Math.max(0,...db.recipes.map(x=>x.id))+1;c.name=r.name+"-copy";c.status="stopped";c.pinned=false;
+  c.vram=0;c.since=null;c.startAt=null;c.exit="";c.updated=Date.now();
+  const used=new Set(db.recipes.filter(x=>x.kind==="model").map(x=>x.port));
+  while(used.has(c.port))c.port++;
+  db.recipes.push(c);db.order.push(c.id);logEvent(c.name,"duplicated from "+r.name);save();renderAll();
+  toast(`Duplicated as <b>${esc(c.name)}</b> on port ${c.port}`);
+}
+
+/* ================= switch dialog ================= */
+function openSwitch(target){
+  const others=db.recipes.filter(x=>x.kind==="model"&&RUNNING(x)&&x.id!==target.id);
+  const freed=others.reduce((a,o)=>a+(o.vram??o.est),0);
+  const after=Math.min(TOTAL,Math.max(0,TOTAL-usedVram()+freed-target.est));
+  const sameEp=others.some(o=>o.port===target.port&&o.served===target.served);
+  const seg=(r,total)=>`<span class="seg" style="width:${(r/total*100).toFixed(1)}%;background:${COLORS[r.color]||"var(--accent)"}"></span>`;
+  const beforeSegs=db.recipes.filter(r=>r.kind==="model"&&RUNNING(r)).map(r=>seg(r.vram??r.est,TOTAL)).join("");
+  $("#switch-body").innerHTML=`
+    <div class="dlg-head"><h3>Switch to ${esc(target.name)}?</h3><button class="iconbtn" data-close>✕</button></div>
+    <div class="dlg-body">
+      <ol class="steps">
+        ${others.length?`<li><span class="n">1</span><span>Stop <b>${others.map(o=>esc(o.name)).join(", ")}</b> — frees <b>${freed.toFixed(1)} GB</b> of VRAM</span></li>
+        <li><span class="n">2</span><span>Drop the page cache so weights load from disk cleanly</span></li>
+        <li><span class="n">3</span><span>Start <b>${esc(target.name)}</b> — ready in <b>~${fmtDur(target.boot)}</b> (median of last starts)</span></li>`
+        :`<li><span class="n">1</span><span>Start <b>${esc(target.name)}</b> — ready in <b>~${fmtDur(target.boot)}</b></span></li>`}
+      </ol>
+      <div class="mem-compare">
+        <div class="row"><span class="lab">Now</span><div class="vrambar">${beforeSegs}</div><span class="val">${usedVram().toFixed(1)} / ${TOTAL} GB</span></div>
+        <div class="row"><span class="lab">After</span><div class="vrambar">${seg(target.est,TOTAL)}</div><span class="val">${target.est.toFixed(0)} / ${TOTAL} GB</span></div>
+        <div class="row"><span class="lab"></span><span style="color:var(--green)">✓ ${after.toFixed(1)} GB headroom after the switch</span></div>
+      </div>
+      ${sameEp
+        ?`<div class="ep-note same">⇄ <span><b>Endpoint unchanged.</b> ${esc(target.name)} serves <code>${esc(target.served)}</code> on port ${target.port} — client apps keep the same base URL <code>${esc(endpoint(target))}</code> once it is ready.</span></div>`
+        :`<div class="ep-note new">→ <span>New endpoint after the switch: <code>${esc(endpoint(target))}</code> (serves <code>${esc(target.served)}</code>). Update your clients, or use a recipe that shares port ${target.port}.</span></div>`}
+    </div>
+    <div class="dlg-foot"><button class="btn ghost" data-close>Cancel</button><button class="btn primary" id="switch-go">⇄ Switch now</button></div>`;
+  const dlg=$("#dlg-switch");dlg.showModal();
+  dlg.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>dlg.close());
+  $("#switch-go").onclick=()=>{dlg.close();doSwitch(target);};
+}
+
+/* ================= confirm dialog ================= */
+function confirmDlg(title,body,okLabel,onOk,danger=true){
+  $("#confirm-body").innerHTML=`
+    <div class="dlg-head"><h3>${title}</h3><button class="iconbtn" data-close>✕</button></div>
+    <div class="dlg-body"><p style="margin:0;color:var(--muted);font-size:13px;line-height:1.55">${body}</p></div>
+    <div class="dlg-foot"><button class="btn ghost" data-close>Cancel</button><button class="btn ${danger?"stop":"primary"}" id="confirm-go">${okLabel}</button></div>`;
+  const dlg=$("#dlg-confirm");dlg.showModal();
+  dlg.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>dlg.close());
+  $("#confirm-go").onclick=()=>{dlg.close();onOk();};
+}
+
+/* ================= add recipe dialog ================= */
+function openAdd(){
+  const used=new Set(db.recipes.map(x=>x.port));let p=8100;while(used.has(p))p++;
+  $("#add-body").innerHTML=`
+    <div class="dlg-head"><h3>Add a recipe</h3><button class="iconbtn" data-close>✕</button></div>
+    <div class="dlg-body">
+      <p style="margin:0;color:var(--muted);font-size:12.5px">The real manager imports YAML or shell scripts; this concept form covers the common case. The full import flow stays available in the real app.</p>
+      <div class="form-grid">
+        <label class="span2">This recipe runs
+          <select id="add-kind"><option value="model">🧠 A model — an LLM server with an API</option><option value="agent">🤖 An agent — a program that uses a model</option></select></label>
+        <label>Name<input id="add-name" placeholder="qwen3.8-mtp" required></label>
+        <label>Engine<select id="add-engine">${Object.entries(ENGINES).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join("")}</select></label>
+        <label class="span2">Model<input id="add-model" placeholder="Qwen/Qwen3.8-27B-NVFP4"></label>
+        <label>Served as<input id="add-served" placeholder="qwen3.8"></label>
+        <label>Host port<input id="add-port" type="number" value="${p}"></label>
+        <label>Est. VRAM (GB)<input id="add-est" type="number" value="60"></label>
+        <label>Typical boot (s)<input id="add-boot" type="number" value="180"></label>
+        <label class="span2">Description<input id="add-desc" placeholder="What makes this recipe different"></label>
+        <label class="span2">Tags (comma-separated)<input id="add-tags" placeholder="qwen3.8, fp4"></label>
+      </div>
+    </div>
+    <div class="dlg-foot"><button class="btn ghost" data-close>Cancel</button><button class="btn primary" id="add-go">Create recipe</button></div>`;
+  const dlg=$("#dlg-add");dlg.showModal();
+  dlg.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>dlg.close());
+  $("#add-go").onclick=()=>{
+    const name=$("#add-name").value.trim();
+    if(!name){$("#add-name").focus();$("#add-name").style.borderColor="var(--red)";return;}
+    const kind=$("#add-kind").value;
+    const r={id:Math.max(0,...db.recipes.map(x=>x.id))+1,name,kind,engine:$("#add-engine").value,
+      model:$("#add-model").value.trim()||"unknown",extra:"",served:$("#add-served").value.trim()||name,
+      port:+$("#add-port").value||p,image:"",runtime:"docker",desc:$("#add-desc").value.trim(),
+      tags:$("#add-tags").value.split(",").map(t=>t.trim()).filter(Boolean),color:"blue",
+      est:+$("#add-est").value||60,boot:+$("#add-boot").value||180,status:"stopped",pinned:false,exit:"Never started",findings:[],updated:Date.now(),hist:[]};
+    db.recipes.push(r);db.order.push(r.id);logEvent(name,"created");save();dlg.close();renderAll();
+    toast(`Created <b>${esc(name)}</b>`);
+  };
+}
+
+/* ================= logs dialog ================= */
+function openLogs(r){
+  $("#logs-body").innerHTML=`
+    <div class="dlg-head"><h3>Logs — ${esc(r.name)}</h3>
+      <input id="logs-filter" placeholder="Filter…" style="background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--text);outline:0;width:150px">
+      <button class="iconbtn" data-close>✕</button></div>
+    <div class="dlg-body"><pre class="logsbox" id="logs-pre" style="max-height:52vh"></pre></div>
+    <div class="dlg-foot"><span style="margin-right:auto;color:var(--faint);font-size:12px" id="logs-state">● streaming (demo)</span><button class="btn ghost" data-close>Close</button></div>`;
+  const dlg=$("#dlg-logs");dlg.showModal();
+  const pre=$("#logs-pre");const filter=$("#logs-filter");
+  const lines=[
+    `[${fmtTime(Date.now()-90e3)}] INFO  loading weights from /${r.model}`,
+    `[${fmtTime(Date.now()-80e3)}] INFO  NVFP4 quantization detected · drafter mounted`,
+    `[${fmtTime(Date.now()-60e3)}] INFO  KV cache dtype fp8 · context 262144`,
+    `[${fmtTime(Date.now()-30e3)}] INFO  speculative decoding: DFLASH, 8 draft tokens`,
+    `[${fmtTime(Date.now()-10e3)}] INFO  Uvicorn running on http://0.0.0.0:${r.port}`,
+    `[${fmtTime(Date.now()-5e3)}] INFO  GET /health 200 OK`,
+  ];
+  const draw=()=>{const f=filter.value.toLowerCase();
+    pre.innerHTML=lines.filter(l=>l.toLowerCase().includes(f)).map(l=>esc(l).replace(/INFO/g,'<span class="ok">INFO</span>').replace(/WARN/g,'<span class="warn">WARN</span>')).join("\n");
+    pre.scrollTop=pre.scrollHeight;};
+  draw();filter.oninput=draw;
+  clearInterval(logTimer);
+  logTimer=setInterval(()=>{if(!dlg.open){clearInterval(logTimer);return;}
+    lines.push(`[${fmtTime(Date.now())}] INFO  ${RUNNING(r)?"GET /v1/models 200 OK · idle":"waiting for start"}`);
+    if(lines.length>200)lines.shift();draw();},1500);
+  dlg.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>{clearInterval(logTimer);dlg.close();});
+}
+
+/* ================= rendering ================= */
+function engineBadge(r){return r.kind==="agent"?`<span class="badge agent">Agent</span>`:`<span class="badge ${r.engine}">${ENGINES[r.engine]?.label??r.engine}</span>`;}
+function statusPill(r){
+  if(r.busy)return `<span class="pill busy">${esc(r.busy)}</span>`;
+  const lbl={ready:"Ready",stopped:"Stopped",starting:"Starting",error:"Error"}[r.status]??r.status;
+  return `<span class="pill ${r.status}">${lbl}</span>`;
+}
+function renderHoststrip(){
+  const running=db.recipes.filter(r=>r.kind==="model"&&RUNNING(r));
+  const used=usedVram(),free=freeVram();
+  const segs=running.map(r=>{
+    const v=r.status==="ready"?(r.vram??r.est):r.est*bootFrac(r);
+    return `<span class="seg" title="${esc(r.name)} · ${v.toFixed(1)} GB" style="width:${(v/TOTAL*100).toFixed(2)}%;background:${COLORS[r.color]||"var(--accent)"}"></span>`;
+  }).join("");
+  const legend=running.map(r=>`<span><i style="background:${COLORS[r.color]||"var(--accent)"}"></i>${esc(r.name)} <b class="mono">${(r.vram??r.est).toFixed(1)} GB</b></span>`).join("")
+    +`<span><i style="background:var(--panel-3);border:1px solid var(--border-2)"></i><b class="mono" style="color:var(--green)">${free.toFixed(1)} GB free</b></span>`;
+  $("#hoststrip").innerHTML=`
+    <div class="hs-host"><span class="name"><i></i>${esc(HOST_NAME)}</span><span class="plat">GB10 · arm64 · ${db.recipes.filter(r=>r.kind==="model").length} models · ${running.length} running</span></div>
+    <div class="hs-vram">
+      <div class="lbl"><span>GPU memory (unified)</span><span><b class="mono" data-live="vram-used">${used.toFixed(1)}</b> / ${TOTAL} GB · <span class="free mono" data-live="vram-free">${free.toFixed(1)} GB free</span></span></div>
+      <div class="vrambar" data-live="vrambar">${segs}</div>
+      <div class="vramlegend" data-live="vramlegend">${legend}</div>
+    </div>
+    <div class="hs-stats">
+      <div class="stat"><span class="v" data-live="gpu">0%</span><span class="k">GPU util</span></div>
+      <div class="stat"><span class="v">41°C</span><span class="k">Temp</span></div>
+      <div class="stat"><span class="v">87 W</span><span class="k">Power</span></div>
+    </div>
+    <div class="hs-next"><div class="k">Next schedule</div><div class="v"><b>${db.nextSched.time}</b> ${esc(db.nextSched.label)}<br><span style="color:var(--faint)">${db.nextSched.days}</span></div></div>`;
+}
+function counts(){
+  const all=db.recipes;
+  return {all:all.length,models:all.filter(r=>r.kind==="model").length,agents:all.filter(r=>r.kind==="agent").length,
+    running:all.filter(RUNNING).length,stopped:all.filter(r=>!RUNNING(r)).length};
+}
+function renderToolbar(){
+  const c=counts(),p=db.prefs;
+  $("#toolbar").innerHTML=`
+    <div class="search">⌕<input id="q" type="search" placeholder="Search name, model, engine, tag…" value="${esc(p.q)}"><span class="key">/</span></div>
+    <div class="seg" id="kind-seg" role="group">
+      <button data-kind="" class="${p.kind===""?"on":""}">All <span class="n">${c.all}</span></button>
+      <button data-kind="model" class="${p.kind==="model"?"on":""}">🧠 Models</button>
+      <button data-kind="agent" class="${p.kind==="agent"?"on":""}">🤖 Agents</button>
+    </div>
+    <div class="chips" id="status-chips">
+      <button class="chip ${p.status===""?"on":""}" data-status="">Any status</button>
+      <button class="chip ${p.status==="running"?"on":""}" data-status="running">● Running<span class="n">${c.running}</span></button>
+      <button class="chip ${p.status==="stopped"?"on":""}" data-status="stopped">○ Stopped<span class="n">${c.stopped}</span></button>
+    </div>
+    <select class="sel" id="sel-group" title="Group">
+      ${[["","Group: none"],["host","Group: host"],["engine","Group: engine"],["tag","Group: tag"]].map(([v,l])=>`<option value="${v}" ${p.group===v?"selected":""}>${l}</option>`).join("")}
+    </select>
+    <select class="sel" id="sel-sort" title="Sort">
+      ${[["status","Sort: status"],["name","Sort: name"],["port","Sort: port"],["vram","Sort: VRAM"],["boot","Sort: boot time"],["updated","Sort: edited"],["manual","Sort: custom (drag)"]].map(([v,l])=>`<option value="${v}" ${p.sort===v?"selected":""}>${l}</option>`).join("")}
+    </select>
+    <div class="seg" id="view-seg">
+      <button data-view="cards" class="${p.view==="cards"?"on":""}" title="Card view">▦</button>
+      <button data-view="list" class="${p.view==="list"?"on":""}" title="List view">☰</button>
+    </div>
+    <button class="btn ghost small" id="btn-save-view" title="Save the current filters as a view">☆ Save view</button>`;
+  $("#q").oninput=e=>{db.prefs.q=e.target.value;save();renderSections();};
+  $("#kind-seg").onclick=e=>{const b=e.target.closest("[data-kind]");if(!b)return;db.prefs.kind=b.dataset.kind;save();renderAll();};
+  $("#status-chips").onclick=e=>{const b=e.target.closest("[data-status]");if(!b)return;db.prefs.status=b.dataset.status;save();renderAll();};
+  $("#sel-group").onchange=e=>{db.prefs.group=e.target.value;save();renderSections();};
+  $("#sel-sort").onchange=e=>{db.prefs.sort=e.target.value;save();renderSections();};
+  $("#view-seg").onclick=e=>{const b=e.target.closest("[data-view]");if(!b)return;db.prefs.view=b.dataset.view;bulk.clear();save();renderAll();};
+  $("#btn-save-view").onclick=()=>{
+    const name=prompt("Name this view (current search, filters, grouping and layout):","My view");
+    if(!name)return;
+    db.views.push({name,prefs:{...db.prefs}});save();renderViews();toast(`Saved view <b>${esc(name)}</b>`);
+  };
+}
+function renderViews(){
+  const row=$("#views-row");
+  if(!db.views.length){row.innerHTML="";return;}
+  row.innerHTML=`<span>Saved views:</span>`+db.views.map((v,i)=>
+    `<button class="chip" data-vi="${i}">${esc(v.name)}<span class="x" data-vdel="${i}" title="Remove view">✕</span></button>`).join("");
+  row.onclick=e=>{
+    const del=e.target.closest("[data-vdel]");
+    if(del){db.views.splice(+del.dataset.vdel,1);save();renderViews();return;}
+    const b=e.target.closest("[data-vi]");if(!b)return;
+    db.prefs={...db.views[+b.dataset.vi].prefs};save();renderAll();
+  };
+}
+function visible(){
+  const p=db.prefs,q=p.q.toLowerCase();
+  let list=db.recipes.filter(r=>{
+    if(p.kind&&r.kind!==p.kind)return false;
+    if(p.status==="running"&&!RUNNING(r))return false;
+    if(p.status==="stopped"&&RUNNING(r))return false;
+    if(q&&![r.name,r.model,r.served,r.engine,r.image,(r.tags||[]).join(" "),r.desc].join(" ").toLowerCase().includes(q))return false;
+    return true;
+  });
+  const cmp={
+    status:(a,b)=>(RUNNING(b)-RUNNING(a))||(b.pinned-a.pinned)||a.name.localeCompare(b.name),
+    name:(a,b)=>(b.pinned-a.pinned)||a.name.localeCompare(b.name),
+    port:(a,b)=>a.port-b.port,
+    vram:(a,b)=>b.est-a.est,
+    boot:(a,b)=>a.boot-b.boot,
+    updated:(a,b)=>b.updated-a.updated,
+    manual:(a,b)=>db.order.indexOf(a.id)-db.order.indexOf(b.id),
+  }[p.sort]||((a,b)=>a.name.localeCompare(b.name));
+  return list.sort(cmp);
+}
+function fitInfo(r){
+  const free=freeVram();
+  if(r.est<=free+0.5)return {cls:"ok",icon:"✓",txt:`Fits now — ${free.toFixed(1)} GB free, needs ~${r.est} GB`,primary:"start"};
+  const running=db.recipes.filter(x=>x.kind==="model"&&RUNNING(x));
+  if(running.length){
+    const freed=running.reduce((a,o)=>a+(o.vram??o.est),0);
+    return {cls:"swap",icon:"⇄",txt:`Switch stops ${running.map(o=>o.name).join(", ")} → frees ${freed.toFixed(0)} GB`,primary:"switch"};
+  }
+  return {cls:"warn",icon:"⚠",txt:`Needs ~${r.est} GB but only ${free.toFixed(1)} GB free`,primary:"none"};
+}
+function sparkSvg(r){
+  const h=r.hist&&r.hist.length?r.hist:Array.from({length:40},()=>0);
+  const max=Math.max(10,...h);
+  const pts=h.map((v,i)=>`${(i/(h.length-1)*220).toFixed(1)},${(34-v/max*30).toFixed(1)}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 220 38" preserveAspectRatio="none" aria-hidden="true">
+    <polyline points="${pts}" fill="none" stroke="var(--green)" stroke-width="1.6" opacity=".9"/>
+    <polyline points="0,38 ${pts} 220,38" fill="var(--green)" opacity=".08" stroke="none"/></svg>`;
+}
+function servingCard(r){
+  const m=r.status==="ready";
+  return `<article class="serving-card" data-id="${r.id}">
+    <div>
+      <div class="sv-title"><span class="dot"></span><h3>${esc(r.name)}</h3>${engineBadge(r)}
+        <button class="iconbtn ${r.pinned?"on":""}" data-act="pin" title="Pin">${r.pinned?"★":"☆"}</button></div>
+      <div class="sv-sub">${esc(r.model)} ${esc(r.extra)} · serves <code>${esc(r.served)}</code></div>
+      <div class="sv-status">${statusPill(r)}<span style="color:var(--faint);font-size:12px" data-live="up-${r.id}">${m&&r.since?"up "+fmtUp(Date.now()-r.since):"booting…"}</span>
+        <span style="color:var(--faint);font-size:12px">·</span><span style="color:var(--muted);font-size:12px">${(r.vram??r.est).toFixed(1)} GB VRAM</span></div>
+      <div class="endpoint"><code>${esc(endpoint(r))}</code><button class="btn small ghost copy" data-act="copy" title="Copy base URL">⧉ Copy</button></div>
+    </div>
+    <div class="sv-metrics">
+      <div class="row"><span><b data-live="tps-${r.id}">0</b> tok/s out</span><span><b>0</b> tok/s in</span><span><b data-live="kv-${r.id}">0%</b> KV</span><span><b>0</b> requests</span><span style="color:var(--faint)">idle</span></div>
+      ${sparkSvg(r)}
+      <div class="row" style="font-size:11px;color:var(--faint)">output tok/s · last 80 s · peak 0</div>
+    </div>
+    <div class="sv-actions">
+      ${r.status==="starting"
+        ?`<div class="bootline" style="flex-direction:column;align-items:stretch;gap:6px"><span data-live="boot-${r.id}">⏳ starting…</span><span class="bar"><i data-live="bootbar-${r.id}" style="width:0%"></i></span></div>`
+        :`<button class="btn stop" data-act="stop">■ Stop</button>`}
+      <div class="row2"><button class="btn small" data-act="restart" ${r.status==="starting"?"disabled":""}>↺ Restart</button><button class="btn small ghost" data-act="logs">Logs</button></div>
+      <button class="btn small ghost" data-act="more">⋯ More</button>
+    </div>
+  </article>`;
+}
+function libCard(r,i){
+  const fit=r.kind==="model"?fitInfo(r):null;
+  const vars=r.kind==="model"?variantsOf(r):[];
+  const primary=r.status==="starting"?"":fit&&fit.primary==="start"
+    ?`<button class="btn go" data-act="start">▶ Start</button>`
+    :fit&&fit.primary==="switch"
+    ?`<button class="btn primary" data-act="switch" title="Stop other models, free memory, then start this one">⇄ Switch to</button>`
+    :`<button class="btn" disabled title="Not enough free VRAM">▶ Start</button>`;
+  return `<article class="card" data-id="${r.id}" style="--i:${i};--rc:${COLORS[r.color]||"var(--c-slate)"}" tabindex="0" draggable="${db.prefs.sort==="manual"}">
+    <div class="card-head"><span class="dot ${r.status}"></span><h3>${esc(r.name)}</h3>
+      <button class="iconbtn ${r.pinned?"on":""}" data-act="pin" title="${r.pinned?"Unpin":"Pin to top"}">${r.pinned?"★":"☆"}</button>${engineBadge(r)}</div>
+    <div class="card-desc">${esc(r.desc||r.model)}</div>
+    <div class="card-facts">
+      <span title="Estimated VRAM footprint">⛁ <b>~${r.est} GB</b></span>
+      <span title="Median time to ready">⏱ <b>~${fmtDur(r.boot)}</b></span>
+      <span title="Host port">:<b>${r.port}</b></span>
+      ${r.runtime==="process"?`<span title="Native process, no Docker">⚙ native</span>`:""}
+    </div>
+    ${r.status==="starting"
+      ?`<div class="bootline"><span data-live="boot-${r.id}">⏳ 0s / ~${fmtDur(r.boot)}</span><span class="bar"><i data-live="bootbar-${r.id}" style="width:0%"></i></span></div>`
+      :fit?`<div class="fit ${fit.cls}"><span>${fit.icon}</span><span>${esc(fit.txt)}</span></div>`:""}
+    ${r.findings?.length?`<div class="finding"><span>⚠</span><span>${esc(r.findings[0])}</span></div>`:""}
+    <div class="card-actions">${primary}<button class="btn ghost icon" data-act="more" title="More actions" aria-label="More actions">⋯</button></div>
+    <div class="card-foot">
+      ${(r.tags||[]).map(t=>`<button class="tag" data-tag="${esc(t)}">${esc(t)}</button>`).join("")}
+      ${vars.length?`<span class="served-chip" title="Same served model on ${vars.length+1} engines — click for variants">⇄ <b>${esc(r.served)}</b> · ${vars.length+1} engines</span>`
+        :r.served!==r.name?`<span class="served-chip">serves <b>${esc(r.served)}</b></span>`:""}
+    </div>
+  </article>`;
+}
+function agentRow(r){
+  return `<article class="agent-row" data-id="${r.id}">
+    <span class="aico">🤖</span>
+    <div class="amain"><h3>${esc(r.name)} ${engineBadge(r)} ${statusPill(r)}</h3>
+      <div class="asub">${esc(r.desc||"A program that uses a model")} · uses <b>${esc(r.model)}</b> · “Switch to” keeps agents running</div></div>
+    ${RUNNING(r)?`<button class="btn small stop" data-act="stop">■ Stop</button>`:`<button class="btn small go" data-act="start">▶ Start</button>`}
+    <button class="btn small ghost icon" data-act="more">⋯</button>
+  </article>`;
+}
+function listRow(r){
+  const fit=r.kind==="model"&&!RUNNING(r)?fitInfo(r):null;
+  return `<tr data-id="${r.id}" class="${RUNNING(r)?"running":""}">
+    <td><input type="checkbox" data-bulk="${r.id}" ${bulk.has(r.id)?"checked":""} title="Select"></td>
+    <td><span class="nm"><span class="dot ${r.status}"></span>${esc(r.name)} ${engineBadge(r)}</span></td>
+    <td>${statusPill(r)}</td>
+    <td class="mono">${esc(r.served)}</td>
+    <td class="mono">~${r.est} GB</td>
+    <td class="mono">~${fmtDur(r.boot)}</td>
+    <td class="mono">${r.port}</td>
+    <td class="mono ep">${RUNNING(r)?esc(endpoint(r)):"—"} ${RUNNING(r)?`<button class="iconbtn" data-act="copy" title="Copy">⧉</button>`:""}</td>
+    <td>${RUNNING(r)
+      ?`<button class="btn small stop" data-act="stop">■ Stop</button>`
+      :fit&&fit.primary==="switch"?`<button class="btn small primary" data-act="switch">⇄ Switch</button>`
+      :`<button class="btn small go" data-act="start">▶ Start</button>`}
+      <button class="btn small ghost icon" data-act="more">⋯</button></td>
+  </tr>`;
+}
+function groupKey(r){
+  const g=db.prefs.group;
+  if(g==="host")return HOST_NAME;
+  if(g==="engine")return r.kind==="agent"?"Agents":(ENGINES[r.engine]?.label??r.engine);
+  if(g==="tag")return r.tags?.[0]||"Untagged";
+  return "";
+}
+function renderSections(){
+  const list=visible();
+  const serving=list.filter(r=>RUNNING(r));
+  const rest=list.filter(r=>!RUNNING(r));
+  const c=counts();
+  /* serving (hidden in list view — the table already shows running rows) */
+  $("#serving-sec").innerHTML=serving.length&&db.prefs.view!=="list"?`
+    <div class="sec-head"><h2>Now serving</h2><span class="cnt">${serving.length} live · endpoint${serving.length>1?"s":""} ready to copy</span></div>
+    ${serving.map(r=>r.kind==="agent"?agentRow(r):servingCard(r)).join("")}`:"";
+  /* library */
+  let body="";
+  if(!list.length){
+    body=`<div class="empty">${db.prefs.q||db.prefs.status||db.prefs.kind?`No recipe matches the current filters. <button class="btn small ghost" id="clear-filters" style="margin-left:8px">Clear filters</button>`:`No recipes yet. Click <b>＋ Add recipe</b> to create one.`}</div>`;
+  }else if(db.prefs.view==="list"){
+    body=`<div class="tablewrap"><table class="list">
+      <thead><tr><th></th><th data-sort="name">Name ${db.prefs.sort==="name"?"▾":""}</th><th data-sort="status">Status ${db.prefs.sort==="status"?"▾":""}</th><th>Serves</th><th data-sort="vram">VRAM ${db.prefs.sort==="vram"?"▾":""}</th><th data-sort="boot">Boot ${db.prefs.sort==="boot"?"▾":""}</th><th data-sort="port">Port ${db.prefs.sort==="port"?"▾":""}</th><th>Endpoint</th><th></th></tr></thead>
+      <tbody>${list.map(listRow).join("")}</tbody></table></div>`;
+  }else if(db.prefs.group){
+    const groups=new Map();
+    for(const r of rest){const k=groupKey(r);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(r);}
+    body=[...groups.entries()].map(([k,items])=>`
+      <div class="group-head">${esc(k)} <span class="cnt">${items.length} recipe${items.length>1?"s":""}</span></div>
+      <div class="grid">${items.map((r,i)=>r.kind==="agent"?agentRow(r):libCard(r,i)).join("")}</div>`).join("")
+      ||`<div class="empty">Everything matching is running — see <b>Now serving</b> above.</div>`;
+  }else{
+    const agents=rest.filter(r=>r.kind==="agent"),models=rest.filter(r=>r.kind==="model");
+    body=(agents.length?`<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">${agents.map(agentRow).join("")}</div>`:"")
+      +(models.length?`<div class="grid">${models.map((r,i)=>libCard(r,i)).join("")}</div>`:"")
+      ||`<div class="empty">Everything matching is running — see <b>Now serving</b> above.</div>`;
+    if(db.prefs.kind==="agent"&&!agents.length)body=`<div class="empty">🤖 <b>No agents yet.</b> Agents are programs that use a model (e.g. a gateway). Add one with <b>＋ Add recipe → An agent</b>; “Switch to” keeps them running.</div>`;
+  }
+  const libCount=rest.length;
+  $("#library-sec").innerHTML=`
+    <div class="sec-head"><h2>${db.prefs.view==="list"?"All recipes":"Model library"}</h2>
+      <span class="cnt">${db.prefs.view==="list"?list.length+" shown":libCount+" not running"}</span>
+      <span class="hint">${db.prefs.sort==="manual"?"drag cards to reorder":"click a card for details · ⋯ for actions"}</span></div>${body}`;
+  const cf=$("#clear-filters");if(cf)cf.onclick=()=>{db.prefs.q="";db.prefs.status="";db.prefs.kind="";save();renderAll();};
+  /* bulk bar */
+  $("#bulkbar-slot").innerHTML=bulk.size?`<div class="bulkbar"><b>${bulk.size} selected</b>
+    <button class="btn small stop" id="bulk-stop">■ Stop</button>
+    <button class="btn small ghost danger" id="bulk-del">🗑 Delete</button>
+    <button class="btn small ghost" id="bulk-clear" style="margin-left:auto">Clear</button></div>`:"";
+  if(bulk.size){
+    $("#bulk-stop").onclick=()=>{const snap=snapshot();db.recipes.filter(r=>bulk.has(r.id)&&RUNNING(r)).forEach(r=>{r.status="stopped";r.vram=0;r.since=null;r.exit="Stopped · just now";});logEvent("bulk",`stopped ${bulk.size} recipes`);bulk.clear();save();renderAll();toast("Stopped selected recipes",{undo:()=>{restore(snap);}});};
+    $("#bulk-del").onclick=()=>confirmDlg(`Delete ${bulk.size} recipes?`,"They will be removed from the manager. You can undo right after.","Delete",()=>{const snap=JSON.parse(JSON.stringify(db.recipes));db.recipes=db.recipes.filter(r=>!bulk.has(r.id));bulk.clear();save();renderAll();toast("Deleted selected recipes",{kind:"err",undo:()=>{db.recipes=snap;save();renderAll();}});});
+    $("#bulk-clear").onclick=()=>{bulk.clear();renderSections();};
+  }
+  renderActivity();
+}
+function renderActivity(){
+  $("#activity").innerHTML=`<h2>Recent activity</h2><ul>${db.events.slice(0,4).map(e=>
+    `<li><time>${fmtTime(e.t)}</time><span><b>${esc(e.who)}</b> ${esc(e.what)}</span>${e.kind==="warn"?'<span style="color:var(--amber)">⚠</span>':e.kind==="ok"?'<span style="color:var(--green)">✓</span>':""}</li>`).join("")}
+    </ul><button class="more" data-other="Activity">View all activity →</button>`;
+}
+function renderAll(){renderHoststrip();renderToolbar();renderViews();renderSections();if(drawerId!=null)renderDrawer();}
+
+/* ================= drawer ================= */
+function openDrawer(id){drawerId=id;renderDrawer();$("#drawer").classList.add("show");$("#scrim").classList.add("show");}
+function closeDrawer(){drawerId=null;$("#drawer").classList.remove("show");$("#scrim").classList.remove("show");}
+function renderDrawer(){
+  const r=byId(drawerId);if(!r){closeDrawer();return;}
+  const vars=variantsOf(r);
+  const fit=r.kind==="model"&&!RUNNING(r)?fitInfo(r):null;
+  $("#drawer").innerHTML=`
+    <div class="drawer-head"><span class="dot ${r.status}" style="width:10px;height:10px;border-radius:50%"></span>
+      <h3>${esc(r.name)}</h3>${engineBadge(r)}<button class="iconbtn" id="drawer-close" aria-label="Close">✕</button></div>
+    <div class="drawer-body">
+      <div class="dsec"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${statusPill(r)}
+        ${RUNNING(r)&&r.since?`<span style="color:var(--faint);font-size:12px">up ${fmtUp(Date.now()-r.since)}</span>`:""}
+        ${r.exit?`<span style="color:var(--faint);font-size:12px">${esc(r.exit)}</span>`:""}</div>
+        ${r.desc?`<p style="margin:0;color:var(--muted);font-size:12.5px">${esc(r.desc)}</p>`:""}
+        ${r.findings?.length?`<div class="finding"><span>⚠</span><span>${esc(r.findings[0])}</span></div>`:""}
+        ${fit?`<div class="fit ${fit.cls}"><span>${fit.icon}</span><span>${esc(fit.txt)}</span></div>`:""}
+      </div>
+      <div class="dsec"><h4>Endpoint</h4>
+        <div class="endpoint" style="margin-top:0;max-width:none"><code>${esc(endpoint(r))}</code><button class="btn small ghost copy" data-act="copy">⧉ Copy</button></div>
+        ${!RUNNING(r)?`<span style="color:var(--faint);font-size:11.5px">Available once the recipe is running.</span>`:""}
+      </div>
+      <div class="dsec"><h4>Facts</h4><dl class="kv">
+        <dt>Model</dt><dd>${esc(r.model)} ${esc(r.extra)}</dd>
+        <dt>Served as</dt><dd class="mono">${esc(r.served)}</dd>
+        <dt>Engine</dt><dd>${ENGINES[r.engine]?.label??r.engine}${r.runtime==="process"?" · native process":" · Docker"}</dd>
+        ${r.image?`<dt>Image</dt><dd class="mono">${esc(r.image)}</dd>`:""}
+        <dt>Port</dt><dd class="mono">${r.port}</dd>
+        <dt>Est. VRAM</dt><dd>~${r.est} GB of ${TOTAL} GB</dd>
+        <dt>Typical boot</dt><dd>~${fmtDur(r.boot)} (median of recent starts)</dd>
+        ${r.tags?.length?`<dt>Tags</dt><dd>${r.tags.map(t=>`<button class="tag" data-tag="${esc(t)}">${esc(t)}</button>`).join(" ")}</dd>`:""}
+      </dl></div>
+      ${vars.length?`<div class="dsec"><h4>Variants — same served model “${esc(r.served)}”</h4>
+        ${[r,...vars].map(v=>`<div class="variant ${v.id===r.id?"current":""}">
+          <span class="dot ${v.status}" style="width:8px;height:8px;border-radius:50%;flex:none"></span>
+          <span class="vname">${esc(v.name)}</span>${engineBadge(v)}
+          <span class="mono" style="font-size:11px;color:var(--faint)">:${v.port}</span>
+          ${v.id!==r.id&&!RUNNING(v)?`<button class="btn small primary" data-switch-to="${v.id}">⇄ Switch</button>`:v.id===r.id?`<span style="font-size:11px;color:var(--green)">this one</span>`:""}
+        </div>`).join("")}
+        <span style="color:var(--faint);font-size:11.5px">One model, several engines. Switching between variants on the same port keeps client URLs unchanged.</span>
+      </div>`:""}
+      ${RUNNING(r)?`<div class="dsec"><h4>Live metrics</h4>
+        <div class="row" style="display:flex;gap:16px;font-size:12.5px;color:var(--muted)"><span><b style="color:var(--text)">0</b> tok/s out</span><span><b style="color:var(--text)">0%</b> KV</span><span><b style="color:var(--text)">0</b> requests</span></div>
+        ${sparkSvg(r)}</div>`:""}
+      <div class="dsec"><h4>Recent logs</h4><pre class="logsbox">${esc(`[${fmtTime(Date.now()-60e3)}] INFO  ${RUNNING(r)?"GET /health 200 OK":"container not running"}\n[${fmtTime(Date.now()-30e3)}] INFO  ${RUNNING(r)?"GET /v1/models 200 OK · idle":"last exit: "+(r.exit||"unknown")}\n[${fmtTime(Date.now()-5e3)}] INFO  ${RUNNING(r)?"idle · 0 running requests":"waiting for start"}`)}</pre>
+        <button class="btn small ghost" data-act="logs" style="align-self:flex-start">Open full logs →</button></div>
+      <details class="edit"><summary>✎ Edit recipe</summary>
+        <div class="editform">
+          <label>Name<input id="ed-name" value="${esc(r.name)}"></label>
+          <label>Description<input id="ed-desc" value="${esc(r.desc)}"></label>
+          <label>Host port<input id="ed-port" type="number" value="${r.port}"></label>
+          <label>Est. VRAM (GB)<input id="ed-est" type="number" value="${r.est}"></label>
+          <button class="btn small primary" id="ed-save" style="align-self:flex-start">Save changes</button>
+        </div></details>
+    </div>
+    <div class="drawer-foot">
+      ${RUNNING(r)?`<button class="btn stop" data-act="stop">■ Stop</button><button class="btn" data-act="restart">↺ Restart</button>`
+        :fit&&fit.primary==="switch"?`<button class="btn primary" data-act="switch">⇄ Switch to</button>`
+        :`<button class="btn go" data-act="start">▶ Start</button>`}
+      <button class="btn ghost" data-act="duplicate">⧉ Duplicate</button>
+      <button class="btn ghost danger" data-act="delete" style="margin-left:auto" ${RUNNING(r)?"disabled title='Stop it before deleting'":""}>🗑</button>
+    </div>`;
+  $("#drawer-close").onclick=closeDrawer;
+  $("#ed-save").onclick=()=>{
+    r.name=$("#ed-name").value.trim()||r.name;r.desc=$("#ed-desc").value.trim();
+    r.port=+$("#ed-port").value||r.port;r.est=+$("#ed-est").value||r.est;r.updated=Date.now();
+    logEvent(r.name,"edited");save();renderAll();toast(`Saved <b>${esc(r.name)}</b>`);
+  };
+  $("#drawer").querySelectorAll("[data-switch-to]").forEach(b=>b.onclick=()=>openSwitch(byId(+b.dataset.switchTo)));
+}
+
+/* ================= overflow menu ================= */
+function openMenu(anchor,r){
+  closeMenu();
+  const m=document.createElement("div");m.className="menu";m.id="overflow-menu";
+  m.innerHTML=`
+    <button data-m="logs">≣ Logs</button>
+    <button data-m="edit">✎ Edit details</button>
+    <button data-m="duplicate">⧉ Duplicate</button>
+    <button data-m="pin">${r.pinned?"★ Unpin":"☆ Pin to top"}</button>
+    <hr><button data-m="delete" class="danger" ${RUNNING(r)?"disabled style='opacity:.4'":""}>🗑 Delete${RUNNING(r)?" (stop first)":""}</button>`;
+  document.body.appendChild(m);
+  const rect=anchor.getBoundingClientRect();
+  m.style.top=Math.min(window.innerHeight-m.offsetHeight-10,rect.bottom+6)+"px";
+  m.style.left=Math.max(10,Math.min(window.innerWidth-m.offsetWidth-10,rect.right-m.offsetWidth))+"px";
+  menuFor=r.id;
+  m.onclick=e=>{
+    const b=e.target.closest("[data-m]");if(!b)return;closeMenu();
+    const act=b.dataset.m;
+    if(act==="logs")openLogs(r);
+    else if(act==="edit")openDrawer(r.id);
+    else if(act==="duplicate")duplicateRecipe(r);
+    else if(act==="pin"){r.pinned=!r.pinned;save();renderAll();}
+    else if(act==="delete")confirmDlg(`Delete ${esc(r.name)}?`,"The recipe and its settings are removed. Running containers are not touched — stop the recipe first.","Delete",()=>deleteRecipe(r));
+  };
+  setTimeout(()=>document.addEventListener("click",closeMenu,{once:true}),0);
+}
+function closeMenu(){const m=$("#overflow-menu");if(m)m.remove();menuFor=null;}
+
+/* ================= global event delegation ================= */
+document.addEventListener("click",e=>{
+  const other=e.target.closest("[data-other]");
+  if(other){toast(`<b>${other.dataset.other}</b> is unchanged in this concept — the redesign focuses on the main dashboard.`,{kind:"warn"});return;}
+  const tag=e.target.closest("[data-tag]");
+  if(tag){db.prefs.q=tag.dataset.tag;save();renderAll();return;}
+  const bulkBox=e.target.closest("[data-bulk]");
+  if(bulkBox){const id=+bulkBox.dataset.bulk;bulkBox.checked?bulk.add(id):bulk.delete(id);renderSections();return;}
+  const actBtn=e.target.closest("[data-act]");
+  const cardEl=e.target.closest("[data-id]");
+  if(actBtn&&(cardEl||drawerId!=null)){
+    e.stopPropagation();
+    const r=cardEl?byId(+cardEl.dataset.id):byId(drawerId);if(!r)return;
+    const act=actBtn.dataset.act;
+    if(act==="start")startRecipe(r);
+    else if(act==="stop")stopRecipe(r);
+    else if(act==="restart")restartRecipe(r);
+    else if(act==="switch")openSwitch(r);
+    else if(act==="logs")openLogs(r);
+    else if(act==="more")openMenu(actBtn,r);
+    else if(act==="pin"){r.pinned=!r.pinned;save();renderAll();}
+    else if(act==="duplicate")duplicateRecipe(r);
+    else if(act==="delete")confirmDlg(`Delete ${esc(r.name)}?`,"The recipe and its settings are removed.","Delete",()=>deleteRecipe(r));
+    else if(act==="copy"){navigator.clipboard?.writeText(endpoint(r)).catch(()=>{});toast(`Copied <code>${esc(endpoint(r))}</code>`);}
+    return;
+  }
+  if(cardEl&&!e.target.closest("input,select,textarea,button,a")){openDrawer(+cardEl.dataset.id);}
+});
+/* list header sorting */
+document.addEventListener("click",e=>{
+  const th=e.target.closest("table.list th[data-sort]");
+  if(th){db.prefs.sort=th.dataset.sort;save();renderAll();}
+});
+/* drag to reorder (custom sort) */
+let dragId=null;
+document.addEventListener("dragstart",e=>{const c=e.target.closest(".card[draggable='true']");if(!c)return;dragId=+c.dataset.id;c.classList.add("dragging");e.dataTransfer.effectAllowed="move";});
+document.addEventListener("dragend",e=>{const c=e.target.closest(".card");if(c)c.classList.remove("dragging");document.querySelectorAll(".dragover").forEach(x=>x.classList.remove("dragover"));});
+document.addEventListener("dragover",e=>{const c=e.target.closest(".card[draggable='true']");if(!c||dragId==null)return;e.preventDefault();c.classList.add("dragover");});
+document.addEventListener("dragleave",e=>{const c=e.target.closest(".card");if(c)c.classList.remove("dragover");});
+document.addEventListener("drop",e=>{
+  const c=e.target.closest(".card[draggable='true']");if(!c||dragId==null)return;e.preventDefault();
+  const target=+c.dataset.id;if(target===dragId)return;
+  const order=db.order.filter(id=>id!==dragId);order.splice(order.indexOf(target),0,dragId);db.order=order;
+  dragId=null;save();renderSections();toast("Order updated");
+});
+/* keyboard */
+document.addEventListener("keydown",e=>{
+  if(e.key==="/"&&!e.target.closest("input,textarea,select")){e.preventDefault();$("#q")?.focus();}
+  if(e.key==="Escape"){closeMenu();if(drawerId!=null)closeDrawer();$("#sidebar").classList.remove("open");}
+});
+$("#scrim").onclick=()=>{closeDrawer();$("#sidebar").classList.remove("open");};
+$("#btn-nav").onclick=()=>{$("#sidebar").classList.add("open");$("#scrim").classList.add("show");};
+$("#btn-add").onclick=openAdd;
+$("#btn-blur").onclick=()=>{db.prefs.blur=!db.prefs.blur;save();applyPrefs();renderAll();};
+$("#btn-theme").onclick=()=>{db.prefs.theme=db.prefs.theme==="dark"?"light":"dark";save();applyPrefs();};
+$("#btn-reset").onclick=()=>confirmDlg("Reset demo data?","Restores the four seeded recipes and clears your changes in this prototype.","Reset",()=>{db=seed();bulk.clear();closeDrawer();save();applyPrefs();renderAll();toast("Demo data restored");},false);
+function applyPrefs(){
+  document.documentElement.dataset.theme=db.prefs.theme;
+  $("#btn-theme").textContent=db.prefs.theme==="dark"?"🌙 Dark":"☀ Light";
+  $("#btn-blur").classList.toggle("on",db.prefs.blur);
+  $("#btn-blur").setAttribute("aria-pressed",db.prefs.blur);
+}
+
+/* ================= live tick ================= */
+setInterval(()=>{
+  let booted=false;
+  for(const r of db.recipes){
+    if(r.status==="starting"&&r.startAt){
+      const f=bootFrac(r);
+      const el=(Date.now()-r.startAt)/1000;
+      document.querySelectorAll(`[data-live="boot-${r.id}"]`).forEach(n=>n.textContent=`⏳ ${fmtDur(el)} / ~${fmtDur(r.boot)}`);
+      document.querySelectorAll(`[data-live="bootbar-${r.id}"]`).forEach(n=>n.style.width=(f*100).toFixed(1)+"%");
+      if(f>=1){finishBoot(r);booted=true;}
+    }
+    if(r.status==="ready"&&r.since){
+      document.querySelectorAll(`[data-live="up-${r.id}"]`).forEach(n=>n.textContent="up "+fmtUp(Date.now()-r.since));
+    }
+  }
+  /* sparkline history for running models */
+  for(const r of db.recipes){
+    if(r.status==="ready"){
+      if(!r.hist)r.hist=Array.from({length:40},()=>0);
+      r.hist.push(Math.random()<0.12?Math.round(Math.random()*40):0);if(r.hist.length>40)r.hist.shift();
+    }
+  }
+  if(!booted){
+    renderHoststrip();
+    document.querySelectorAll(".serving-card .spark, .drawer .spark").forEach(svg=>{
+      const card=svg.closest("[data-id]")||svg.closest(".drawer");
+      const id=card?.dataset?.id??drawerId;const r=byId(+id);
+      if(r){const tmp=document.createElement("div");tmp.innerHTML=sparkSvg(r);svg.replaceWith(tmp.firstChild);}
+    });
+  }
+},1000);
+
+applyPrefs();renderAll();
+</script>
+</body>
+</html>
