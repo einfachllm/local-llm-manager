@@ -1080,7 +1080,7 @@ function metricsSummary(r) {
 // it is mounted from and show that folder's name; the full path stays in the tooltip.
 function modelShown(r) {
   const model = r.model || "";
-  const ids = r.weights_id ? [r.weights_id] : [];
+  const ids = r.weights_ids ?? (r.weights_id ? [r.weights_id] : []);
   const ws = ids.map((id) => state.weights.find((x) => x.id === id)).filter(Boolean);
   if (ws.length) {
     const desc = ws.map((w) => {
@@ -2054,11 +2054,12 @@ function recipeFromForm() {
   data.est_memory_gb = data.est_memory_gb === "" ? null : Number(data.est_memory_gb);
   data.host_id = data.host_id ? Number(data.host_id) : null;
   data.tags = (data.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
-  data.weights_id = selectedWeightIds()[0] ?? null;
+  data.weights_ids = selectedWeightIds();
+  data.weights_id = data.weights_ids[0] ?? null;
   return data;
 }
 
-// The weights picker: read/write the selected entry ids (an ordered list, so the first one is primary).
+// The weights multi-select: read/write the ordered list of selected entry ids.
 function selectedWeightIds() {
   return [...$("#sel-weights").selectedOptions].map((o) => Number(o.value)).filter(Boolean);
 }
@@ -2074,10 +2075,10 @@ function fillRecipeForm(r) {
     renderFrameworkOptions(r.runtime, r.framework);
   }
   for (const el of recipeForm.elements) {
-    if (el.name === "weights_id") continue;  // weights picker: set the selection below
+    if (el.name === "weights_ids") continue;  // multi-select: set the selection below
     if (el.name && el.name in r) el.value = Array.isArray(r[el.name]) ? r[el.name].join(", ") : r[el.name] ?? "";
   }
-  setSelectedWeightIds(r.weights_id ? [r.weights_id] : []);
+  setSelectedWeightIds(r.weights_ids ?? (r.weights_id ? [r.weights_id] : []));
   syncRuntime();
   markSwatch();
 }
