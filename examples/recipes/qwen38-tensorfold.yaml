@@ -1,23 +1,27 @@
-# Compact recipe file (Local LLM Manager): paste into Recipes -> Import.
-# Qwen3.8-27B (NVIDIA ModelOpt NVFP4) with the DFlash2 drafter, served by TensorFold's native CUDA
-# engine on one NVIDIA DGX Spark (GB10). No Docker: unpack the Linux release archive first (its
-# install.sh puts the binary at ~/.tensorfold/bin/tensorfold) and keep the absolute path below - the
-# manager's service does not inherit the shell PATH, and `~` is not expanded inside `command:`/`args:`.
-# Register the folder that holds both models (e.g. ~/models/qwen38, or ~/models if they sit there) as
-# "Qwen3.8-Models": {weights} becomes that folder on the machine the recipe starts on, so model and
-# drafter travel together. One folder is one row in the Weights tab, so a shared ~/models is one entry.
-# The TensorFold preset fills in the native process and the /health check. --name is the served
-# model id: qwen3.8 as in the other three engines, so Switch to keeps the endpoint unchanged.
-name: tensorfold-qwen38-27b
-description: Qwen3.8-27B-NVFP4 with the DFlash2 drafter, native TensorFold CUDA engine
+# Compact recipe file (Local LLM Manager): paste into + Add recipe.
+name: qwen38-27b-tensorfold
+description: Qwen3.8-27B-NVFP4 with the DFlash2 drafter, TensorFold 1.2.9
 framework: tensorfold
-command: /home/YOU/.tensorfold/bin/tensorfold serve {model} --host {bind_host} --port {port}
-weights: Qwen3.8-Models
-model: '{weights}/Qwen3.8-27B-NVFP4'
-host_port: 8101
-args: |
+runtime: docker
+image: tensorfold:1.2.9-cuda
+command: /opt/tf129/bin/tensorfold-native serve {model} --host {bind_host} --port {port}
+args: |-
   --name qwen3.8
-  --drafter {weights}/Qwen3.8-27B-DFlash2
+  --drafter /models/Qwen3.8-27B-DFlash2
   --context 262144
-  --parallel 4
+  --parallel 2
+  --no-update-check
+  --vision
+volumes: '{weights}:/models:ro'
+host_port: 8101
+container_port: 8101
+weights: models
+model: /models/Qwen3.8-27B-NVFP4
+container_name: qwen38-27b-tf
+tags:
+- tensorfold
+- qwen3.8
+- nvfp4
+- dflash2
+- gb10
 color: pink
