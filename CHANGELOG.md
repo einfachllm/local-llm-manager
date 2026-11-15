@@ -33,7 +33,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   menu and popover. All existing tabs, dialogs, shortcuts, blur/theme and multi-host behaviour are unchanged.
   The concept, rendered views and a 36-check live verification script live in `ux-redesign/`.
 
-
 ### Added
 - **LM Studio libraries show up in the Weights tab.** Every host also scans LM Studio's model library
   (`~/.lmstudio/models`, or its older `~/.cache/lm-studio/models`) when it exists: GGUFs appear per file

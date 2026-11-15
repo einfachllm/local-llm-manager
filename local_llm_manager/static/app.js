@@ -1080,10 +1080,15 @@ function metricsSummary(r) {
 // it is mounted from and show that folder's name; the full path stays in the tooltip.
 function modelShown(r) {
   const model = r.model || "";
-  const w = r.weights_id && state.weights.find((x) => x.id === r.weights_id);
-  if (w) {
-    const path = w.locations[r.host_id];
-    return { label: w.name, title: `Registered weights · ${path ? `on this host: ${path}` : "no path set on this host"}` };
+  const ids = r.weights_id ? [r.weights_id] : [];
+  const ws = ids.map((id) => state.weights.find((x) => x.id === id)).filter(Boolean);
+  if (ws.length) {
+    const desc = ws.map((w) => {
+      const path = w.locations[r.host_id];
+      return `${w.name} · ${path ? `on this host: ${path}` : "no path set on this host"}`;
+    }).join("\n");
+    const label = ws.length > 1 ? `${ws[0].name} +${ws.length - 1}` : ws[0].name;
+    return { label, title: `Registered weights\n${desc}` };
   }
   if (r.runtime === "docker" && model.startsWith("/")) {
     for (const line of (r.volumes || "").split("\n")) {
@@ -2049,8 +2054,17 @@ function recipeFromForm() {
   data.est_memory_gb = data.est_memory_gb === "" ? null : Number(data.est_memory_gb);
   data.host_id = data.host_id ? Number(data.host_id) : null;
   data.tags = (data.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
-  data.weights_id = data.weights_id ? Number(data.weights_id) : null;
+  data.weights_id = selectedWeightIds()[0] ?? null;
   return data;
+}
+
+// The weights picker: read/write the selected entry ids (an ordered list, so the first one is primary).
+function selectedWeightIds() {
+  return [...$("#sel-weights").selectedOptions].map((o) => Number(o.value)).filter(Boolean);
+}
+function setSelectedWeightIds(ids) {
+  const want = new Set((ids || []).map(Number));
+  for (const o of $("#sel-weights").options) o.selected = want.has(Number(o.value));
 }
 
 function fillRecipeForm(r) {
@@ -2060,8 +2074,10 @@ function fillRecipeForm(r) {
     renderFrameworkOptions(r.runtime, r.framework);
   }
   for (const el of recipeForm.elements) {
+    if (el.name === "weights_id") continue;  // weights picker: set the selection below
     if (el.name && el.name in r) el.value = Array.isArray(r[el.name]) ? r[el.name].join(", ") : r[el.name] ?? "";
   }
+  setSelectedWeightIds(r.weights_id ? [r.weights_id] : []);
   syncRuntime();
   markSwatch();
 }
@@ -2486,37 +2502,48 @@ async function loadWeightsList() {
 
 function renderWeightOptions() {
   const sel = $("#sel-weights");
-  const cur = sel.value;
-  sel.innerHTML = `<option value="">None – paths are written in Volumes / Model</option>`
-    + state.weights.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join("");
-  sel.value = state.weights.some((w) => String(w.id) === cur) ? cur : "";
+  const cur = selectedWeightIds();
+  sel.innerHTML = state.weights.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join("");
+  setSelectedWeightIds(cur.filter((id) => state.weights.some((w) => w.id === id)));
 }
 
-const usesWeightsField = (data) => ["model", "volumes", "command", "args", "env"].some((f) => (data[f] || "").includes("{weights}"));
+const usesWeightsField = (data) => ["model", "volumes", "command", "args", "env"].some((f) => /\{weights(?::[^{}]*)?\}/.test(data[f] || ""));
 
 // Picking weights for a recipe that does not say where they go yet: mount them where the model is read.
 function applyWeightsSelection() {
   const f = recipeForm.elements;
-  if (!f.weights_id.value || usesWeightsField(recipeFromForm())) return;
+  const ids = selectedWeightIds();
+  if (!ids.length || usesWeightsField(recipeFromForm())) return;
+  const entries = ids.map((id) => state.weights.find((w) => w.id === id)).filter(Boolean);
+  if (!entries.length) return;
   if (f.runtime.value === "process") { f.model.value = "{weights}"; return; }
-  if (!f.model.value.trim().startsWith("/")) f.model.value = "/model";
-  const dst = f.model.value.trim().replace(/\/+$/, "");
-  const lines = f.volumes.value.split("\n");
-  const i = lines.findIndex((l) => l.trim().split(":")[1]?.replace(/\/+$/, "") === dst);
-  if (i >= 0) {
-    const [, d, ...rest] = lines[i].trim().split(":");
-    lines[i] = ["{weights}", d, ...rest].join(":");
-  } else {
-    lines.unshift(`{weights}:${dst}:ro`);
+  const clean = (lines) => lines.filter((l, j) => l.trim() || j < lines.length - 1).join("\n");
+  if (entries.length === 1) {
+    // One entry: mount it where the model is read (the usual {weights}:/model:ro).
+    if (!f.model.value.trim().startsWith("/")) f.model.value = "/model";
+    const dst = f.model.value.trim().replace(/\/+$/, "");
+    const lines = f.volumes.value.split("\n");
+    const i = lines.findIndex((l) => l.trim().split(":")[1]?.replace(/\/+$/, "") === dst);
+    if (i >= 0) {
+      const [, d, ...rest] = lines[i].trim().split(":");
+      lines[i] = ["{weights}", d, ...rest].join(":");
+    } else {
+      lines.unshift(`{weights}:${dst}:ro`);
+    }
+    f.volumes.value = clean(lines);
+    return;
   }
-  f.volumes.value = lines.filter((l, j) => l.trim() || j < lines.length - 1).join("\n");
+  // Several entries (e.g. a model and its drafter): mount each at /models/<name>, read the first as model.
+  const mounts = entries.map((w) => `{weights:${w.name}}:/models/${w.name}:ro`);
+  f.volumes.value = clean([...mounts, ...f.volumes.value.split("\n")]);
+  if (!f.model.value.trim().startsWith("/")) f.model.value = `/models/${entries[0].name}`;
 }
 
 // After an import: if the model's own mount is the path a registered entry has on this host, switch the
 // recipe to that entry. Returns the entry's name, or "".
 function useRegisteredWeights() {
   const f = recipeForm.elements;
-  if (f.runtime.value !== "docker" || f.weights_id.value) return "";
+  if (f.runtime.value !== "docker" || selectedWeightIds().length) return "";
   const dst = f.model.value.trim().replace(/\/+$/, "");
   if (!dst.startsWith("/")) return "";
   const lines = f.volumes.value.split("\n");
@@ -2529,7 +2556,7 @@ function useRegisteredWeights() {
   const [, d, ...rest] = lines[i].trim().split(":");
   lines[i] = ["{weights}", d, ...rest].join(":");
   f.volumes.value = lines.join("\n");
-  f.weights_id.value = String(w.id);
+  setSelectedWeightIds([w.id]);
   return w.name;
 }
 
@@ -2537,27 +2564,34 @@ let weightsCheckSeq = 0;
 async function updateWeightsStatus() {
   const box = $("#weights-status");
   const f = recipeForm.elements;
-  const id = Number(f.weights_id.value);
+  const ids = selectedWeightIds();
   const hostId = Number(f.host_id.value) || state.hosts.find((h) => h.is_local)?.id;
   const seq = ++weightsCheckSeq;
   const show = (cls, html) => { if (seq === weightsCheckSeq) { box.className = `port-hint ${cls}`; box.innerHTML = html; } };
-  if (!id) {
+  if (!ids.length) {
     show(usesWeightsField(recipeFromForm()) ? "bad" : "", usesWeightsField(recipeFromForm())
       ? "✗ This recipe uses {weights} but no weights are selected." : "");
     return;
   }
   const host = esc(maskAddr(hostName(hostId)));
-  const fix = `<button type="button" class="link" data-edit-weight="${id}" data-host="${hostId}">set the path</button>`;
   show("", `Checking ${host}…`);
-  try {
-    const c = await api(`/api/weights/${id}/hosts/${hostId}`);
-    if (c.state === "present") show("ok", `✓ on ${host}: <code>${esc(c.path)}</code>`);
-    else if (c.state === "unset") show("bad", `✗ No path for these weights on ${host} – ${fix}`);
-    else if (c.state === "missing") show("bad", `✗ Not found on ${host} at <code>${esc(c.location || c.path)}</code> – copy them there or ${fix}`);
-    else show("warn", `? ${host} could not check <code>${esc(c.path)}</code>${c.error ? ` (${esc(blurHostText(c.error, hostById(hostId)?.url))})` : ""}`);
-  } catch (e) {
-    show("warn", esc(e.message));
+  const rows = [];
+  let worst = "ok";
+  for (const id of ids) {
+    const w = state.weights.find((x) => x.id === id);
+    const label = w ? esc(w.name) : `#${id}`;
+    const fix = `<button type="button" class="link" data-edit-weight="${id}" data-host="${hostId}">set the path</button>`;
+    try {
+      const c = await api(`/api/weights/${id}/hosts/${hostId}`);
+      if (c.state === "present") rows.push(`<span class="ok">✓ ${label}</span> <code>${esc(c.path)}</code>`);
+      else if (c.state === "unset") { rows.push(`<span class="bad">✗ ${label}</span> no path on ${host} – ${fix}`); worst = "bad"; }
+      else if (c.state === "missing") { rows.push(`<span class="bad">✗ ${label}</span> not at <code>${esc(c.location || c.path)}</code> – copy there or ${fix}`); worst = "bad"; }
+      else { rows.push(`<span class="warn">? ${label}</span> ${host} could not check`); if (worst === "ok") worst = "warn"; }
+    } catch (e) {
+      rows.push(`<span class="warn">? ${label}</span> ${esc(e.message)}`); if (worst === "ok") worst = "warn";
+    }
   }
+  show(worst, rows.join("<br>"));
 }
 
 let imageCheckSeq = 0;
@@ -2802,8 +2836,8 @@ oneSubmit($("#form-weight"), async (ev) => {
     toast("Saved", "ok");
     await afterWeightsChange();
     // Registered from the recipe editor: pick the new entry there right away.
-    if (!editingWeight && $("#dlg-recipe").open && !recipeForm.elements.weights_id.value) {
-      recipeForm.elements.weights_id.value = String(saved.id);
+    if (!editingWeight && $("#dlg-recipe").open && !selectedWeightIds().length) {
+      setSelectedWeightIds([saved.id]);
       $("#sel-weights").dispatchEvent(new Event("change"));
     }
   } catch (e) {
@@ -3192,10 +3226,13 @@ async function openCopyTo(r) {
     for (const c of res.hosts) {
       const bits = [];
       if (c.existing_copy) bits.push(`<span class="ok">has a copy – will be updated</span>`);
-      const w = c.weights;
-      if (w) bits.push(w.state === "present" ? `<span class="ok">✓ weights</span>`
-        : w.state === "unset" ? `<span class="bad">✗ weights: no path – set it in the Weights tab</span>`
-        : w.state === "missing" ? `<span class="bad">✗ weights not at ${esc(w.location || w.path)}</span>` : `<span class="muted">? weights</span>`);
+      const wlist = c.weights_all || (c.weights ? [c.weights] : []);
+      for (const w of wlist) {
+        const nm = wlist.length > 1 && w.name ? ` ${esc(w.name)}` : "";
+        bits.push(w.state === "present" ? `<span class="ok">✓ weights${nm}</span>`
+          : w.state === "unset" ? `<span class="bad">✗ weights${nm}: no path – set it in the Weights tab</span>`
+          : w.state === "missing" ? `<span class="bad">✗ weights${nm} not at ${esc(w.location || w.path)}</span>` : `<span class="muted">? weights${nm}</span>`);
+      }
       if (c.image) bits.push(c.image === "present" ? `<span class="ok">✓ image</span>`
         : c.image === "missing" ? `<span class="warn">image not there yet – pulled on first start</span>` : `<span class="muted">? image</span>`);
       if (c.port_users.length) bits.push(`<span class="warn">port ${copyFrom.host_port} also used by ${esc(c.port_users.join(", "))}</span>`);
