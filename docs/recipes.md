@@ -116,9 +116,10 @@ model on two engines as well: same weights entry, different image and port.
 - **Placeholders:** in a command or its arguments the manager replaces `{model}`, `{port}`, `{host_port}`,
   `{name}`, `{bind_host}` (the listen address) and `{weights}` (the first selected entry's path on that
   host); further selected entries are `{weights:Name}`. Anything else in braces - a typo like `{modle}` -
-  is refused when you start or preview the recipe, with the list of names it does not know, and a
-  `{weights:Name}` that is not among the selected entries is refused too. In a command or argument a
-  `{weights}` path is quoted, so a folder with a space stays one argument.
+  is refused when you start or preview the recipe, with the list of names it does not know. A
+  `{weights:Name}` that is not among the selected entries is refused when you **start**; the preview
+  leaves it as the literal placeholder (like a `{weights}` whose entry has no path on that host). In a
+  command or argument a `{weights}` path is quoted, so a folder with a space stays one argument.
 - **Secrets:** files list only bare names (e.g. `HF_TOKEN`); put the values in the manager's `.env` (see [Configuration](configuration.md)).
 - **vLLM images:** the preset command starts with `vllm serve`. For `vllm/vllm-openai` (whose entrypoint already runs `vllm serve`), the manager drops the duplicate; images with a plain `vllm` entrypoint keep `serve`. The preview shows the actual command.
 - **Logs:** Docker recipes get `--log-opt max-size=50m --log-opt max-file=3` by default, so container

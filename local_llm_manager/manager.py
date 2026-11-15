@@ -1009,7 +1009,9 @@ class Manager:
         host = self._host_name(recipe["host_id"])
         ids = weights_ids_of(recipe)
         if not ids:
-            fail(f"{recipe['name']} uses {{weights}} but has no weights selected: pick them in the recipe", 409)
+            refs = weights_refs(recipe)
+            which = "{" + f"weights:{refs[0]}" + "}" if refs else "{weights}"
+            fail(f"{recipe['name']} uses {which} but has no weights selected: pick them in the recipe", 409)
         weights = [self.db.get_weight(wid) for wid in ids]
         if any(w is None for w in weights):
             fail(f"{recipe['name']} selects weights that do not exist (any more): pick them again in the recipe", 409)

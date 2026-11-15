@@ -378,6 +378,36 @@ def test_start_refuses_a_named_placeholder_that_is_not_selected(client, fake_doc
     assert not fake_docker.calls
 
 
+def test_no_selection_message_names_the_named_placeholder(client, fake_docker, tmp_path):
+    """Only {weights:Name} refs, no bare {weights}: the refusal names what the recipe actually uses."""
+    body = recipe_body(model="/models/Model", volumes="{weights:Model}:/models/Model:ro")
+    r = client.post("/api/recipes", json=body).json()
+    res = client.post(f"/api/recipes/{r['id']}/start")
+    assert res.status_code == 409, res.text
+    assert "{weights:Model}" in res.json()["detail"] and "no weights selected" in res.json()["detail"]
+    assert not fake_docker.calls
+
+
+def test_copy_check_reports_every_selected_weights_entry(setup, tmp_path):
+    """copy_check's weights_all lists one check per selected entry (model + drafter), each with that
+    host's own state - not just the primary's."""
+    client, _, _, _, mac = setup
+    local = client.get("/api/hosts").json()[0]["id"]
+    model_dir = tmp_path / "Model"
+    model_dir.mkdir()
+    m = weight(client, name="Model", **{str(local): str(model_dir), str(mac["id"]): str(model_dir)})
+    d = weight(client, name="Drafter", **{str(mac["id"]): str(tmp_path / "absent")})  # missing on mac, unset on hub
+    body = recipe_body(model="/models/Model",
+                       volumes="{weights:Model}:/models/Model:ro\n{weights:Drafter}:/models/Drafter:ro",
+                       weights_ids=[m["id"], d["id"]])
+    r = client.post("/api/recipes", json=body).json()
+    (c,) = client.post(f"/api/recipes/{r['id']}/copies/check", json={"host_ids": [mac["id"]]}).json()["hosts"]
+    assert [x["name"] for x in c["weights_all"]] == ["Model", "Drafter"]
+    assert [x["state"] for x in c["weights_all"]] == ["present", "missing"]
+    assert c["weights"]["name"] == "Drafter"  # the representative check is the first problem
+    assert c["weights_all"][0]["path"] == str(model_dir)
+
+
 def test_weights_list_counts_every_recipe_that_selects_an_entry(client, tmp_path):
     local = client.get("/api/hosts").json()[0]["id"]
     m = weight(client, name="Model", **{str(local): str(tmp_path / "m")})

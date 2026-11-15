@@ -225,17 +225,17 @@ RECIPE_DEFAULTS = {
 def weights_ids_of(data: dict[str, Any]) -> list[int]:
     """The ordered weights ids of a recipe input: an explicit `weights_ids` list wins, otherwise the
     single `weights_id` (older callers). A raw DB row stores weights_ids as its JSON string - parse it
-    (iterating the string itself would read '[12]' as the ids 1 and 2). De-duplicated, falsy/non-numeric
-    entries dropped, order kept - the first is the primary that fills {weights}, the rest are named
-    {weights:Name} references."""
+    (iterating the string itself would read '[12]' as the ids 1 and 2). De-duplicated, non-positive/
+    non-numeric entries dropped, order kept - the first is the primary that fills {weights}, the rest
+    are named {weights:Name} references."""
     ids = data.get("weights_ids")
     if isinstance(ids, str):
         try:
             ids = json.loads(ids)
         except json.JSONDecodeError:
             ids = None
-        if ids is not None and not isinstance(ids, (list, tuple)):
-            ids = None  # not a stored list: treat like a missing weights_ids and use weights_id
+    if ids is not None and not isinstance(ids, (list, tuple)):
+        ids = None  # not a stored list (e.g. a scalar): treat like a missing weights_ids, use weights_id
     if ids is None:
         ids = [data.get("weights_id")]
     out: list[int] = []
@@ -245,7 +245,7 @@ def weights_ids_of(data: dict[str, Any]) -> list[int]:
             x = int(x)
         except (TypeError, ValueError):
             continue
-        if x and x not in seen:
+        if x > 0 and x not in seen:
             seen.add(x)
             out.append(x)
     return out

@@ -182,6 +182,8 @@ def test_weights_ids_of_parses_raw_db_rows(tmp_path):
     assert weights_ids_of({"weights_id": 12}) == [12]  # old row without the column: fall back
     assert weights_ids_of({"weights_ids": "not json", "weights_id": 12}) == [12]  # unusable: fall back
     assert weights_ids_of({"weights_ids": '"12"', "weights_id": 12}) == [12]  # a JSON scalar is not a list
+    assert weights_ids_of({"weights_ids": 12, "weights_id": 7}) == [7]  # a bare scalar: fall back, no TypeError
+    assert weights_ids_of({"weights_ids": [3, -2, 0, "x", 3]}) == [3]  # negatives/junk dropped, order kept
     db = Database(tmp_path / "m.db")
     rid = db.create_recipe({"name": "x", "container_name": "x", "framework": "vllm", "image": "i",
                             "host_port": 8000, "container_port": 8000, "weights_ids": [12, 13]})
