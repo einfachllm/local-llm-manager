@@ -920,12 +920,26 @@ const engineOf = (r) => ENGINE_OF[r.framework] ?? "custom";
 const groupedByHost = () => view.group === "host" || view.group === "host-engine";
 const runtimeMark = (r) => r.runtime === "process"
   ? `<span class="rt" title="Native process">⚙</span>` : `<span class="rt" title="Docker container">🐳</span>`;
+/* One pet per engine family: the badge/chip icon, drawn in the engine's colour (currentColor). */
+const PET_EYE = 'fill="currentColor" stroke="none"';
+const ENGINE_PETS = {
+  vllm: `<path d="M3.5 3.5 8 8h8l4.5-4.5L20 11l-8 9.5L4 11z"/><path d="M4 11l4.5 1.5M20 11l-4.5 1.5"/><circle class="pet-eye" cx="9.5" cy="11" r="1" ${PET_EYE}/><circle class="pet-eye" cx="14.5" cy="11" r="1" ${PET_EYE}/><circle cx="12" cy="17.4" r="1" ${PET_EYE}/>`,
+  sglang: `<path d="M5 10V3.5l4.2 3.3a8 8 0 0 1 5.6 0L19 3.5V10"/><path d="M5 10c0 5.5 3 9 7 9s7-3.5 7-9"/><circle class="pet-eye" cx="9.3" cy="11.5" r="1.1" ${PET_EYE}/><circle class="pet-eye" cx="14.7" cy="11.5" r="1.1" ${PET_EYE}/><path d="M11.2 14.3h1.6l-.8.9z" ${PET_EYE}/>`,
+  tensorfold: `<path d="M12 2.5c-4 0-6 4.5-6 9.5s2 9.5 6 9.5 6-4.5 6-9.5-2-9.5-6-9.5z"/><path d="M9 20c-.5-2-.6-4 0-6 .7-2 5.3-2 6 0 .6 2 .5 4 0 6"/><path d="M6.2 11 3.5 15M17.8 11l2.7 4"/><circle class="pet-eye" cx="10.2" cy="8.5" r="1" ${PET_EYE}/><circle class="pet-eye" cx="13.8" cy="8.5" r="1" ${PET_EYE}/><path d="M11 10.6h2l-1 1.4z" ${PET_EYE}/>`,
+  llamacpp: `<path d="M8.5 7.5 7 2.5l3 3.2M15.5 7.5 17 2.5l-3 3.2"/><path d="M7 11a5 5 0 0 1 10 0v4a5 5 0 0 1-10 0z"/><circle class="pet-eye" cx="9.8" cy="11.5" r="1" ${PET_EYE}/><circle class="pet-eye" cx="14.2" cy="11.5" r="1" ${PET_EYE}/><path d="M10.5 16.5c.8.6 2.2.6 3 0"/>`,
+  mlx: `<path d="M9.5 9 8.5 2.5c1.6 0 2.4 2 2.5 6M14.5 9l1-6.5c-1.6 0-2.4 2-2.5 6"/><circle cx="12" cy="14.5" r="6"/><circle class="pet-eye" cx="9.8" cy="13.5" r="1" ${PET_EYE}/><circle class="pet-eye" cx="14.2" cy="13.5" r="1" ${PET_EYE}/><path d="M11.3 16.3h1.4l-.7.8z" ${PET_EYE}/>`,
+  custom: `<rect x="4.5" y="7" width="15" height="12" rx="4"/><path d="M12 7V4"/><circle cx="12" cy="3" r="1" ${PET_EYE}/><circle class="pet-eye" cx="9.3" cy="12.5" r="1.3" ${PET_EYE}/><circle class="pet-eye" cx="14.7" cy="12.5" r="1.3" ${PET_EYE}/><path d="M10 16h4M2.5 12v2M21.5 12v2"/>`,
+};
+function enginePet(engine) {
+  const body = ENGINE_PETS[engine] || ENGINE_PETS.custom;
+  return `<svg class="eng-pet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+}
 // Engine + Docker/native; under an engine heading only the Docker/native mark is left.
 function engineBadge(r) {
   const e = engineOf(r);
   const full = state.meta?.frameworks[r.framework]?.label ?? r.framework;
   const short = view.group === "engine" || view.group === "host-engine";
-  return `<span class="badge eng eng-${e}" title="${esc(full)}">${short ? "" : `${esc(ENGINE_LABEL[e])} `}${runtimeMark(r)}</span>`;
+  return `<span class="badge eng eng-${e}" title="${esc(full)}">${enginePet(e)}${short ? "" : `${esc(ENGINE_LABEL[e])} `}${runtimeMark(r)}</span>`;
 }
 
 function renderToolbar() {
@@ -974,7 +988,7 @@ function renderEngineFilter() {
   const used = ENGINE_ORDER.filter((e) => models.some((r) => engineOf(r) === e));
   if (view.engine && !used.includes(view.engine)) view.engine = "";
   const chip = (e, label, n, running) => `<button class="chip${(view.engine || "") === e ? " on" : ""}" data-engine="${e}">
-      ${e ? `<i class="eng-dot eng-${e}"></i>` : ""}${esc(label)} <span>${n}${running ? ` · ${running}▶` : ""}</span></button>`;
+      ${e ? `<span style="color:var(--eng-${e})">${enginePet(e)}</span>` : ""}${esc(label)} <span>${n}${running ? ` · ${running}▶` : ""}</span></button>`;
   const run = (list) => list.filter((r) => RUNNING.includes(r.status)).length;
   $("#engine-filter").innerHTML = chip("", "All", models.length, run(models))
     + used.map((e) => { const l = models.filter((r) => engineOf(r) === e); return chip(e, ENGINE_LABEL[e], l.length, run(l)); }).join("");
@@ -1013,7 +1027,7 @@ function recordMetrics(recipes) {
     if (a.length > SPARK_MAX) a.shift();
   }
 }
-function sparkline(id, idle) {
+function sparkline(id) {
   const a = sparkHist.get(id);
   if (!a || a.length < 3) return "";
   const w = 72, h = 16;
@@ -1023,7 +1037,7 @@ function sparkline(id, idle) {
     `${((i / (a.length - 1)) * (w - 2) + 1).toFixed(1)},${(h - 1.5 - ((p.v - min) / range) * (h - 3)).toFixed(1)}`).join(" ");
   const secs = Math.round((a[a.length - 1].t - a[0].t) / 1000);
   const tip = `Output tok/s over the last ~${fmtAge(secs)}\nnow ${fmtTps(a[a.length - 1].v)} · peak ${fmtTps(max)}`;
-  return `<svg class="spark${idle ? " flat" : ""}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${esc(tip)}</title><polyline points="${pts}"/></svg>`;
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${esc(tip)}</title><polyline points="${pts}"/></svg>`;
 }
 
 function metricsHtml(r) {
@@ -1045,11 +1059,12 @@ function metricsHtml(r) {
   const title = m.source === "metrics" ? "Live from the server's /metrics, over the last poll interval"
     : `From the server's last stats line in the log${m.age_s != null ? ` (${fmtAge(m.age_s)} ago)` : ""}`;
   const idle = !(m.running > 0) && !(m.waiting > 0) && !(m.prompt_tps > 0) && !(m.gen_tps > 0) && !(m.kv_cache > 0);
-  // While idle the zeros are noise: show one calm line; the sparkline still reveals the last activity.
+  // While idle the zeros are noise: one slim line (💤 idle · 0% KV · 0 tok/s), no chart.
+  // The full metrics line + sparkline only appear when there is traffic.
   const body = idle
-    ? `<span class="idle-word">idle</span>${m.kv_cache != null ? ` · <span class="kv${kvCls}">${m.kv_cache}% KV</span>` : ""}`
+    ? `<span class="idle-word">idle</span>${m.kv_cache != null ? ` · <span class="kv${kvCls}">${m.kv_cache}% KV</span>` : ""} · 0 tok/s`
     : parts.join(" · ");
-  return `<div class="card-metrics mono${stale ? " stale" : ""}${idle ? " idle" : ""}" title="${title}">${idle ? "💤" : "📈"} ${body}${sparkline(r.id, idle)}</div>`;
+  return `<div class="card-metrics mono${stale ? " stale" : ""}${idle ? " idle" : ""}" title="${title}">${idle ? "💤" : "📈"} ${body}${idle ? "" : sparkline(r.id)}</div>`;
 }
 
 function fmtAge(s) { return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`; }
@@ -1213,7 +1228,7 @@ function cardHtml(r) {
     ? `<span class="served-chip" title="Same served model on ${vars.length + 1} engines – open the card to switch between them">⇄ <b>${esc(served)}</b> · ${vars.length + 1} engines</span>`
     : served && served !== r.name ? `<span class="served-chip">serves <b>${esc(served)}</b></span>` : "";
   return `
-      <article class="card lib-card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0" draggable="${view.sort === "manual"}">
+      <article class="card lib-card is-${r.status}" data-id="${r.id}" data-engine="${engineOf(r)}" data-color="${esc(r.color || "")}" tabindex="0" draggable="${view.sort === "manual"}">
         <div class="card-head">
           <div class="card-title">${esc(recipeTitle(r))}</div>
           <div class="card-head-right">
@@ -1264,7 +1279,7 @@ function servingCardHtml(r) {
        <div class="row2"><button class="btn small" data-act="restart">↺ Restart</button><button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button></div>
        <button class="btn small ghost" data-act="more">⋯ More</button>`;
   return `
-      <article class="card serving-card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
+      <article class="card serving-card is-${r.status}" data-id="${r.id}" data-engine="${engineOf(r)}" data-color="${esc(r.color || "")}" tabindex="0">
         <div>
           <div class="sv-title"><span class="card-title">${esc(recipeTitle(r))}</span>${engineBadge(r)}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin" : "Pin to top"}">${r.pinned ? "★" : "☆"}</button></div>
@@ -1274,7 +1289,7 @@ function servingCardHtml(r) {
             ${r.status === "ready" && r.container?.status ? `<span>${esc(r.container.status)}</span>` : ""}</div>
           ${endpoint}
         </div>
-        <div class="sv-metrics">${metricsHtml(r) || `<div class="card-metrics idle mono">💤 waiting for metrics…</div>`}${sparkline(r.id, true)}</div>
+        <div class="sv-metrics">${metricsHtml(r) || `<div class="card-metrics idle mono">💤 waiting for metrics…</div>`}</div>
         <div class="sv-actions">${actions}</div>
       </article>`;
 }
@@ -1495,7 +1510,7 @@ function plainCardsHtml(items) {
 }
 function groupSection(g, key, body, level = 3) {
   const collapsed = !!view.collapsed[`${view.group}:${key}`];
-  const dot = g.engine && g.engine !== "agent" ? `<i class="eng-dot eng-${g.engine}"></i>` : "";
+  const dot = g.engine && g.engine !== "agent" ? `<span style="color:var(--eng-${g.engine})">${enginePet(g.engine)}</span>` : "";
   return `<section class="group${level > 3 ? " sub" : ""}${collapsed ? " is-collapsed" : ""}" data-gkey="${esc(key)}">
       <h${level} class="group-title" title="Click to ${collapsed ? "expand" : "collapse"}"><span class="group-caret">${collapsed ? "▸" : "▾"}</span>${dot}${g.icon}${esc(g.label)} <span>${groupCounts(g.items)}</span></h${level}>
       <div class="group-body">${body}</div>
@@ -1846,8 +1861,8 @@ function renderDrawer() {
     ["Engine", `${esc(state.meta?.frameworks[r.framework]?.label ?? r.framework)}${r.runtime === "process" ? " · native process" : " · Docker"}`],
     r.runtime === "docker" && r.image ? ["Image", `<span title="${esc(r.image)}">${esc(imageShort(r.image))}</span>`] : null,
     ["Port", `<span class="mono">${r.host_port}</span>`],
-    est != null ? ["Est. VRAM", `~${est} GB${r.est_memory_gb ? "" : " (from the engine's memory fraction)"}`] : null,
-    med ? ["Typical boot", `~${fmtDur(med)} · median of recent starts`] : null,
+    est != null ? ["Est. VRAM", `~${est} GB`] : null,
+    med ? ["Typical boot", `~${fmtDur(med)}`] : null,
     multiHost() ? ["Host", esc(maskAddr(hostName(r.host_id)))] : null,
     copiesFact(r),
     r.container ? [r.runtime === "process" ? "Process" : "Container", `<span title="${esc(r.container_name)}">${esc(r.container.status)}</span>`] : null,
@@ -1865,7 +1880,7 @@ function renderDrawer() {
       <div class="dsec">
         <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? esc(state.busy.get(r.id)) : STATUS_LABEL[r.status] ?? r.status}</span>${findingChips(r.findings)}</div>
         ${r.description ? `<p class="card-desc" style="margin:0">${esc(r.description)}</p>` : ""}
-        ${fit?.text ? `<div class="fit-line ${fit.cls}"><span>${fit.primary === "switch" ? "⇄" : fit.cls === "ok" ? "✓" : "⚠"}</span><span>${esc(fit.text)}</span></div>` : ""}
+        ${fit?.text && fit.primary !== "switch" ? `<div class="fit-line ${fit.cls}"><span>${fit.cls === "ok" ? "✓" : "⚠"}</span><span>${esc(fit.text)}</span></div>` : ""}
         ${findingDetails(r.findings)}
       </div>
       <div class="dsec"><h4>Endpoint</h4>
@@ -1876,14 +1891,13 @@ function renderDrawer() {
         ${!running ? `<span class="logs-hint">Available once the recipe is running.</span>` : ""}
       </div>
       <div class="dsec"><h4>Facts</h4><dl class="kv">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></div>
-      ${vars.length ? `<div class="dsec"><h4>Variants — same served model “${esc(served)}”</h4>
+      ${vars.length ? `<div class="dsec"><h4>Variants</h4>
         ${[r, ...vars].map((v) => `<div class="variant-row ${v.id === r.id ? "current" : ""}">
           <span class="vname">${esc(recipeTitle(v))}</span>${engineBadge(v)}<span class="vport mono">:${v.host_port}</span>
           ${v.id === r.id ? `<span class="ok" style="font-size:11px">this one</span>`
             : RUNNING.includes(v.status) ? `<span class="pill ready" style="font-size:10.5px">running</span>`
             : `<button class="btn small primary" data-switch-to="${v.id}" title="Stop the others and start this variant">⇄ Switch</button>`}
-        </div>`).join("")}
-        <span class="logs-hint">One model, several engines. Variants on the same port keep client URLs unchanged.</span></div>` : ""}
+        </div>`).join("")}</div>` : ""}
       ${running ? `<div class="dsec"><h4>Live metrics</h4>${metricsHtml(r) || `<span class="logs-hint">waiting for metrics…</span>`}</div>` : ""}
       <div class="dsec"><h4>Logs</h4>
         <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled title=\"No logs yet (never started / host offline)\""} style="align-self:flex-start">Open logs →</button></div>
