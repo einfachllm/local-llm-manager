@@ -58,7 +58,7 @@ field that decides where they run.
 
 ## The Hosts tab
 
-![Hosts tab: the hub and an agent PC as a graph, with ports, endpoints and live metrics](screenshots/hosts-dark.png)
+![Hosts tab: your machines as a graph, with ports, endpoints and live metrics](screenshots/hosts-dark.png)
 
 The tab opens with a **graph of your setup**: the hub and every agent PC, side by side when they fit in
 one line (the hub on top with the agents below when the window is narrow) and each link on its own track
@@ -94,7 +94,7 @@ E.g. a company where every employee has their own DGX Spark: set the recipe up o
 
 1. Make sure the model is on those machines: [Weights](weights.md) downloads it once and copies it to
    the others.
-2. On the recipe's card click **⇉** (*Copy to other hosts*) and tick the machines. For each one the dialog
+2. In the recipe's **⋯** menu click **⇉ Copy to hosts** and tick the machines. For each one the dialog
    checks first whether the weights (Weights tab) and the Docker image are there, and whether another
    recipe uses the same port.
 3. **Copy**: every machine gets its own copy, named `<recipe> · <host>`, with the same settings and port -

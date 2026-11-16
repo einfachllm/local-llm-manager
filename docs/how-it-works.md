@@ -61,17 +61,18 @@ flowchart LR
     class r card
 ```
 
-In the dashboard every recipe is a card - here grouped by machine, with a running agent on top:
+In the dashboard, running models appear as **Now serving** rows with their endpoint and live metrics,
+and the stopped ones as cards in the **model library** (light theme here):
 
-![Recipe cards grouped by host, light theme](screenshots/recipes-light.png)
+![Recipes dashboard: Now serving and the model library, light theme](screenshots/recipes-light.png)
 
 You will soon have many recipes: one model in two sizes, the same model on several machines, a fast
 model for coding and a big one for hard questions. That is fine. Each card is independent, and
 **Switch to** makes sure only the right ones run.
 
 !!! tip "Keep the list tidy"
-    Pin the recipes you use daily, give cards a colour or tags (e.g. `coding`, `chat`), and use the host
-    filter at the top to see one machine at a time.
+    Pin the recipes you use daily, give cards a colour or tags (e.g. `coding`, `chat`), and use the
+    toolbar's **⚲ Filters** (host, engine, tag) or a saved view to see one machine at a time.
 
 ### Which engine should I pick?
 
@@ -90,8 +91,8 @@ start script you already have. **＋ Add recipe** takes such a script and turns 
 
 ### The easy way: copy what already works
 
-You rarely fill in a recipe by hand. **⧉ Duplicate** takes a recipe that already runs and makes a copy
-for another model. Everything else (engine, settings, port) stays the same:
+You rarely fill in a recipe by hand. **⧉ Duplicate** (the card's **⋯** menu) takes a recipe that already
+runs and makes a copy for another model. Everything else (engine, settings, port) stays the same:
 
 ```mermaid
 flowchart LR
@@ -128,6 +129,10 @@ flowchart LR
     class a go
     class f done
 ```
+
+Before it runs, a **switch preview** shows the whole deal: which models stop and how much memory that
+frees, a before/after memory comparison, the typical boot time, and whether your apps keep their
+endpoint. After the switch, an **Undo** toast can switch back for a few seconds.
 
 The card shows each step live. When it turns **Ready**, your apps can use the new model. You can close
 the browser at any point: the machine carries on by itself.

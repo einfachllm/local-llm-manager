@@ -3,7 +3,7 @@
 A small web dashboard to run local LLMs on your own machines – an NVIDIA DGX Spark, a Mac with Apple
 silicon, or any Linux box – from any browser on your network.
 
-![Model recipes, dark theme](screenshots/recipes-dark.png)
+![Recipes dashboard, dark theme](screenshots/recipes-dark.png)
 
 ## Who it is for
 
@@ -32,7 +32,8 @@ silicon, or any Linux box – from any browser on your network.
   runs where, and live tokens/s, requests and KV-cache use per model.
   → [Several machines](several-machines.md#the-hosts-tab)
 - **Start, stop, restart or "switch to"** a model - switching stops the other models on that machine and
-  frees memory first - plus live status, logs and **schedules**.
+  frees memory first, with a preview of what it frees and whether the endpoint stays - plus live status,
+  logs and **schedules**.
 
 ## Where to start
 

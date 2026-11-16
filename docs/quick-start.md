@@ -92,15 +92,16 @@ and restart the service.
     ![Add a recipe dialog](screenshots/add-recipe-dark.png)
 
 3. **Import**, check the fields and the command preview, then **Save**.
-4. Click **Start** on the new card. The status goes from *starting* to *loading* to *ready*, and a running
-   model shows its live speed, requests and KV-cache use:
+4. Click **Start** on the new card. The status goes from *starting* to *loading* to *ready*; the running
+   model moves into the dashboard's **Now serving** section with its endpoint and live speed, requests
+   and KV-cache use:
 
-    ![Model cards with live status and stats](screenshots/recipes-dark.png)
+    ![Recipes dashboard: host memory, Now serving and the model library](screenshots/recipes-dark.png)
 
-A second model with the same settings: **⧉ Duplicate** on the card, then change the model. In the editor,
-**Recipe file…** exports a recipe as YAML.
+A second model with the same settings: **⧉ Duplicate** in the card's **⋯** menu, then change the model. In
+the editor, **Recipe file…** exports a recipe as YAML.
 
-When the model is ready, its OpenAI-compatible API is at the endpoint shown on the card:
+When the model is ready, its OpenAI-compatible API is at the endpoint shown in its **Now serving** row:
 
 ```bash
 curl http://<machine>:<port>/v1/models
