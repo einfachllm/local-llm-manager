@@ -75,6 +75,21 @@ download / copy weights for you (Images and Weights tabs), or you put them there
 
 ## Latest version changelog
 
+### Version 0.4.0
+
+- **A calmer dashboard:** the polish round on the Recipes dashboard. Model cards no longer tint their
+  background with the recipe colour - the engine's colour marks the card's left border and its **pet
+  badge**, with one pet icon per engine and a new owl logo and favicon.
+- **Minimal library cards:** no status row or fit line at rest; the description is one line, and boot
+  time, port, tags and the pin appear on hover or keyboard focus. The **Switch** button reads calmer
+  (accent outline, solid on hover) so it stands apart from Start.
+- **Slim idle state:** a model that serves no traffic shows one line (💤 idle · 0% KV · 0 tok/s) instead
+  of two dashed sparklines and a scrollbar; the full metrics return as soon as there is traffic.
+- **The details drawer says less:** the explanatory filler (switch hints, variant notes, VRAM/boot
+  caveats) is gone - the facts stand on their own.
+- **No clipping:** the host chip in the topbar fits its container at any width; long host names and
+  memory lines ellipsize, the full readings stay in the tooltip.
+
 ### Version 0.3.0
 
 - **A new Recipes dashboard:** a host strip with a memory bar per machine (one segment per running model,
@@ -211,7 +226,7 @@ models keep running while the manager restarts.
 
 ```bash
 cd local-llm-manager
-git pull                  # or a release: git fetch --tags && git checkout v0.3.0
+git pull                  # or a release: git fetch --tags && git checkout v0.4.0
 ./install.sh              # Linux; on macOS: ./install-macos.sh
 ```
 

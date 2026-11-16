@@ -6,6 +6,35 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-16
+
+### Highlights
+- **A calmer dashboard.** The UI polish round on top of the 0.3.0 Recipes dashboard: the interface now
+  carries its information visually instead of with text, so the same facts read faster and take less room.
+
+### Changed
+- **Model cards are neutral:** they no longer tint their background with the recipe's chosen colour; the
+  engine's colour marks the card's left border and its pet badge, and library cards glow in the engine
+  colour on hover.
+- **Minimal library cards:** the status row, fit line and the badge's Docker/native mark are gone; the
+  description is one ellipsized line, and boot time, port, tags/served chip and the pin appear on hover or
+  keyboard focus. Serving cards are unchanged.
+- **Slim idle state:** while a model serves no traffic, the metrics column shows one line
+  (💤 idle · 0% KV · 0 tok/s) instead of two dashed sparklines, a scrollbar and empty space; the full
+  metrics line and sparkline return with traffic.
+- **Switch button reads calmer at rest:** transparent with an accent outline on library cards, solid
+  accent on hover and keyboard focus.
+- **Details drawer says less:** the "Switch stops … → frees …" hint, the "One model, several engines"
+  note, the variants-suffix and the VRAM/boot caveats are gone - the numbers stand on their own.
+- **Host chip fits the topbar:** columns size to their content, and the host name and memory line
+  ellipsize instead of clipping past the viewport edge; the full readings stay in the tooltip.
+
+### Added
+- **Owl logo, favicon and one pet icon per engine** (vLLM, SGLang, TensorFold, llama.cpp, MLX, Custom).
+
+### Fixed
+- The topbar no longer overflows horizontally on narrow viewports or with long host names.
+
 ## [0.3.0] - 2026-11-16
 
 ### Highlights
@@ -445,7 +474,8 @@ First public release.
 - The database (it stores agent tokens) is readable by its owner only.
 - See [SECURITY.md](https://github.com/einfachllm/local-llm-manager/blob/main/SECURITY.md) for the threat model and how to report vulnerabilities.
 
-[Unreleased]: https://github.com/einfachllm/local-llm-manager/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/einfachllm/local-llm-manager/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/einfachllm/local-llm-manager/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/einfachllm/local-llm-manager/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/einfachllm/local-llm-manager/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/einfachllm/local-llm-manager/releases/tag/v0.1.0
