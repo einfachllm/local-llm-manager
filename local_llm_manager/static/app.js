@@ -1861,8 +1861,8 @@ function renderDrawer() {
     ["Engine", `${esc(state.meta?.frameworks[r.framework]?.label ?? r.framework)}${r.runtime === "process" ? " · native process" : " · Docker"}`],
     r.runtime === "docker" && r.image ? ["Image", `<span title="${esc(r.image)}">${esc(imageShort(r.image))}</span>`] : null,
     ["Port", `<span class="mono">${r.host_port}</span>`],
-    est != null ? ["Est. VRAM", `~${est} GB${r.est_memory_gb ? "" : " (from the engine's memory fraction)"}`] : null,
-    med ? ["Typical boot", `~${fmtDur(med)} · median of recent starts`] : null,
+    est != null ? ["Est. VRAM", `~${est} GB`] : null,
+    med ? ["Typical boot", `~${fmtDur(med)}`] : null,
     multiHost() ? ["Host", esc(maskAddr(hostName(r.host_id)))] : null,
     copiesFact(r),
     r.container ? [r.runtime === "process" ? "Process" : "Container", `<span title="${esc(r.container_name)}">${esc(r.container.status)}</span>`] : null,
@@ -1880,7 +1880,7 @@ function renderDrawer() {
       <div class="dsec">
         <div class="status-row"><span class="pill ${busy ? "busy" : r.status}">${busy ? esc(state.busy.get(r.id)) : STATUS_LABEL[r.status] ?? r.status}</span>${findingChips(r.findings)}</div>
         ${r.description ? `<p class="card-desc" style="margin:0">${esc(r.description)}</p>` : ""}
-        ${fit?.text ? `<div class="fit-line ${fit.cls}"><span>${fit.primary === "switch" ? "⇄" : fit.cls === "ok" ? "✓" : "⚠"}</span><span>${esc(fit.text)}</span></div>` : ""}
+        ${fit?.text && fit.primary !== "switch" ? `<div class="fit-line ${fit.cls}"><span>${fit.cls === "ok" ? "✓" : "⚠"}</span><span>${esc(fit.text)}</span></div>` : ""}
         ${findingDetails(r.findings)}
       </div>
       <div class="dsec"><h4>Endpoint</h4>
@@ -1891,14 +1891,13 @@ function renderDrawer() {
         ${!running ? `<span class="logs-hint">Available once the recipe is running.</span>` : ""}
       </div>
       <div class="dsec"><h4>Facts</h4><dl class="kv">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></div>
-      ${vars.length ? `<div class="dsec"><h4>Variants — same served model “${esc(served)}”</h4>
+      ${vars.length ? `<div class="dsec"><h4>Variants</h4>
         ${[r, ...vars].map((v) => `<div class="variant-row ${v.id === r.id ? "current" : ""}">
           <span class="vname">${esc(recipeTitle(v))}</span>${engineBadge(v)}<span class="vport mono">:${v.host_port}</span>
           ${v.id === r.id ? `<span class="ok" style="font-size:11px">this one</span>`
             : RUNNING.includes(v.status) ? `<span class="pill ready" style="font-size:10.5px">running</span>`
             : `<button class="btn small primary" data-switch-to="${v.id}" title="Stop the others and start this variant">⇄ Switch</button>`}
-        </div>`).join("")}
-        <span class="logs-hint">One model, several engines. Variants on the same port keep client URLs unchanged.</span></div>` : ""}
+        </div>`).join("")}</div>` : ""}
       ${running ? `<div class="dsec"><h4>Live metrics</h4>${metricsHtml(r) || `<span class="logs-hint">waiting for metrics…</span>`}</div>` : ""}
       <div class="dsec"><h4>Logs</h4>
         <button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled title=\"No logs yet (never started / host offline)\""} style="align-self:flex-start">Open logs →</button></div>
