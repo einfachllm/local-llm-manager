@@ -920,12 +920,26 @@ const engineOf = (r) => ENGINE_OF[r.framework] ?? "custom";
 const groupedByHost = () => view.group === "host" || view.group === "host-engine";
 const runtimeMark = (r) => r.runtime === "process"
   ? `<span class="rt" title="Native process">⚙</span>` : `<span class="rt" title="Docker container">🐳</span>`;
+/* One pet per engine family: the badge/chip icon, drawn in the engine's colour (currentColor). */
+const PET_EYE = 'fill="currentColor" stroke="none"';
+const ENGINE_PETS = {
+  vllm: `<path d="M3.5 3.5 8 8h8l4.5-4.5L20 11l-8 9.5L4 11z"/><path d="M4 11l4.5 1.5M20 11l-4.5 1.5"/><circle class="pet-eye" cx="9.5" cy="11" r="1" ${PET_EYE}/><circle class="pet-eye" cx="14.5" cy="11" r="1" ${PET_EYE}/><circle cx="12" cy="17.4" r="1" ${PET_EYE}/>`,
+  sglang: `<path d="M5 10V3.5l4.2 3.3a8 8 0 0 1 5.6 0L19 3.5V10"/><path d="M5 10c0 5.5 3 9 7 9s7-3.5 7-9"/><circle class="pet-eye" cx="9.3" cy="11.5" r="1.1" ${PET_EYE}/><circle class="pet-eye" cx="14.7" cy="11.5" r="1.1" ${PET_EYE}/><path d="M11.2 14.3h1.6l-.8.9z" ${PET_EYE}/>`,
+  tensorfold: `<path d="M12 2.5c-4 0-6 4.5-6 9.5s2 9.5 6 9.5 6-4.5 6-9.5-2-9.5-6-9.5z"/><path d="M9 20c-.5-2-.6-4 0-6 .7-2 5.3-2 6 0 .6 2 .5 4 0 6"/><path d="M6.2 11 3.5 15M17.8 11l2.7 4"/><circle class="pet-eye" cx="10.2" cy="8.5" r="1" ${PET_EYE}/><circle class="pet-eye" cx="13.8" cy="8.5" r="1" ${PET_EYE}/><path d="M11 10.6h2l-1 1.4z" ${PET_EYE}/>`,
+  llamacpp: `<path d="M8.5 7.5 7 2.5l3 3.2M15.5 7.5 17 2.5l-3 3.2"/><path d="M7 11a5 5 0 0 1 10 0v4a5 5 0 0 1-10 0z"/><circle class="pet-eye" cx="9.8" cy="11.5" r="1" ${PET_EYE}/><circle class="pet-eye" cx="14.2" cy="11.5" r="1" ${PET_EYE}/><path d="M10.5 16.5c.8.6 2.2.6 3 0"/>`,
+  mlx: `<path d="M9.5 9 8.5 2.5c1.6 0 2.4 2 2.5 6M14.5 9l1-6.5c-1.6 0-2.4 2-2.5 6"/><circle cx="12" cy="14.5" r="6"/><circle class="pet-eye" cx="9.8" cy="13.5" r="1" ${PET_EYE}/><circle class="pet-eye" cx="14.2" cy="13.5" r="1" ${PET_EYE}/><path d="M11.3 16.3h1.4l-.7.8z" ${PET_EYE}/>`,
+  custom: `<rect x="4.5" y="7" width="15" height="12" rx="4"/><path d="M12 7V4"/><circle cx="12" cy="3" r="1" ${PET_EYE}/><circle class="pet-eye" cx="9.3" cy="12.5" r="1.3" ${PET_EYE}/><circle class="pet-eye" cx="14.7" cy="12.5" r="1.3" ${PET_EYE}/><path d="M10 16h4M2.5 12v2M21.5 12v2"/>`,
+};
+function enginePet(engine) {
+  const body = ENGINE_PETS[engine] || ENGINE_PETS.custom;
+  return `<svg class="eng-pet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+}
 // Engine + Docker/native; under an engine heading only the Docker/native mark is left.
 function engineBadge(r) {
   const e = engineOf(r);
   const full = state.meta?.frameworks[r.framework]?.label ?? r.framework;
   const short = view.group === "engine" || view.group === "host-engine";
-  return `<span class="badge eng eng-${e}" title="${esc(full)}">${short ? "" : `${esc(ENGINE_LABEL[e])} `}${runtimeMark(r)}</span>`;
+  return `<span class="badge eng eng-${e}" title="${esc(full)}">${enginePet(e)}${short ? "" : `${esc(ENGINE_LABEL[e])} `}${runtimeMark(r)}</span>`;
 }
 
 function renderToolbar() {
@@ -974,7 +988,7 @@ function renderEngineFilter() {
   const used = ENGINE_ORDER.filter((e) => models.some((r) => engineOf(r) === e));
   if (view.engine && !used.includes(view.engine)) view.engine = "";
   const chip = (e, label, n, running) => `<button class="chip${(view.engine || "") === e ? " on" : ""}" data-engine="${e}">
-      ${e ? `<i class="eng-dot eng-${e}"></i>` : ""}${esc(label)} <span>${n}${running ? ` · ${running}▶` : ""}</span></button>`;
+      ${e ? `<span style="color:var(--eng-${e})">${enginePet(e)}</span>` : ""}${esc(label)} <span>${n}${running ? ` · ${running}▶` : ""}</span></button>`;
   const run = (list) => list.filter((r) => RUNNING.includes(r.status)).length;
   $("#engine-filter").innerHTML = chip("", "All", models.length, run(models))
     + used.map((e) => { const l = models.filter((r) => engineOf(r) === e); return chip(e, ENGINE_LABEL[e], l.length, run(l)); }).join("");
@@ -1495,7 +1509,7 @@ function plainCardsHtml(items) {
 }
 function groupSection(g, key, body, level = 3) {
   const collapsed = !!view.collapsed[`${view.group}:${key}`];
-  const dot = g.engine && g.engine !== "agent" ? `<i class="eng-dot eng-${g.engine}"></i>` : "";
+  const dot = g.engine && g.engine !== "agent" ? `<span style="color:var(--eng-${g.engine})">${enginePet(g.engine)}</span>` : "";
   return `<section class="group${level > 3 ? " sub" : ""}${collapsed ? " is-collapsed" : ""}" data-gkey="${esc(key)}">
       <h${level} class="group-title" title="Click to ${collapsed ? "expand" : "collapse"}"><span class="group-caret">${collapsed ? "▸" : "▾"}</span>${dot}${g.icon}${esc(g.label)} <span>${groupCounts(g.items)}</span></h${level}>
       <div class="group-body">${body}</div>
