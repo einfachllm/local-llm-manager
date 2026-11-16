@@ -758,14 +758,15 @@ nothing is started. This is not a sandbox - see
 <p><strong>Import</strong>, check the fields and the command preview, then <strong>Save</strong>.</p>
 </li>
 <li>
-<p>Click <strong>Start</strong> on the new card. The status goes from <em>starting</em> to <em>loading</em> to <em>ready</em>, and a running
-   model shows its live speed, requests and KV-cache use:</p>
-<p><img alt="Model cards with live status and stats" src="../screenshots/recipes-dark.png" /></p>
+<p>Click <strong>Start</strong> on the new card. The status goes from <em>starting</em> to <em>loading</em> to <em>ready</em>; the running
+   model moves into the dashboard's <strong>Now serving</strong> section with its endpoint and live speed, requests
+   and KV-cache use:</p>
+<p><img alt="Recipes dashboard: host memory, Now serving and the model library" src="../screenshots/recipes-dark.png" /></p>
 </li>
 </ol>
-<p>A second model with the same settings: <strong>⧉ Duplicate</strong> on the card, then change the model. In the editor,
-<strong>Recipe file…</strong> exports a recipe as YAML.</p>
-<p>When the model is ready, its OpenAI-compatible API is at the endpoint shown on the card:</p>
+<p>A second model with the same settings: <strong>⧉ Duplicate</strong> in the card's <strong>⋯</strong> menu, then change the model. In
+the editor, <strong>Recipe file…</strong> exports a recipe as YAML.</p>
+<p>When the model is ready, its OpenAI-compatible API is at the endpoint shown in its <strong>Now serving</strong> row:</p>
 <div class="highlight"><pre><span></span><code>curl<span class="w"> </span>http://&lt;machine&gt;:&lt;port&gt;/v1/models
 </code></pre></div>
 <h2 id="next-steps">Next steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>

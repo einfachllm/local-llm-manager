@@ -433,10 +433,49 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#recipe-list-filters-and-pinned-recipes" class="md-nav__link">
+  <a href="#the-recipes-dashboard" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Recipe list, filters and pinned recipes
+        The Recipes dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Recipes dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#toolbar-views-and-bulk-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Toolbar, views and bulk actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#switch-preview-and-undo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Switch preview and Undo
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#more-example-recipes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        More example recipes
       
     </span>
   </a>
@@ -668,10 +707,49 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#recipe-list-filters-and-pinned-recipes" class="md-nav__link">
+  <a href="#the-recipes-dashboard" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Recipe list, filters and pinned recipes
+        The Recipes dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Recipes dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#toolbar-views-and-bulk-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Toolbar, views and bulk actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#switch-preview-and-undo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Switch preview and Undo
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#more-example-recipes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        More example recipes
       
     </span>
   </a>
@@ -804,7 +882,8 @@ fake <code>docker</code> (that records the command) and read-only text tools rea
 <p><img alt="Add a recipe: paste YAML or a shell script" src="../screenshots/add-recipe-dark.png" /></p>
 <p>Under the box, <strong>YAML recipe</strong> and <strong>shell script</strong> insert an example of each to edit. After <strong>Import</strong>
 the editor opens with every field filled and the exact <code>docker run</code> command beside it; check name, port
-and paths, then <strong>Save</strong>. For a variant of a recipe that already works, use <strong>⧉ Duplicate</strong> on its card.</p>
+and paths, then <strong>Save</strong>. For a variant of a recipe that already works, use <strong>⧉ Duplicate</strong> in its
+card's <strong>⋯</strong> menu (or in the detail drawer).</p>
 <p><img alt="Recipe editor with the command preview" src="../screenshots/recipe-editor-dark.png" /></p>
 <h2 id="move-recipes-between-machines-and-managers">Move recipes between machines and managers<a class="headerlink" href="#move-recipes-between-machines-and-managers" title="Permanent link">&para;</a></h2>
 <p>A recipe is not tied to the machine it was written on:</p>
@@ -822,7 +901,7 @@ and paths, then <strong>Save</strong>. For a variant of a recipe that already wo
 </tr>
 <tr>
 <td>Run it on <strong>several hosts at once</strong> and keep them equal</td>
-<td><strong>⇉</strong> on the card copies it to the hosts you tick; later changes to the original are offered to all copies, which can be restarted together. See <a href="../several-machines/#the-same-recipe-on-several-machines">Several machines</a>.</td>
+<td><strong>⇉ Copy to hosts</strong> in the card's <strong>⋯</strong> menu copies it to the hosts you tick; later changes to the original are offered to all copies, which can be restarted together. See <a href="../several-machines/#the-same-recipe-on-several-machines">Several machines</a>.</td>
 </tr>
 <tr>
 <td>Take it to <strong>another installation</strong> (a colleague's hub, a test instance) or into Git</td>
@@ -932,17 +1011,45 @@ model on two engines as well: same weights entry, different image and port.</p>
   Moving a recipe to another host or renaming its container also needs a stop first.</li>
 <li>Recipes are a starting point: the flags are tuned for the machine they ran on. Check <code>--gpu-memory-utilization</code>, <code>--max-model-len</code> and <code>--max-num-seqs</code> against your GPU's memory.</li>
 </ul>
-<h2 id="recipe-list-filters-and-pinned-recipes">Recipe list, filters and pinned recipes<a class="headerlink" href="#recipe-list-filters-and-pinned-recipes" title="Permanent link">&para;</a></h2>
-<p>The recipe list shows larger cards for quicker scanning. Use the top toolbar to:</p>
+<h2 id="the-recipes-dashboard">The Recipes dashboard<a class="headerlink" href="#the-recipes-dashboard" title="Permanent link">&para;</a></h2>
+<p>The Recipes tab is a dashboard built around the machine's state:</p>
 <ul>
-<li><strong>Search</strong> across name, model, description, host, image, container name, framework and tag.</li>
-<li><strong>Filter by engine</strong> (vLLM, SGLang, llama.cpp, MLX, TensorFold, Custom – derived automatically from your recipes).</li>
-<li><strong>Filter by kind</strong> (Models or Agents), by host and by tag.</li>
-<li><strong>Group</strong> by host, by engine (Docker and native recipes of one engine together), by host → engine,
-  or by each recipe's first tag.</li>
-<li><strong>Sort</strong> by name, status, port or last-edited (<em>Edited</em>).</li>
+<li><strong>Host strip</strong> on top: one card per machine with a memory bar (one coloured segment per running model,
+  plus GB free), GPU load and temperatures, what runs there, and the next scheduled run.</li>
+<li><strong>Now serving:</strong> the running models as wide rows with the endpoint (one click to copy), live tokens/s,
+  requests and KV-cache use, and Stop / Restart / Logs.</li>
+<li><strong>Model library:</strong> the stopped recipes as compact cards. Each shows the estimated VRAM footprint, the
+  typical boot time (median of recent starts) and a fit line: <em>fits now</em> with the free memory, or what a
+  <strong>⇄ Switch to</strong> would stop and free. One primary button per card (Start or Switch to); everything else
+  lives behind <strong>⋯</strong> (Logs, Edit, Duplicate, Copy to hosts, Pin, Delete).</li>
 </ul>
-<p>Pinned recipes (★) appear in a dedicated “Pinned (always on top)” section at the top of the list. Blur and theme toggles live in the left sidebar.</p>
+<p>Clicking a card opens a <strong>detail drawer</strong>: status and health findings, endpoint, facts, <strong>variants</strong> -
+other recipes that serve the same model name on the same host, each one switch away - live metrics, logs
+and all actions. <strong>Edit</strong> opens the full recipe editor.</p>
+<h3 id="toolbar-views-and-bulk-actions">Toolbar, views and bulk actions<a class="headerlink" href="#toolbar-views-and-bulk-actions" title="Permanent link">&para;</a></h3>
+<p>The toolbar above the list:</p>
+<ul>
+<li><strong>Search</strong> (<code>/</code>) across name, model, description, host, image, container name, framework and tag.</li>
+<li><strong>Status chips</strong> (Any / Running / Stopped) and a Models / Agents toggle.</li>
+<li><strong>⚲ Filters</strong> opens a popover with host, engine (vLLM, SGLang, llama.cpp, MLX, TensorFold, Custom –
+  derived automatically from your recipes) and tag filters.</li>
+<li><strong>Group</strong> by host, by engine (Docker and native recipes of one engine together), by host → engine,
+  or by each recipe's first tag. Click a group heading to collapse it (Shift-click collapses all).</li>
+<li><strong>Sort</strong> by name, status, port, last-edited (<em>Edited</em>), VRAM or boot time - or <em>custom</em>: drag cards
+  into your own order.</li>
+<li><strong>Layout:</strong> cards, or a dense <strong>list view</strong> with sortable columns. There, tick rows (or select all)
+  for <strong>bulk stop / delete</strong>.</li>
+<li><strong>☆ Save view</strong> keeps the current search, filters and layout as a named chip you can return to.</li>
+</ul>
+<p>Pinned recipes (★) appear in a dedicated “Pinned (always on top)” section at the top. Blur and theme
+toggles live in the left sidebar.</p>
+<h3 id="switch-preview-and-undo">Switch preview and Undo<a class="headerlink" href="#switch-preview-and-undo" title="Permanent link">&para;</a></h3>
+<p><strong>⇄ Switch to</strong> opens a preview instead of a bare confirmation: which models stop and how much memory
+that frees, a before/after memory comparison with the estimated headroom, the typical boot time, and
+whether your apps keep their endpoint (same port and served name) or need a new base URL. After a stop,
+delete or switch, a toast offers <strong>Undo</strong> for a few seconds - it starts the model again, re-creates the
+deleted recipe (its schedules are gone for good), or switches back.</p>
+<h2 id="more-example-recipes">More example recipes<a class="headerlink" href="#more-example-recipes" title="Permanent link">&para;</a></h2>
 <p>More of your own? Drop new <code>.yaml</code> / <code>.json</code> files in <code>examples/recipes</code> and add a row to its table - or export one from the editor with <strong>Recipe file…</strong>.</p>
 
 

@@ -800,7 +800,7 @@ later, the machine tells the hub itself.</p>
 <p>The new machine appears in the host strip at the top and in the Hosts graph. Recipes now have a <strong>Host</strong>
 field that decides where they run.</p>
 <h2 id="the-hosts-tab">The Hosts tab<a class="headerlink" href="#the-hosts-tab" title="Permanent link">&para;</a></h2>
-<p><img alt="Hosts tab: the hub and an agent PC as a graph, with ports, endpoints and live metrics" src="../screenshots/hosts-dark.png" /></p>
+<p><img alt="Hosts tab: your machines as a graph, with ports, endpoints and live metrics" src="../screenshots/hosts-dark.png" /></p>
 <p>The tab opens with a <strong>graph of your setup</strong>: the hub and every agent PC, side by side when they fit in
 one line (the hub on top with the agents below when the window is narrow) and each link on its own track
 so the colours stay readable. Each machine shows what matters at a glance:</p>
@@ -834,7 +834,7 @@ open it. On a phone the machines stack along one line.</p>
 <ol>
 <li>Make sure the model is on those machines: <a href="../weights/">Weights</a> downloads it once and copies it to
    the others.</li>
-<li>On the recipe's card click <strong>⇉</strong> (<em>Copy to other hosts</em>) and tick the machines. For each one the dialog
+<li>In the recipe's <strong>⋯</strong> menu click <strong>⇉ Copy to hosts</strong> and tick the machines. For each one the dialog
    checks first whether the weights (Weights tab) and the Docker image are there, and whether another
    recipe uses the same port.</li>
 <li><strong>Copy</strong>: every machine gets its own copy, named <code>&lt;recipe&gt; · &lt;host&gt;</code>, with the same settings and port -

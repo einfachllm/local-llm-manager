@@ -835,15 +835,16 @@ is one click. Every recipe is made of three things:</p>
     classDef card fill:#22c55e38,stroke:#16a34a
     class w,e,h part
     class r card</code></pre>
-<p>In the dashboard every recipe is a card - here grouped by machine, with a running agent on top:</p>
-<p><img alt="Recipe cards grouped by host, light theme" src="../screenshots/recipes-light.png" /></p>
+<p>In the dashboard, running models appear as <strong>Now serving</strong> rows with their endpoint and live metrics,
+and the stopped ones as cards in the <strong>model library</strong> (light theme here):</p>
+<p><img alt="Recipes dashboard: Now serving and the model library, light theme" src="../screenshots/recipes-light.png" /></p>
 <p>You will soon have many recipes: one model in two sizes, the same model on several machines, a fast
 model for coding and a big one for hard questions. That is fine. Each card is independent, and
 <strong>Switch to</strong> makes sure only the right ones run.</p>
 <div class="admonition tip">
 <p class="admonition-title">Keep the list tidy</p>
-<p>Pin the recipes you use daily, give cards a colour or tags (e.g. <code>coding</code>, <code>chat</code>), and use the host
-filter at the top to see one machine at a time.</p>
+<p>Pin the recipes you use daily, give cards a colour or tags (e.g. <code>coding</code>, <code>chat</code>), and use the
+toolbar's <strong>⚲ Filters</strong> (host, engine, tag) or a saved view to see one machine at a time.</p>
 </div>
 <h3 id="which-engine-should-i-pick">Which engine should I pick?<a class="headerlink" href="#which-engine-should-i-pick" title="Permanent link">&para;</a></h3>
 <p>The <em>engine</em> (called <strong>framework</strong> in the recipe) is the program that runs the model. Several exist
@@ -882,8 +883,8 @@ because they suit different machines and model files. You don't need to know the
 <p>Everything else (<strong>TensorFold</strong>, experimental, and <strong>Custom</strong>) is for special cases: a program not in the list, or a
 start script you already have. <strong>＋ Add recipe</strong> takes such a script and turns it into a recipe for you.</p>
 <h3 id="the-easy-way-copy-what-already-works">The easy way: copy what already works<a class="headerlink" href="#the-easy-way-copy-what-already-works" title="Permanent link">&para;</a></h3>
-<p>You rarely fill in a recipe by hand. <strong>⧉ Duplicate</strong> takes a recipe that already runs and makes a copy
-for another model. Everything else (engine, settings, port) stays the same:</p>
+<p>You rarely fill in a recipe by hand. <strong>⧉ Duplicate</strong> (the card's <strong>⋯</strong> menu) takes a recipe that already
+runs and makes a copy for another model. Everything else (engine, settings, port) stays the same:</p>
 <pre class="mermaid"><code>flowchart LR
     a["✅ A recipe that works&lt;br/&gt;Qwen 32B · vLLM"]
     b["📦 Another model&lt;br/&gt;Llama 70B"]
@@ -911,6 +912,9 @@ click:</p>
     class b,c step
     class a go
     class f done</code></pre>
+<p>Before it runs, a <strong>switch preview</strong> shows the whole deal: which models stop and how much memory that
+frees, a before/after memory comparison, the typical boot time, and whether your apps keep their
+endpoint. After the switch, an <strong>Undo</strong> toast can switch back for a few seconds.</p>
 <p>The card shows each step live. When it turns <strong>Ready</strong>, your apps can use the new model. You can close
 the browser at any point: the machine carries on by itself.</p>
 <div class="admonition example">
