@@ -25,7 +25,11 @@ def setup(monkeypatch, tmp_path):
     monkeypatch.setattr(executor_mod, "try_drop_caches_locally", no_local_drop)
     monkeypatch.setattr(executor_mod.system, "read_meminfo",
                         lambda: {"total_gb": 128, "available_gb": 100, "used_gb": 28})
+    # Ports on the dev/CI machine must not influence start decisions (the agent executor checks the
+    # real port too); a test simulates a foreign listener by adding it to a FakeDocker.ports_in_use.
     hub_docker, mac_docker = FakeDocker(), FakeDocker()
+    monkeypatch.setattr(executor_mod, "port_in_use",
+                        lambda port: port in hub_docker.ports_in_use or port in mac_docker.ports_in_use)
     agent = create_agent_app(LocalExecutor(mac_docker, ProcessRunner(tmp_path / "agent-procs")))
     hub = create_app(Database(":memory:"), hub_docker, run_scheduler=False,
                      procs=ProcessRunner(tmp_path / "hub-procs"), remote_transport=httpx.ASGITransport(app=agent))
