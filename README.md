@@ -7,7 +7,7 @@
 A small web dashboard to run local LLMs on your own machines - an NVIDIA DGX Spark, a Mac with Apple
 silicon, or any Linux box - from any browser on your network:
 
-![Model recipes, dark theme](docs/screenshots/recipes-dark.png)
+![Recipes dashboard, dark theme](docs/screenshots/recipes-dark.png)
 
 📖 **Documentation:** [einfachllm.github.io/local-llm-manager](https://einfachllm.github.io/local-llm-manager/) – start with the Quick start and Several machines.
 
@@ -20,7 +20,7 @@ silicon, or any Linux box - from any browser on your network:
 - **📋 Recipes from YAML or a shell script.** **＋ Add recipe** takes a short YAML recipe or the start script
   / `docker run` you already have - no forms. Only what differs from the engine's defaults is written down.
   **Recipe file…** exports any recipe as YAML/JSON, so you can move it to another manager, keep it in Git or
-  share it; on one dashboard, **⇉** copies a recipe to other hosts and keeps the copies in sync.
+  share it; on one dashboard, **⇉ Copy to hosts** copies a recipe to other hosts and keeps the copies in sync.
   [More](https://einfachllm.github.io/local-llm-manager/stable/recipes/)
 - **📦 Weights management.** One table shows which model is where on every machine and finds folders and
   `.gguf` files on its own. **⬇ Download from Hugging Face** once, then **⇉ copy to other hosts** machine to
@@ -37,8 +37,9 @@ silicon, or any Linux box - from any browser on your network:
 ### Everything else
 
 - **Start, stop, restart, or "switch to"** a model (stops the others on that machine and frees memory first).
-  A running model's runtime settings are locked - stop it before changing ports, command, image or
-  environment, so the card always matches what runs.
+  The switch preview shows what stops, how much memory that frees, the typical boot time, and whether your
+  apps keep their endpoint - and an **Undo** toast can switch back. A running model's runtime settings are
+  locked - stop it before changing ports, command, image or environment, so the card always matches what runs.
 - **Agents next to models:** run the programs that use your models - e.g. a [Hermes Agent](examples/hermes-agent/)
   Telegram gateway - as recipes too. They get their own section per host (🤖 above 🧠), keep running when you
   switch models, and show whether their secrets are set and whether a stray second copy is running.
@@ -55,12 +56,19 @@ silicon, or any Linux box - from any browser on your network:
 - **Activity log** of every start, stop and switch with the command and result (values of explicit
   `KEY=value` environment lines are masked).
 - **Screen-share friendly:** a blur toggle hides IP addresses and host names; dark, light and auto themes;
-  ⭐ pinned recipes (shown in a dedicated “Pinned” section at the top), collapsible groups, larger recipe
-  cards, and keyboard shortcuts (`?` shows them). Blur and theme toggles live in the left sidebar.
-- **Recipe toolbar:** filter recipes by engine (vLLM, SGLang, llama.cpp, MLX, TensorFold, Custom –
-  derived automatically from your recipes), by model/agent kind, by host, by tag; group by host,
-  engine, host → engine or tag; and sort by name, status, port or last-edited. Search across name,
-  model, description, host, image, container name, framework and tag.
+  ⭐ pinned recipes (shown in a dedicated “Pinned” section at the top), collapsible groups, and keyboard
+  shortcuts (`?` shows them). Blur and theme toggles live in the left sidebar.
+- **A Recipes dashboard built around the machine:** a host strip on top shows each machine's memory as a
+  bar with one segment per running model, GPU load and temperatures; **Now serving** lists the running
+  models with their endpoint and live metrics; the rest is the **model library** - compact cards that say
+  whether a model fits now or what a switch would free. Clicking a card opens a detail drawer (facts,
+  variants of the same served model, logs, actions).
+- **Recipe toolbar:** search across name, model, description, host, image, container name, framework and
+  tag; status chips and a Models/Agents toggle; **⚲ Filters** for engine (vLLM, SGLang, llama.cpp, MLX,
+  TensorFold, Custom – derived automatically from your recipes), host and tag; group by host, engine,
+  host → engine or tag; sort by name, status, port, last-edited, VRAM or boot time - or arrange cards by
+  drag (*custom*). A **list view** adds sortable columns and bulk stop/delete; **☆ Save view** keeps a
+  search/filter/layout combination as a named chip. Stop, delete and switch offer **Undo** in a toast.
 
 Model weights and Docker images must be on the machine that runs them. The manager can pull images and
 download / copy weights for you (Images and Weights tabs), or you put them there yourself.
@@ -69,6 +77,18 @@ download / copy weights for you (Images and Weights tabs), or you put them there
 
 ### Version 0.3.0
 
+- **A new Recipes dashboard:** a host strip with a memory bar per machine (one segment per running model,
+  GB free, GPU load and temperatures), a **Now serving** section with endpoints and live metrics, and a
+  model library whose cards say whether a model fits now or what a switch would free. A toolbar with
+  search, status chips, group/sort, a filters popover and saved views replaces the old filter rail;
+  clicking a card opens a detail drawer with variants of the same served model. A **list view** adds bulk
+  stop/delete, the **switch preview** compares memory before/after and says whether the endpoint stays,
+  and stop/delete/switch offer **Undo** in a toast.
+- **Several weights entries per recipe:** bind a model and its drafter as two rows - the first fills
+  `{weights}`, the others are mounted by name as `{weights:Name}`. Each keeps its own per-host path, and a
+  start checks every entry.
+- **LM Studio libraries in the Weights tab:** hosts also scan `~/.lmstudio/models` - GGUFs appear per file
+  (one entry per quantization, ready for llama.cpp), MLX model folders as folders.
 - **Health findings:** the hub checks every host and names problems where you look anyway - a chip on the
   recipe card (with the log line that shows why, and what usually helps), the Hosts graph, a ⚠/✖ count in
   the top bar and an activity entry. Rules include a host that stopped answering, memory almost full, a hot
@@ -139,12 +159,12 @@ More examples:
 |---|---|
 | ![Hosts](docs/screenshots/hosts-dark.png) | ![Recipe editor](docs/screenshots/recipe-editor-dark.png) |
 
-| Light theme, grouped by host, tiles | Schedules & planned-runs timeline |
+| Light theme, dashboard cards | Schedules & planned-runs timeline |
 |---|---|
-| ![Light theme, models as tiles](docs/screenshots/recipes-light.png) | ![Schedules](docs/screenshots/schedules-dark.png) |
+| ![Light theme, recipes dashboard](docs/screenshots/recipes-light.png) | ![Schedules](docs/screenshots/schedules-dark.png) |
 
-The screenshots show a demo setup: a hub `spark-01` and an agent `spark-02`. The **🙈 Blur** toggle in the
-left sidebar replaces host names and IPs with aliases such as `host-3f2a` - handy for screenshots and screen shares.
+The screenshots show a one-machine setup with the **🙈 Blur** toggle on: it replaces host names and IPs
+with aliases such as `host-3f2a` - handy for screenshots and screen shares.
 
 ## Quick start
 
@@ -301,7 +321,7 @@ native-process and `--network host` recipes.
   file** (the editor's fields; missing settings come from the framework preset), and **Recipe file…** in
   the editor exports the current recipe that way - volumes, environment and extra Docker flags included.
 - **Moving recipes:** change a recipe's **Host** to run it elsewhere (with `{weights}` the model folder
-  follows), **⇉** to copy it to several hosts, or **Recipe file…** → paste into **＋ Add recipe** to take it
+  follows), **⇉ Copy to hosts** to copy it to several hosts, or **Recipe file…** → paste into **＋ Add recipe** to take it
   to another manager. See [Recipes](https://einfachllm.github.io/local-llm-manager/stable/recipes/#move-recipes-between-machines-and-managers).
 - Live stats come from the server's `/metrics` endpoint: on by default in vLLM and TensorFold; the
   SGLang and llama.cpp presets turn them on (`--enable-metrics` / `--metrics`).

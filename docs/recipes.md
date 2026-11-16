@@ -58,7 +58,8 @@ There is no form to fill in. Click **＋ Add recipe** (shortcut `i`) and paste o
 
 Under the box, **YAML recipe** and **shell script** insert an example of each to edit. After **Import**
 the editor opens with every field filled and the exact `docker run` command beside it; check name, port
-and paths, then **Save**. For a variant of a recipe that already works, use **⧉ Duplicate** on its card.
+and paths, then **Save**. For a variant of a recipe that already works, use **⧉ Duplicate** in its
+card's **⋯** menu (or in the detail drawer).
 
 ![Recipe editor with the command preview](screenshots/recipe-editor-dark.png)
 
@@ -69,7 +70,7 @@ A recipe is not tied to the machine it was written on:
 | You want to… | Do this |
 |---|---|
 | Run it on **another host of the same dashboard** | Change its **Host** field. With `{weights}` the model folder follows: each host mounts its own path from the [Weights](weights.md) tab. |
-| Run it on **several hosts at once** and keep them equal | **⇉** on the card copies it to the hosts you tick; later changes to the original are offered to all copies, which can be restarted together. See [Several machines](several-machines.md#the-same-recipe-on-several-machines). |
+| Run it on **several hosts at once** and keep them equal | **⇉ Copy to hosts** in the card's **⋯** menu copies it to the hosts you tick; later changes to the original are offered to all copies, which can be restarted together. See [Several machines](several-machines.md#the-same-recipe-on-several-machines). |
 | Take it to **another installation** (a colleague's hub, a test instance) or into Git | In the editor, **Recipe file…** shows the recipe as compact YAML or JSON - **Copy** or **Download** it, and paste it into **＋ Add recipe** on the other manager. |
 | Tweak a recipe as text | Edit the YAML in **Recipe file…** and press **Apply to editor**; nothing is saved until you click **Save**. |
 
@@ -132,17 +133,50 @@ model on two engines as well: same weights entry, different image and port.
   Moving a recipe to another host or renaming its container also needs a stop first.
 - Recipes are a starting point: the flags are tuned for the machine they ran on. Check `--gpu-memory-utilization`, `--max-model-len` and `--max-num-seqs` against your GPU's memory.
 
-## Recipe list, filters and pinned recipes
+## The Recipes dashboard
 
-The recipe list shows larger cards for quicker scanning. Use the top toolbar to:
+The Recipes tab is a dashboard built around the machine's state:
 
-- **Search** across name, model, description, host, image, container name, framework and tag.
-- **Filter by engine** (vLLM, SGLang, llama.cpp, MLX, TensorFold, Custom – derived automatically from your recipes).
-- **Filter by kind** (Models or Agents), by host and by tag.
+- **Host strip** on top: one card per machine with a memory bar (one coloured segment per running model,
+  plus GB free), GPU load and temperatures, what runs there, and the next scheduled run.
+- **Now serving:** the running models as wide rows with the endpoint (one click to copy), live tokens/s,
+  requests and KV-cache use, and Stop / Restart / Logs.
+- **Model library:** the stopped recipes as compact cards. Each shows the estimated VRAM footprint, the
+  typical boot time (median of recent starts) and a fit line: *fits now* with the free memory, or what a
+  **⇄ Switch to** would stop and free. One primary button per card (Start or Switch to); everything else
+  lives behind **⋯** (Logs, Edit, Duplicate, Copy to hosts, Pin, Delete).
+
+Clicking a card opens a **detail drawer**: status and health findings, endpoint, facts, **variants** -
+other recipes that serve the same model name on the same host, each one switch away - live metrics, logs
+and all actions. **Edit** opens the full recipe editor.
+
+### Toolbar, views and bulk actions
+
+The toolbar above the list:
+
+- **Search** (`/`) across name, model, description, host, image, container name, framework and tag.
+- **Status chips** (Any / Running / Stopped) and a Models / Agents toggle.
+- **⚲ Filters** opens a popover with host, engine (vLLM, SGLang, llama.cpp, MLX, TensorFold, Custom –
+  derived automatically from your recipes) and tag filters.
 - **Group** by host, by engine (Docker and native recipes of one engine together), by host → engine,
-  or by each recipe's first tag.
-- **Sort** by name, status, port or last-edited (*Edited*).
+  or by each recipe's first tag. Click a group heading to collapse it (Shift-click collapses all).
+- **Sort** by name, status, port, last-edited (*Edited*), VRAM or boot time - or *custom*: drag cards
+  into your own order.
+- **Layout:** cards, or a dense **list view** with sortable columns. There, tick rows (or select all)
+  for **bulk stop / delete**.
+- **☆ Save view** keeps the current search, filters and layout as a named chip you can return to.
 
-Pinned recipes (★) appear in a dedicated “Pinned (always on top)” section at the top of the list. Blur and theme toggles live in the left sidebar.
+Pinned recipes (★) appear in a dedicated “Pinned (always on top)” section at the top. Blur and theme
+toggles live in the left sidebar.
+
+### Switch preview and Undo
+
+**⇄ Switch to** opens a preview instead of a bare confirmation: which models stop and how much memory
+that frees, a before/after memory comparison with the estimated headroom, the typical boot time, and
+whether your apps keep their endpoint (same port and served name) or need a new base URL. After a stop,
+delete or switch, a toast offers **Undo** for a few seconds - it starts the model again, re-creates the
+deleted recipe (its schedules are gone for good), or switches back.
+
+## More example recipes
 
 More of your own? Drop new `.yaml` / `.json` files in `examples/recipes` and add a row to its table - or export one from the editor with **Recipe file…**.

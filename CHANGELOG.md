@@ -6,55 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-- **The Recipes tab is now a dashboard: the machine's state first, then what runs, then the library.**
-  A host command strip shows GPU/unified memory as a bar segmented per running model with the free GB in
-  plain sight, plus GPU load, temperature, power and the next scheduled run. Running models get a wide
-  "Now serving" row with the copyable endpoint and live metrics; stopped models become compact cards that
-  state their VRAM footprint (from `est_memory_gb`, or the engine's `--gpu-memory-utilization` /
-  `--mem-fraction-static` fraction when unset), median boot time and port. The primary button follows the
-  memory math: **Start** when the model fits in free memory, **Switch to** when it must free some first.
-- **Switching shows the whole deal before it happens.** The switch preview lists what stops and how much
-  memory that frees, the boot estimate, before/after memory bars, and — when the new recipe serves the same
-  model on the same port — a green "endpoint unchanged" note, so client apps keep their base URL. Stop,
-  switch and delete offer **Undo** in the toast (delete re-creates the recipe; its schedules stay deleted,
-  as the confirm says).
-- **One toolbar instead of the filter rail.** Search, Models/Agents, status chips with counts, group and
-  sort selects, a card/list layout toggle and a Filters popover (host, engine, tags) share one line; the
-  250 px rail is gone. Named **saved views** remember a whole filter set. The list view is a dense sortable
-  table with multi-select and bulk stop/delete. "Sort: custom" enables drag-to-reorder.
-- **Click a card for a detail drawer:** full facts, health findings, live metrics, logs, and the recipe's
-  **variants** — other engines serving the same model on the same host (TensorFold's `--name` counts as a
-  served name too) — with one-click switching between them. Edit opens the full recipe editor as before.
-  Card actions collapse to one primary button plus a ⋯ menu; Delete sits away from Edit and stays disabled
-  while running.
-- **Recent activity sits under the grid** (last four events, two-line clamp, full text on hover), so cause
-  and effect stay on one screen. Keyboard: Enter/Space opens the focused card's drawer, Esc closes drawer,
-  menu and popover. All existing tabs, dialogs, shortcuts, blur/theme and multi-host behaviour are unchanged.
-  The concept, rendered views and a 36-check live verification script live in `ux-redesign/`.
-
-### Added
-- **A recipe can use several weights entries - a model and its drafter as two rows.** Select more than one
-  entry in the recipe editor (or a list under `weights:` in a recipe file): the first fills `{weights}`, every
-  other is referenced by name as `{weights:Name}` and mounted wherever the engine reads it. Each entry keeps
-  its own per-host path, so the recipe stays portable, and a start checks every selected entry (a missing
-  drafter is refused with its name). The `nemotron-3.5-super-vl.yaml` example now uses it; the single
-  parent-folder approach (e.g. `qwen38-dflash.yaml`) still works. Existing recipes are migrated automatically.
-- **LM Studio libraries show up in the Weights tab.** Every host also scans LM Studio's model library
-  (`~/.lmstudio/models`, or its older `~/.cache/lm-studio/models`) when it exists: GGUFs appear per file
-  (one entry per quantization, ready to mount into a llama.cpp recipe), MLX model folders as folders.
-  Model-presence checks cover them, too. Downloads always go into the first `DGXM_MODEL_DIR`, never into
-  LM Studio's library; a custom LM Studio models dir can be added to `DGXM_MODEL_DIR` as usual.
-
-## [0.3.0] - 2026-11-14
+## [0.3.0] - 2026-11-16
 
 ### Highlights
-- **An audit-driven reliability and security release.** A full review of the POC (five parallel audits plus
-  verification) turned up one silent data loss, two security gaps and a set of promises the code did not
-  keep. This release fixes them, plus the long tail of functional gaps the review found.
+- **An audit-driven reliability and security release - with a new Recipes dashboard.** A full review of
+  the POC (five parallel audits plus verification) turned up one silent data loss, two security gaps and
+  a set of promises the code did not keep. This release fixes them, plus the long tail of functional gaps
+  the review found - and rebuilds the Recipes tab around the machine's state: what runs, what fits, and
+  what a switch costs.
 - **Copies and weights are trustworthy:** symlinked folders travel correctly, link targets are checked,
   copies to older agents keep working, moving a model into a folder a running recipe uses is refused, and
-  a hub restart no longer orphans a running copy.
+  a hub restart no longer orphans a running copy. A recipe can bind several weights entries - a model and
+  its drafter as two rows, each mounted by name.
 - **Schedules, health and jobs survive restarts:** schedule times are the hub's wall clock everywhere, DST
   transitions are handled, findings keep their history across a restart, and unfinished jobs resume.
 - **Runs on any host:** Compose no longer insists on NVIDIA or Tailscale (both are override files), the
@@ -75,11 +38,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - On macOS a configuration error (weak password, short token) now stops the service instead of restarting
   it in a loop: fix `.env` and rerun `./install-macos.sh`.
 - Schedules now use the hub's IANA zone, so DST is handled; the database is upgraded on the first start -
-  back it up if you may want to go back.
+  back it up if you may want to go back. Recipes that select one weights entry are migrated to the new
+  multi-weights list automatically.
 
 ### Added
 
 **Recipes, hosts and jobs**
+- **A recipe can use several weights entries - a model and its drafter as two rows.** Select more than one
+  entry in the recipe editor (or a list under `weights:` in a recipe file): the first fills `{weights}`, every
+  other is referenced by name as `{weights:Name}` and mounted wherever the engine reads it. Each entry keeps
+  its own per-host path, so the recipe stays portable, and a start checks every selected entry (a missing
+  drafter is refused with its name). The `nemotron-3.5-super-vl.yaml` example uses it, as do the dflash and
+  SGLang examples; the single parent-folder approach (e.g. `qwen38-tensorfold.yaml`) still works. Existing
+  recipes are migrated automatically.
+- **LM Studio libraries show up in the Weights tab.** Every host also scans LM Studio's model library
+  (`~/.lmstudio/models`, or its older `~/.cache/lm-studio/models`) when it exists: GGUFs appear per file
+  (one entry per quantization, ready to mount into a llama.cpp recipe), MLX model folders as folders.
+  Model-presence checks cover them, too. Downloads always go into the first `DGXM_MODEL_DIR`, never into
+  LM Studio's library; a custom LM Studio models dir can be added to `DGXM_MODEL_DIR` as usual.
 - **Health findings:** the hub checks every 15 s for problems and names them where you look anyway - a
   chip on the recipe card (with what happened, the log line that shows why, and what usually helps), on the
   host in the Hosts graph, a ⚠/✖ count on the host chip in the top bar, and an entry in the activity log
@@ -123,14 +99,41 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   toasts and labelled dialogs.
 
 ### Changed
+- **The Recipes tab is now a dashboard: the machine's state first, then what runs, then the library.**
+  A host command strip shows GPU/unified memory as a bar segmented per running model with the free GB in
+  plain sight, plus GPU load, temperature, power and the next scheduled run. Running models get a wide
+  "Now serving" row with the copyable endpoint and live metrics; stopped models become compact cards that
+  state their VRAM footprint (from `est_memory_gb`, or the engine's `--gpu-memory-utilization` /
+  `--mem-fraction-static` fraction when unset), median boot time and port. The primary button follows the
+  memory math: **Start** when the model fits in free memory, **Switch to** when it must free some first.
+- **Switching shows the whole deal before it happens.** The switch preview lists what stops and how much
+  memory that frees, the boot estimate, before/after memory bars, and — when the new recipe serves the same
+  model on the same port — a green "endpoint unchanged" note, so client apps keep their base URL. Stop,
+  switch and delete offer **Undo** in the toast (delete re-creates the recipe; its schedules stay deleted,
+  as the confirm says).
+- **One toolbar instead of the filter rail.** Search, Models/Agents, status chips with counts, group and
+  sort selects, a card/list layout toggle and a Filters popover (host, engine, tags) share one line; the
+  250 px rail is gone. Named **saved views** remember a whole filter set. The list view is a dense sortable
+  table with multi-select and bulk stop/delete. "Sort: custom" enables drag-to-reorder.
+- **Click a card for a detail drawer:** full facts, health findings, live metrics, logs, and the recipe's
+  **variants** — other engines serving the same model on the same host (TensorFold's `--name` counts as a
+  served name too) — with one-click switching between them. Edit opens the full recipe editor as before.
+  Card actions collapse to one primary button plus a ⋯ menu; Delete sits away from Edit and stays disabled
+  while running.
+- **Recent activity sits under the grid** (last four events, two-line clamp, full text on hover), so cause
+  and effect stay on one screen. Keyboard: Enter/Space opens the focused card's drawer, Esc closes drawer,
+  menu and popover. All existing tabs, dialogs, shortcuts, blur/theme and multi-host behaviour are unchanged.
+  The concept, rendered views and a 36-check live verification script live in `ux-redesign/`.
 - **Example recipes are one Qwen3.8 family:** `examples/recipes` keeps the recipes that actually run here.
   The same Qwen3.8-27B-NVFP4 on four engines - vLLM with MTP (`qwen38-mtp`, renamed from `qwen38-27b` and
   still the file a fresh install seeds from), vLLM with the DFlash2 drafter
   (`qwen38-dflash`), SGLang with DFlash2 (`qwen38-sglang`) and native TensorFold (`qwen38-tensorfold`) - all
   on port **8101** with the served name `qwen3.8`, so **Switch to** changes the engine under one endpoint;
-  plus Qwen3.8-Flash-Next-FP4 (b12x) on a DGX Spark, Nemotron-3.5-Super-VL and the Hermes agent. The three
-  with a drafter now mount **one** registered folder (`Qwen3.8-Models` = the folder holding model and
-  drafter) instead of a fixed `/home/<user>/models/...`, so importing one on another machine needs no edits.
+  plus Qwen3.8-Flash-Next-FP4 (b12x, vLLM and TensorFold) on a DGX Spark, Nemotron-3.5-Super-VL and the
+  Hermes agent. No example mounts a fixed `/home/<user>/models/...` any more: the drafter recipes register
+  model and drafter as **two weights entries** mounted by name (`{weights:Qwen3.8-27B-NVFP4}`,
+  `{weights:Qwen3.8-27B-DFlash2}`), and `qwen38-tensorfold` mounts one registered parent folder with
+  `{weights}` - so importing one on another machine needs no edits.
 - **The two example tables stop drifting:** `docs/recipes.md` and `examples/recipes/README.md` list the same
   rows, and `tests/test_examples.py` keeps folder and both tables in step - every file listed exactly once in
   each, every example importing without a warning, no server flag or mount set twice, the family sharing one
@@ -170,6 +173,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Docker-latest workflow already did.
 
 ### Fixed
+- **The published examples match their guards again:** an examples rewrite had deleted `qwen38-mtp.yaml`
+  (the published copy the packaged seed must match byte for byte) and `qwen38-dflash-docker.sh` (the
+  starter script the docker-run importer is tested against) and renamed the Flash-Next file in neither
+  doc table. Both files are restored, both tables list `qwen38-flash-next-fp4-b12x.yaml`, and the drafter
+  guard test accepts a `{weights:Name}` mount as well - the portable form the multi-weights examples use.
 - **A weights entry that is the model folder itself no longer starts a doomed container:** drafter
   recipes (`qwen38-dflash`, `qwen38-sglang`, `qwen38-tensorfold`, `nemotron-3.5-super-vl`) mount one
   registered parent folder and read model and drafter from subfolders of it. Picking the model's own
@@ -304,7 +312,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 - **Rows/tiles leftovers:** the layout toggle was removed earlier, but its dead rendering code, CSS and
-  README paragraph remained. The recipe list is tiles-only; the dead code and the paragraph are gone.
+  README paragraph remained. The dead code and the paragraph are gone. (The dashboard at the end of this
+  release brings a layout toggle back - cards plus a dense list view with bulk actions.)
 - **Example recipes:** `embeddinggemma-2-llamacpp.yaml`, `sglang-flint.sh` and `sglang-flint-docker.sh`. The
   formats they showed stay documented (compact files and starter scripts); `examples/hermes-agent/` keeps the
   `.sh` samples.
