@@ -393,7 +393,9 @@ label.inline select { width: auto; }
 .group-title span { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
 input[readonly] { opacity: .6; }
 
-/* card colours (purely visual; status keeps using the border and pill) */
+/* card colours (purely visual; status keeps using the border and pill).
+   Model cards (library + serving) stay neutral: the engine colour lives on the left border
+   and the pet badge instead, so a wall of cards does not read as random confetti. */
 .card[data-color=green]  { --card-accent: #22c58b; }
 .card[data-color=teal]   { --card-accent: #2cc4c9; }
 .card[data-color=blue]   { --card-accent: #4f8cff; }
@@ -402,12 +404,37 @@ input[readonly] { opacity: .6; }
 .card[data-color=orange] { --card-accent: #f2884b; }
 .card[data-color=yellow] { --card-accent: #f0c93a; }
 .card[data-color=red]    { --card-accent: #ef5b5b; }
-.card[data-color]:not([data-color=""]):not([data-color=black]) {
+.card[data-color]:not([data-color=""]):not([data-color=black]):not(.lib-card):not(.serving-card) {
   background: color-mix(in srgb, var(--card-accent) 11%, var(--panel));
   border-left: 4px solid var(--card-accent);
 }
-.card[data-color=black] { background: #05070c; border-color: #1a2133; border-left: 4px solid #000; color: #e3e8f2; }
-.card[data-color=black] .card-desc, .card[data-color=black] .kv dt { color: #6f7a91; }
+.card[data-color=black]:not(.lib-card):not(.serving-card) { background: #05070c; border-color: #1a2133; border-left: 4px solid #000; color: #e3e8f2; }
+.card[data-color=black]:not(.lib-card):not(.serving-card) .card-desc,
+.card[data-color=black]:not(.lib-card):not(.serving-card) .kv dt { color: #6f7a91; }
+
+/* engine colour: one neutral card background, the left border and pet badge carry the engine */
+.card[data-engine="vllm"]      {--eng-color:var(--eng-vllm)}
+.card[data-engine="sglang"]    {--eng-color:var(--eng-sglang)}
+.card[data-engine="tensorfold"]{--eng-color:var(--eng-tensorfold)}
+.card[data-engine="llamacpp"]  {--eng-color:var(--eng-llamacpp)}
+.card[data-engine="mlx"]       {--eng-color:var(--eng-mlx)}
+.card[data-engine="custom"]    {--eng-color:var(--eng-custom)}
+
+.card.lib-card[data-engine],
+.card.serving-card[data-engine]{
+  background:var(--panel);
+  border-left:4px solid var(--eng-color);
+  transition:box-shadow .2s, transform .2s;
+}
+.card.lib-card[data-engine]:hover{
+  box-shadow:0 6px 20px color-mix(in srgb,var(--eng-color) 18%,transparent);
+  transform:translateY(-1px);
+}
+.card.serving-card[data-engine]{
+  background:linear-gradient(90deg,color-mix(in srgb,var(--eng-color) 7%,var(--panel)),var(--panel) 45%);
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--eng-color) 35%,transparent),
+             0 6px 22px color-mix(in srgb,var(--eng-color) 14%,transparent);
+}
 
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; }

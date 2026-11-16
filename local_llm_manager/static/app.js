@@ -1227,7 +1227,7 @@ function cardHtml(r) {
     ? `<span class="served-chip" title="Same served model on ${vars.length + 1} engines – open the card to switch between them">⇄ <b>${esc(served)}</b> · ${vars.length + 1} engines</span>`
     : served && served !== r.name ? `<span class="served-chip">serves <b>${esc(served)}</b></span>` : "";
   return `
-      <article class="card lib-card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0" draggable="${view.sort === "manual"}">
+      <article class="card lib-card is-${r.status}" data-id="${r.id}" data-engine="${engineOf(r)}" data-color="${esc(r.color || "")}" tabindex="0" draggable="${view.sort === "manual"}">
         <div class="card-head">
           <div class="card-title">${esc(recipeTitle(r))}</div>
           <div class="card-head-right">
@@ -1278,7 +1278,7 @@ function servingCardHtml(r) {
        <div class="row2"><button class="btn small" data-act="restart">↺ Restart</button><button class="btn small ghost" data-act="logs" ${r.container ? "" : "disabled"}>Logs</button></div>
        <button class="btn small ghost" data-act="more">⋯ More</button>`;
   return `
-      <article class="card serving-card is-${r.status}" data-id="${r.id}" data-color="${esc(r.color || "")}" tabindex="0">
+      <article class="card serving-card is-${r.status}" data-id="${r.id}" data-engine="${engineOf(r)}" data-color="${esc(r.color || "")}" tabindex="0">
         <div>
           <div class="sv-title"><span class="card-title">${esc(recipeTitle(r))}</span>${engineBadge(r)}
             <button class="btn small ghost pin${r.pinned ? " on" : ""}" data-act="pin" title="${r.pinned ? "Unpin" : "Pin to top"}">${r.pinned ? "★" : "☆"}</button></div>
