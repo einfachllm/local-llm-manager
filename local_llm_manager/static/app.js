@@ -1027,7 +1027,7 @@ function recordMetrics(recipes) {
     if (a.length > SPARK_MAX) a.shift();
   }
 }
-function sparkline(id, idle) {
+function sparkline(id) {
   const a = sparkHist.get(id);
   if (!a || a.length < 3) return "";
   const w = 72, h = 16;
@@ -1037,7 +1037,7 @@ function sparkline(id, idle) {
     `${((i / (a.length - 1)) * (w - 2) + 1).toFixed(1)},${(h - 1.5 - ((p.v - min) / range) * (h - 3)).toFixed(1)}`).join(" ");
   const secs = Math.round((a[a.length - 1].t - a[0].t) / 1000);
   const tip = `Output tok/s over the last ~${fmtAge(secs)}\nnow ${fmtTps(a[a.length - 1].v)} · peak ${fmtTps(max)}`;
-  return `<svg class="spark${idle ? " flat" : ""}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${esc(tip)}</title><polyline points="${pts}"/></svg>`;
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${esc(tip)}</title><polyline points="${pts}"/></svg>`;
 }
 
 function metricsHtml(r) {
@@ -1059,11 +1059,12 @@ function metricsHtml(r) {
   const title = m.source === "metrics" ? "Live from the server's /metrics, over the last poll interval"
     : `From the server's last stats line in the log${m.age_s != null ? ` (${fmtAge(m.age_s)} ago)` : ""}`;
   const idle = !(m.running > 0) && !(m.waiting > 0) && !(m.prompt_tps > 0) && !(m.gen_tps > 0) && !(m.kv_cache > 0);
-  // While idle the zeros are noise: show one calm line; the sparkline still reveals the last activity.
+  // While idle the zeros are noise: one slim line (💤 idle · 0% KV · 0 tok/s), no chart.
+  // The full metrics line + sparkline only appear when there is traffic.
   const body = idle
-    ? `<span class="idle-word">idle</span>${m.kv_cache != null ? ` · <span class="kv${kvCls}">${m.kv_cache}% KV</span>` : ""}`
+    ? `<span class="idle-word">idle</span>${m.kv_cache != null ? ` · <span class="kv${kvCls}">${m.kv_cache}% KV</span>` : ""} · 0 tok/s`
     : parts.join(" · ");
-  return `<div class="card-metrics mono${stale ? " stale" : ""}${idle ? " idle" : ""}" title="${title}">${idle ? "💤" : "📈"} ${body}${sparkline(r.id, idle)}</div>`;
+  return `<div class="card-metrics mono${stale ? " stale" : ""}${idle ? " idle" : ""}" title="${title}">${idle ? "💤" : "📈"} ${body}${idle ? "" : sparkline(r.id)}</div>`;
 }
 
 function fmtAge(s) { return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`; }
@@ -1288,7 +1289,7 @@ function servingCardHtml(r) {
             ${r.status === "ready" && r.container?.status ? `<span>${esc(r.container.status)}</span>` : ""}</div>
           ${endpoint}
         </div>
-        <div class="sv-metrics">${metricsHtml(r) || `<div class="card-metrics idle mono">💤 waiting for metrics…</div>`}${sparkline(r.id, true)}</div>
+        <div class="sv-metrics">${metricsHtml(r) || `<div class="card-metrics idle mono">💤 waiting for metrics…</div>`}</div>
         <div class="sv-actions">${actions}</div>
       </article>`;
 }

@@ -175,7 +175,6 @@ main { padding: 24px; max-width: 1500px; margin: 0 auto; }
 .card-metrics .kv { display: inline; font-size: inherit; }
 .card-metrics .kv.warm { color: var(--yellow); }
 .card-metrics .kv.hot { color: var(--red); font-weight: 600; }
-.spark.flat polyline { stroke: var(--muted); stroke-dasharray: 3 3; }
 .card-metrics.stale .spark polyline { stroke: var(--muted); }
 .status-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .start-live, .start-hint { color: var(--muted); font-size: 12px; }
@@ -956,8 +955,10 @@ span.hf { cursor: default; padding: 0 7px; }
 .endpoint-box code, .endpoint-box a { font-size: 12.5px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
 .endpoint-box .copy-mini { margin-left: auto; flex: none; }
 .sv-metrics { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
-.sv-metrics .card-metrics { white-space: normal; }
-.sv-metrics .spark { width: 100%; height: 34px; }
+.sv-metrics .card-metrics { white-space: normal; overflow-x: visible; }
+/* The chart scales with the column via viewBox; a fixed CSS width on the 72px-wide SVG
+   overflowed the flex column and produced a horizontal scrollbar. */
+.sv-metrics .spark { width: 100%; max-width: 100%; height: 34px; }
 .sv-metrics .spark polyline { stroke: var(--green); }
 .sv-actions { display: flex; flex-direction: column; gap: 7px; min-width: 116px; }
 .sv-actions .row2 { display: flex; gap: 7px; }
