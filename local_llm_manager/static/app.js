@@ -85,6 +85,8 @@ $$(".tab").forEach((btn) => btn.addEventListener("click", () => {
   $$(".tab").forEach((b) => b.classList.toggle("active", b === btn));
   $$(".panel").forEach((p) => p.classList.toggle("hidden", p.id !== `tab-${state.tab}`));
   $("#section-title").textContent = TAB_TITLES[state.tab] ?? "";
+  // Rack nav scrolls horizontally on narrow screens: keep the active module in view.
+  btn.scrollIntoView({ block: "nearest", inline: "nearest" });
   closeNav();
   if (state.tab === "schedules") loadSchedules();
   if (state.tab === "activity") loadEvents();
@@ -2309,9 +2311,11 @@ function openRecipeEditor(r, kind = "model", hostId = "") {
   $("#dlg-recipe").showModal();
 }
 
-// New recipes always come from a pasted YAML recipe or shell script; the editor then shows the result.
+// New recipes start in the guided 3-step wizard (weights → engine & port → review);
+// "Paste YAML / script instead" inside it hands over to the import dialog, which then
+// opens the full editor with the imported recipe.
 let importForNew = false;
-$("#btn-add-recipe").addEventListener("click", () => { openRecipeEditor(null); importForNew = true; openImport(); });
+$("#btn-add-recipe").addEventListener("click", () => { openRecipeWizard(); });
 
 $("#sel-host").addEventListener("change", (e) => {
   updatePortHint();
@@ -3000,6 +3004,11 @@ $("#form-import").addEventListener("submit", async (ev) => {
     }
     // Scripts carry no tags; keep whatever the form already has.
     if (!r.tags?.length) r.tags = recipeFromForm().tags;
+    // From the wizard's "Paste YAML / script instead": no editor is open yet — open one.
+    if (!editingRecipe && !$("#dlg-recipe").open) {
+      openRecipeEditor(null, r.kind || "model", r.host_id ?? "");
+      importForNew = true;  // cancelling the import now closes the empty editor again
+    }
     fillRecipeForm(r);
     const adopted = useRegisteredWeights();
     syncHostNetworkPorts();
@@ -3655,7 +3664,7 @@ try { tlHours = Number(localStorage.getItem(TL_KEY)) || 24; } catch { /* storage
 let tlData = null;
 
 const CARD_HEX = {
-  "": "#4f8cff", green: "#22c58b", teal: "#2cc4c9", blue: "#4f8cff", purple: "#a77bf3", pink: "#ec6fb4",
+  "": "var(--accent)", green: "#22c58b", teal: "#2cc4c9", blue: "#4f8cff", purple: "#a77bf3", pink: "#ec6fb4",
   orange: "#f2884b", yellow: "#f0c93a", red: "#ef5b5b", black: "#000000",
 };
 const ACTION_SHORT = { start: "start", stop: "stop", restart: "restart", switch: "switch to", stop_all: "stop all", free_memory: "free memory" };

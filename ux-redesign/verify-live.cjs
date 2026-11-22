@@ -155,6 +155,21 @@ const RUNNING = ["ready", "loading", "starting"];
   await page.waitForTimeout(250);
   ok("editor cancelled", await page.locator("#dlg-recipe[open]").count() === 0);
 
+  /* guided wizard: opens from Add recipe, walks steps, cancels without saving */
+  await page.click("#btn-add-recipe");
+  await page.waitForTimeout(500);
+  ok("wizard opens", await page.locator("#dlg-wizard[open]").count() === 1);
+  ok("wizard step 1 shows weights or model choice", await page.locator("#dlg-wizard .wiz-body").innerText().then((t) => /weight|model/i.test(t)));
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  // Esc on a pristine wizard closes directly; if a discard confirm appears, accept it.
+  if (await page.locator("#dlg-wizard[open]").count()) {
+    page.once("dialog", (d) => d.accept());
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+  }
+  ok("wizard cancelled", await page.locator("#dlg-wizard[open]").count() === 0);
+
   /* filters popover + saved view */
   await page.click("#btn-filters");
   await page.waitForTimeout(200);
@@ -206,9 +221,12 @@ const RUNNING = ["ready", "loading", "starting"];
   await mpage.waitForTimeout(1000);
   ok("mobile: no horizontal overflow", await mpage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
   await mpage.screenshot({ path: path.join(IMG, "live-06-mobile.png"), fullPage: true });
-  await mpage.click("#btn-nav");
-  await mpage.waitForTimeout(300);
-  ok("mobile: nav opens", await mpage.locator("#sidebar.open").count() === 1);
+  // Rack chrome: the nav is a horizontal tab bar on mobile — no hamburger drawer anymore.
+  ok("mobile: rack nav visible", await mpage.locator('.tab[data-tab="recipes"]').isVisible());
+  await mpage.locator('.tab[data-tab="hosts"]').evaluate((el) => el.scrollIntoView({ inline: "center", block: "nearest" }));
+  await mpage.click('.tab[data-tab="hosts"]');
+  await mpage.waitForTimeout(500);
+  ok("mobile: tab switch works", await mpage.locator("#tab-hosts:not(.hidden)").count() === 1);
   await mctx.close();
 
   await browser.close();

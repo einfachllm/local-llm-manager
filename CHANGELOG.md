@@ -6,6 +6,37 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Highlights
+- **Studio Hardware Rack UI.** The whole interface adopts the warm-stone / charcoal "hardware rack"
+  design: a horizontal segmented rack navigation replaces the sidebar, memory meters read as LED
+  segments, the serving model sits in a 2px-framed active bay, and panels are flat 1px-hairline
+  surfaces with precision 4–8px corners — no gradients, no drop shadows. Light and dark themes both
+  carry the palette (signal orange for actions, LED green strictly for live serving / healthy memory).
+- **Guided New Recipe wizard.** "＋ Add recipe" now opens a 3-step setup — Model & Weights → Engine &
+  Port → Review & Save — with a weights picker that shows sizes and Fits/Tight badges against free
+  memory, engine cards with a Recommended marker, a live endpoint preview, and the generated Docker
+  command tucked under an Advanced toggle. "Paste YAML / script instead" still hands over to the
+  import dialog and full editor.
+
+### Added
+- Vendored Space Grotesk, Inter and JetBrains Mono (latin variable-font subsets, ~90 KB) so the new
+  typography works fully offline under the existing `default-src 'self'` CSP.
+- Three wizard checks in `ux-redesign/verify-live.cjs` (opens, shows step 1, cancels without saving);
+  the suite now runs 40 state-driven checks, all passing against the live manager.
+
+### Changed
+- Typography: Space Grotesk for headings and telemetry readouts, Inter for labels, JetBrains Mono for
+  endpoints/ports/sizes; numeric readouts are tabular everywhere.
+- The mobile hamburger drawer is gone: the rack nav scrolls horizontally and keeps the active module
+  in view; no horizontal overflow at 420px.
+- Favicon, PWA icons and manifest colours match the rack palette.
+- Timeline lanes without a card colour use the theme accent instead of a fixed blue.
+
+### Fixed
+- Library cards no longer force a horizontal scrollbar on narrow screens (`min-width: 0` in the grid).
+- Importing a YAML/script from the wizard now opens the full editor with the imported recipe (before,
+  the editor only existed when "Add recipe" opened it directly).
+
 ## [0.4.0] - 2026-11-16
 
 ### Highlights
