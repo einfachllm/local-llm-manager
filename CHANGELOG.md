@@ -25,6 +25,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   typography works fully offline under the existing `default-src 'self'` CSP.
 - Three wizard checks in `ux-redesign/verify-live.cjs` (opens, shows step 1, cancels without saving);
   the suite now runs 40 state-driven checks, all passing against the live manager.
+- New example recipe `inkling-2-mini.yaml`: Thinking Machines Inkling 2 Mini (26B MoE, multimodal)
+  on a DGX Spark via vLLM nightly — DSpark speculative decoding, reasoning + tool parser, 262k window.
 
 ### Changed
 - Typography: Space Grotesk for headings and telemetry readouts, Inter for labels, JetBrains Mono for
@@ -33,6 +35,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in view; no horizontal overflow at 420px.
 - Favicon, PWA icons and manifest colours match the rack palette.
 - Timeline lanes without a card colour use the theme accent instead of a fixed blue.
+- Example `qwen38-tensorfold.yaml` updated to TensorFold 1.2.10's CUDA image: 262k window, 2 streams,
+  fp8 KV, model and drafter as two registered entries (`{weights:Name}`), memory estimate and
+  Docker IPC/ulimit flags; docs tables follow.
 
 ### Fixed
 - Library cards no longer force a horizontal scrollbar on narrow screens (`min-width: 0` in the grid).

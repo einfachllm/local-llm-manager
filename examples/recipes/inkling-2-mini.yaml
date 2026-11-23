@@ -1,0 +1,44 @@
+# Compact recipe file (Local LLM Manager): paste into + Add recipe / Recipes -> Import.
+# Inkling 2 Mini (Thinking Machines) on one NVIDIA DGX Spark (GB10): vLLM nightly, DSpark
+# speculative decoding and the reasoning parser, context capped at 256k to fit the Spark.
+#
+# Verified upstream configuration: recipes.vllm.ai/thinkingmachines/Inkling-2-Mini?hardware=dgx_spark_gb10
+# vLLM support for the looped `inkling2_loop` architecture is not in a release yet - the image
+# tracks :nightly. Pin a digest (or a later release) once you have a build that works for you.
+#
+# Weights: `Search hosts` finds ~/models/thinkingmachines/Inkling-2-Mini and adds it as
+# "Inkling-2-Mini"; the recipe mounts it at /model. If you registered the parent folder
+# "thinkingmachines" instead, set `model: /model/Inkling-2-Mini` (and keep `weights:` as that row).
+name: inkling-2-mini
+description: Thinking Machines Inkling 2 Mini (26B MoE, multimodal) via vLLM nightly with DSpark
+framework: vllm
+image: vllm/vllm-openai:nightly
+weights: Inkling-2-Mini
+host_port: 8102
+command: vllm serve {model} --host {bind_host} --port {port}
+docker_args: |-
+  # same as the upstream DGX Spark command; --ipc/ulimits come from the vLLM preset
+  --privileged
+  --ipc=host
+  --ulimit memlock=-1
+  --ulimit stack=67108864
+args: |-
+  --served-model-name inkling-2-mini
+  --tensor-parallel-size 1
+  # 1M is the model maximum; 262144 is the upstream cap for DGX Spark / H100 memory.
+  --max-model-len 262144
+  # 19 GB of weights + ~48 GB of KV cache for one full 262k session on the 121 GiB Spark.
+  --gpu-memory-utilization 0.80
+  --reasoning-parser inkling
+  # Tool calling is opt-in upstream; the parser is named `inkling` in vLLM (not `inkling2`).
+  --enable-auto-tool-choice
+  --tool-call-parser inkling
+  # DSpark draft head ships inside the checkpoint (mtp.safetensors).
+  --speculative-config '{"method":"dspark","num_speculative_tokens":7,"draft_sample_method":"probabilistic"}'
+env: |-
+  HF_HUB_OFFLINE=1
+  TOKENIZERS_PARALLELISM=false
+container_name: inkling-2-mini
+est_memory_gb: 72
+tags: thinkingmachines,inkling,dspark,multimodal,reasoning,dgx-spark
+color: orange

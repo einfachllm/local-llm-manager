@@ -96,18 +96,20 @@ The current examples:
 | [`qwen38-dflash.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-dflash.yaml) | vLLM | Qwen3.8-27B-NVFP4 with the DFlash2 drafter: speculative decoding, model and drafter from one registered folder. |
 | [`qwen38-dflash-docker.sh`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-dflash-docker.sh) | vLLM | The same recipe as a **starter script**: a plain `docker run`, and the fields the manager reads out of it. |
 | [`qwen38-sglang.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-sglang.yaml) | SGLang | The same model and drafter on SGLang's official image, **same port** - **Switch to** swaps the engine. |
-| [`qwen38-tensorfold.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-tensorfold.yaml) | TensorFold | The same model and drafter served natively (no Docker) by TensorFold's CUDA engine on a DGX Spark. |
+| [`qwen38-tensorfold.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-tensorfold.yaml) | TensorFold | The same model and drafter in TensorFold's CUDA image on a DGX Spark: 262k window, 2 streams, fp8 KV, DFlash2. |
 | [`qwen38-flash-next-fp4-b12x.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-fp4-b12x.yaml) | vLLM | Qwen3.8-Flash-Next-FP4 on an NVIDIA DGX Spark (GB10, SM121): b12x image, tuned flags, caches, tool calling. |
 | [`qwen38-flash-next-tensorfold.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/qwen38-flash-next-tensorfold.yaml) | TensorFold | The same Flash-Next weights on TensorFold's Zig engine in MiaAI-Lab's starter image: 262k window, 5 streams, fp8 KV, MTP drafts, image and video in. |
 | [`nemotron-3.5-super-vl.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/nemotron-3.5-super-vl.yaml) | vLLM | Nemotron-3.5-Super-VL with a draft model for speculative decoding; model and drafter as two registered entries, each mounted with `{weights:Name}`. |
+| [`inkling-2-mini.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/inkling-2-mini.yaml) | vLLM | Thinking Machines Inkling 2 Mini (26B MoE, multimodal) on a DGX Spark: vLLM nightly, DSpark speculative decoding, reasoning + tool parser, 262k window. |
 | [`hermes-agent-docker.yaml`](https://github.com/einfachllm/local-llm-manager/blob/main/examples/recipes/hermes-agent-docker.yaml) | - | A Hermes Agent gateway as an agent recipe: its own port and data volume, no model or GPU. |
 
 The four Qwen3.8-27B recipes (`qwen38-mtp`, `qwen38-dflash`, `qwen38-sglang`, `qwen38-tensorfold`) are the
 same model on three engines (vLLM twice - with MTP and with the DFlash2 drafter): they share port **8101**
 and the served name `qwen3.8`, so one endpoint
 `http://<host>:8101/v1` keeps working while you switch (`qwen38-dflash-docker.sh` is the second one again,
-as a starter script). The three with a drafter mount one registered folder - the folder holding model and
-drafter - which is how the two stay together on every host. The two `qwen38-flash-next-*` recipes are one
+as a starter script). The vLLM and SGLang recipes mount one registered folder - the folder holding model
+and drafter; the TensorFold recipe registers the model and drafter as two entries and mounts each with
+`{weights:Name}`. Both keep the two together on every host. The two `qwen38-flash-next-*` recipes are one
 model on two engines as well: same weights entry, different image and port.
 
 ## Before you start
