@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-23
+
 ### Highlights
 - **Studio Hardware Rack UI.** The whole interface adopts the warm-stone / charcoal "hardware rack"
   design: a horizontal segmented rack navigation replaces the sidebar, memory meters read as LED
@@ -505,7 +507,8 @@ First public release.
 - The database (it stores agent tokens) is readable by its owner only.
 - See [SECURITY.md](https://github.com/einfachllm/local-llm-manager/blob/main/SECURITY.md) for the threat model and how to report vulnerabilities.
 
-[Unreleased]: https://github.com/einfachllm/local-llm-manager/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/einfachllm/local-llm-manager/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/einfachllm/local-llm-manager/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/einfachllm/local-llm-manager/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/einfachllm/local-llm-manager/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/einfachllm/local-llm-manager/compare/v0.1.0...v0.2.0
