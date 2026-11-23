@@ -1,21 +1,41 @@
 # Compact recipe file (Local LLM Manager): paste into + Add recipe.
+# Qwen3.8-27B-NVFP4 with the DFlash2 drafter in TensorFold 1.2.10's CUDA image on a DGX Spark (GB10).
+# Build the image from the release archive (see TensorFold's docs/evaluating.md#container), e.g.
+#   docker build --build-arg TENSORFOLD_VERSION=1.2.10 -t tensorfold:1.2.10-cuda .
+# The command assumes `tensorfold-native` is on the image's PATH and is not already its entrypoint;
+# otherwise use `command: serve {model} ...` or add `--entrypoint ''` to docker_args.
 name: qwen38-27b-tensorfold
-description: Qwen3.8-27B-NVFP4 with the DFlash2 drafter, TensorFold 1.2.9
+description: Qwen3.8-27B-NVFP4 with the DFlash2 drafter, TensorFold 1.2.10 CUDA
 framework: tensorfold
 runtime: docker
-image: tensorfold:1.2.9-cuda
-command: /opt/tf129/bin/tensorfold-native serve {model} --host {bind_host} --port {port}
+image: tensorfold:1.2.10-cuda
+command: tensorfold-native serve {model} --host {bind_host} --port {port}
 args: |-
   --name qwen3.8
   --drafter /models/Qwen3.8-27B-DFlash2
+  --backend cuda
   --context 262144
+  # 2 streams at the full 262k window. Raise to 4/8 or auto only when /memory shows the room.
   --parallel 2
+  --max-tokens 32768
+  --kv-cache fp8
+  # No --vision: TensorFold 1.2.10 refuses it on the NVFP4 checkpoint (image input is not
+  # qualified there). Use a vision-qualified checkpoint or the Flash-Next recipe for images.
   --no-update-check
-  --vision
-volumes: '{weights}:/models:ro'
+# Weights: register the model and the drafter as two entries. If you only have the parent folder
+# registered, use `weights: models` and `volumes: '{weights}:/models:ro'` instead.
+volumes: |-
+  {weights:Qwen3.8-27B-NVFP4}:/models/Qwen3.8-27B-NVFP4:ro
+  {weights:Qwen3.8-27B-DFlash2}:/models/Qwen3.8-27B-DFlash2:ro
+docker_args: |-
+  --ipc=host
+  --ulimit memlock=-1
+  --ulimit stack=67108864
 host_port: 8101
 container_port: 8101
-weights: models
+weights:
+- Qwen3.8-27B-NVFP4
+- Qwen3.8-27B-DFlash2
 model: /models/Qwen3.8-27B-NVFP4
 container_name: qwen38-27b-tf
 tags:
@@ -23,5 +43,7 @@ tags:
 - qwen3.8
 - nvfp4
 - dflash2
+- fp8-kv
 - gb10
 color: pink
+est_memory_gb: 67.0

@@ -75,6 +75,21 @@ download / copy weights for you (Images and Weights tabs), or you put them there
 
 ## Latest version changelog
 
+### Version 0.5.0
+
+- **Studio Hardware Rack UI:** the whole interface becomes a warm-stone / charcoal hardware rack —
+  a horizontal segmented rack navigation replaces the sidebar, memory meters read as **LED segments**,
+  the serving model sits in a 2px-framed **active bay**, and panels are flat 1px-hairline surfaces with
+  precision corners: no gradients, no drop shadows. Light and dark themes both carry the palette
+  (signal orange for actions, LED green strictly for live serving), with Space Grotesk / Inter /
+  JetBrains Mono vendored for fully offline use.
+- **Guided New Recipe wizard:** "＋ Add recipe" opens a 3-step setup — **Model & Weights** (sizes and
+  Fits/Tight badges against free memory) → **Engine & Port** (Recommended marker, live endpoint
+  preview, Docker command under an Advanced toggle) → **Review & Save**. "Paste YAML / script
+  instead" still hands over to the import dialog and full editor.
+- **Mobile:** the rack nav scrolls horizontally and keeps the active module in view; no horizontal
+  overflow at 420 px. Favicon, PWA icons and manifest colours match the rack palette.
+
 ### Version 0.4.0
 
 - **A calmer dashboard:** the polish round on the Recipes dashboard. Model cards no longer tint their
@@ -226,7 +241,7 @@ models keep running while the manager restarts.
 
 ```bash
 cd local-llm-manager
-git pull                  # or a release: git fetch --tags && git checkout v0.4.0
+git pull                  # or a release: git fetch --tags && git checkout v0.5.0
 ./install.sh              # Linux; on macOS: ./install-macos.sh
 ```
 
